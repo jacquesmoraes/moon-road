@@ -12,7 +12,7 @@ config_version=5
 
 config/name="TerraLua"
 config/description="Road trip from Earth to the Moon — Godot 4 project scaffold"
-run/main_scene="res://scenes/core/Main.tscn"
+run/main_scene="res://scenes/test/DrivingSandbox.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 

@@ -1,0 +1,98 @@
+[gd_scene format=3 uid="uid://bterra_drive_sandbox"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+sky_top_color = Color(0.28, 0.48, 0.78, 1)
+sky_horizon_color = Color(0.82, 0.72, 0.58, 1)
+ground_bottom_color = Color(0.18, 0.16, 0.14, 1)
+ground_horizon_color = Color(0.72, 0.65, 0.55, 1)
+
+[sub_resource type="Sky" id="Sky_env"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 2
+sky = SubResource("Sky_env")
+ambient_light_source = 2
+ambient_light_sky_contribution = 0.65
+tonemap_mode = 2
+
+[sub_resource type="StandardMaterial3D" id="Mat_ground"]
+albedo_color = Color(0.32, 0.36, 0.3, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_ground"]
+size = Vector3(60, 0.2, 60)
+
+[sub_resource type="BoxShape3D" id="Shape_ground"]
+size = Vector3(60, 0.2, 60)
+
+[sub_resource type="StandardMaterial3D" id="Mat_ref_1m"]
+albedo_color = Color(0.85, 0.45, 0.18, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_1m_cube"]
+size = Vector3(1, 1, 1)
+
+[sub_resource type="StandardMaterial3D" id="Mat_ref_person"]
+albedo_color = Color(0.25, 0.55, 0.75, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_person_height"]
+size = Vector3(0.4, 1.8, 0.4)
+
+[sub_resource type="StandardMaterial3D" id="Mat_ref_pole"]
+albedo_color = Color(0.9, 0.85, 0.2, 1)
+
+[sub_resource type="CylinderMesh" id="Mesh_2m_pole"]
+top_radius = 0.08
+bottom_radius = 0.08
+height = 2.0
+
+[sub_resource type="StandardMaterial3D" id="Mat_ref_lane"]
+albedo_color = Color(0.55, 0.55, 0.58, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_lane_width"]
+size = Vector3(3.5, 0.05, 0.4)
+
+[node name="DrivingSandbox" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.8660254, -0.3535534, 0.3535534, 0, 0.7071068, 0.7071068, -0.5, -0.6123724, 0.6123724, 8, 12, 4)
+shadow_enabled = true
+light_energy = 1.15
+
+[node name="TempCamera" type="Camera3D" parent="."]
+transform = Transform3D(0.8660254, -0.25, 0.4330127, 0, 0.8660254, 0.5, -0.5, -0.4330127, 0.75, 6, 4.5, 10)
+current = true
+fov = 70.0
+
+[node name="Ground" type="StaticBody3D" parent="."]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Ground"]
+material_override = SubResource("Mat_ground")
+mesh = SubResource("Mesh_ground")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Ground"]
+shape = SubResource("Shape_ground")
+
+[node name="ScaleRefs" type="Node3D" parent="."]
+
+[node name="Cube1m" type="MeshInstance3D" parent="ScaleRefs"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0.5, 0)
+material_override = SubResource("Mat_ref_1m")
+mesh = SubResource("Mesh_1m_cube")
+
+[node name="PersonHeight1_8m" type="MeshInstance3D" parent="ScaleRefs"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+material_override = SubResource("Mat_ref_person")
+mesh = SubResource("Mesh_person_height")
+
+[node name="Pole2m" type="MeshInstance3D" parent="ScaleRefs"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 1, 0)
+material_override = SubResource("Mat_ref_pole")
+mesh = SubResource("Mesh_2m_pole")
+
+[node name="LaneWidth3_5m" type="MeshInstance3D" parent="ScaleRefs"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.125, 3)
+material_override = SubResource("Mat_ref_lane")
+mesh = SubResource("Mesh_lane_width")

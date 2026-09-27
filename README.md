@@ -11,12 +11,13 @@ This repository currently contains **project structure only** — no gameplay sy
 ## Run
 
 1. Open this folder in the Godot editor (`project.godot`).
-2. Press **F5** (or Play). The main scene is `scenes/core/Main.tscn`.
+2. Press **F5** (or Play). Development main scene is currently `scenes/test/DrivingSandbox.tscn` (lit ground + scale refs; no vehicle yet). Production entry remains `scenes/core/Main.tscn`.
 
 Headless smoke check:
 
 ```bash
 godot --path . --headless --quit-after 2
+godot --path . --headless --scene res://scenes/test/DrivingSandbox.tscn --quit-after 3
 ```
 
 ## Layout (`res://`)
@@ -34,6 +35,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 
 ## Notes
 
-- Main scene: empty `Node3D` with `Camera3D` + `DirectionalLight3D` so the project runs visibly.
-- Dev sandbox: `scenes/test/TestSandbox.tscn`
-- No vehicle, road, inventory, save, quest, procedural, or UI systems in this scaffold.
+- Dev main (temporary): `scenes/test/DrivingSandbox.tscn` — ground, sky, lighting, scale refs for future vehicle work
+- Empty entry: `scenes/core/Main.tscn`
+- Minimal sandbox: `scenes/test/TestSandbox.tscn`
+- No vehicle, road, inventory, save, quest, procedural, or UI systems yet.
