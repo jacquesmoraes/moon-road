@@ -45,6 +45,67 @@ func get_recycle_count() -> int:
 	return _recycle_count
 
 
+## Active segments ordered rear → front.
+func get_active_segments() -> Array[Node3D]:
+	return _active.duplicate()
+
+
+## Sample roadway near [param world_pos] with a look-ahead point along the centerline.
+func sample_road(world_pos: Vector3, look_ahead_distance: float = 12.0) -> Dictionary:
+	var best: Node3D = null
+	var best_score := INF
+	var best_proj: Dictionary = {}
+
+	for seg in _active:
+		if seg == null or not is_instance_valid(seg):
+			continue
+		if not seg.has_method("project_on_centerline"):
+			continue
+		var proj: Dictionary = seg.call("project_on_centerline", world_pos)
+		var lateral: float = absf(float(proj.get("lateral", 999.0)))
+		var t: float = float(proj.get("t", 0.5))
+		# Prefer segments that contain the vehicle along-length; then nearest laterally.
+		var along_penalty := 0.0 if (t >= 0.0 and t <= 1.0) else absf(t - clampf(t, 0.0, 1.0)) * 100.0
+		var score := lateral + along_penalty
+		if score < best_score:
+			best_score = score
+			best = seg
+			best_proj = proj
+
+	if best == null:
+		return {}
+
+	var forward: Vector3 = best_proj.get("forward", Vector3.FORWARD)
+	var point: Vector3 = best_proj.get("point", world_pos)
+	var look_ahead := maxf(look_ahead_distance, 0.0)
+	var look_at := point + forward * look_ahead
+
+	# If look-ahead leaves this segment, blend toward the next segment's centerline.
+	var t: float = float(best_proj.get("t", 0.0))
+	var seg_len := segment_length
+	if best.has_method("get_length"):
+		seg_len = float(best.call("get_length"))
+	var remaining := (1.0 - t) * seg_len
+	if look_ahead > remaining and _active.size() > 0:
+		var idx := _active.find(best)
+		if idx >= 0 and idx + 1 < _active.size():
+			var nxt: Node3D = _active[idx + 1]
+			if nxt.has_method("get_travel_direction") and nxt.has_method("get_entrance_global_transform"):
+				var overshoot := look_ahead - remaining
+				var entrance_xf: Transform3D = nxt.call("get_entrance_global_transform")
+				var nxt_forward: Vector3 = nxt.call("get_travel_direction")
+				look_at = entrance_xf.origin + nxt_forward * overshoot
+				forward = nxt_forward
+
+	return {
+		"segment": best,
+		"point": point,
+		"lateral": float(best_proj.get("lateral", 0.0)),
+		"forward": forward,
+		"look_at": look_at,
+	}
+
+
 ## Shift all pooled segments by -[param offset] (world origin recentering).
 func apply_origin_shift(offset: Vector3) -> void:
 	if not offset.is_finite() or offset.length_squared() < 0.0001:

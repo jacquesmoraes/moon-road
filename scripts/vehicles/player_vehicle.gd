@@ -17,6 +17,8 @@ extends CharacterBody3D
 ## Signed forward speed along local -Z (positive = forward).
 var _speed: float = 0.0
 var _cruise_active: bool = false
+var _steer_override_enabled: bool = false
+var _steer_override: float = 0.0
 
 const GRAVITY: float = 24.0
 const REVERSE_SPEED_FACTOR: float = 0.4
@@ -30,7 +32,11 @@ func _physics_process(delta: float) -> void:
 
 	var accel_input := Input.get_action_strength("vehicle_accelerate")
 	var brake_input := Input.get_action_strength("vehicle_brake")
-	var steer_input := Input.get_axis("vehicle_left", "vehicle_right")
+	var steer_input := (
+		_steer_override
+		if _steer_override_enabled
+		else Input.get_axis("vehicle_left", "vehicle_right")
+	)
 
 	_apply_longitudinal(accel_input, brake_input, delta)
 	_apply_steering(steer_input, delta)
@@ -164,3 +170,13 @@ func set_cruise_control_active(active: bool) -> void:
 		_cruise_active = true
 	else:
 		_cruise_active = false
+
+
+## Used by RoadFollowAutopilot. When enabled, replaces manual steer axis.
+func set_steer_override(value: float, enabled: bool) -> void:
+	_steer_override = clampf(value, -1.0, 1.0)
+	_steer_override_enabled = enabled
+
+
+func is_steer_override_enabled() -> bool:
+	return _steer_override_enabled

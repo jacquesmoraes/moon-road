@@ -53,6 +53,7 @@ func _process(_delta: float) -> void:
 		"Phys→Journey scale: %.3f" % scale,
 		"Speed: %.1f km/h" % speed_kmh,
 		"Cruise: %s" % _format_cruise_state(),
+		"Autopilot: %s" % _format_autopilot_state(),
 		"Pos: (%.1f, %.1f, %.1f)" % [pos.x, pos.y, pos.z],
 		"Controls: A=%.0f  B=%.0f  Steer=%+.0f" % [accel, brake, steer],
 	]
@@ -79,6 +80,17 @@ func _format_cruise_state() -> String:
 	if active:
 		return "ON  target %.0f km/h" % target_kmh
 	return "OFF  target %.0f km/h" % target_kmh
+
+
+func _format_autopilot_state() -> String:
+	if _vehicle == null:
+		return "n/a"
+	var autopilot := _vehicle.get_node_or_null("RoadFollowAutopilot")
+	if autopilot == null and get_tree().current_scene != null:
+		autopilot = get_tree().current_scene.find_child("RoadFollowAutopilot", true, false)
+	if autopilot == null or not autopilot.has_method("is_autopilot_active"):
+		return "n/a"
+	return "ON" if bool(autopilot.call("is_autopilot_active")) else "OFF"
 
 
 func _format_journey_km(km: float) -> String:

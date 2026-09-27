@@ -82,6 +82,50 @@ func get_exit_global_transform() -> Transform3D:
 	return exit.global_transform
 
 
+## World-space travel direction along the segment (toward Exit / local -Z).
+func get_travel_direction() -> Vector3:
+	var forward := -global_transform.basis.z
+	forward.y = 0.0
+	if forward.length_squared() < 0.0001:
+		return Vector3.FORWARD
+	return forward.normalized()
+
+
+## World-space right vector of the roadway (local +X).
+func get_right_direction() -> Vector3:
+	var right := global_transform.basis.x
+	right.y = 0.0
+	if right.length_squared() < 0.0001:
+		return Vector3.RIGHT
+	return right.normalized()
+
+
+## Project a world point onto the entrance→exit centerline.
+## Returns: point, t (0..1), lateral (m, + = right of center), forward, on_segment.
+func project_on_centerline(world_pos: Vector3) -> Dictionary:
+	var start := entrance.global_position
+	var end := exit.global_position
+	var axis := end - start
+	axis.y = 0.0
+	var to_p := world_pos - start
+	to_p.y = 0.0
+	var len_sq := axis.length_squared()
+	var t := 0.0
+	if len_sq > 0.0001:
+		t = clampf(axis.dot(to_p) / len_sq, 0.0, 1.0)
+	var point := start.lerp(end, t)
+	var lateral_vec := world_pos - point
+	lateral_vec.y = 0.0
+	var lateral := lateral_vec.dot(get_right_direction())
+	return {
+		"point": point,
+		"t": t,
+		"lateral": lateral,
+		"forward": get_travel_direction(),
+		"on_segment": t > 0.0 and t < 1.0,
+	}
+
+
 ## World transform that places this segment's Entrance on [param previous_exit].
 func place_after_exit(previous_exit: Transform3D) -> void:
 	var entrance_local := entrance.transform

@@ -22,8 +22,12 @@ Current slice: **drivable placeholder vehicle** in a lit development sandbox. No
 | `vehicle_left` | A / Left |
 | `vehicle_right` | D / Right |
 | `vehicle_cruise_toggle` | C |
+| `vehicle_autopilot_toggle` | T |
+| `vehicle_autopilot_cancel` | X / Esc |
 
 Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`, plus cruise `cruise_target_speed_kmh`, `cruise_speed_deadzone`, `cruise_control_gain`.
+
+Road-follow autopilot (`RoadFollowAutopilot`): samples `RoadManager.sample_road()` (centerline lateral + look-ahead). Enables cruise for speed and steers via `set_steer_override`. Cancel with X/Esc, brake, or manual steer.
 
 ### Camera (third-person follow)
 
@@ -84,12 +88,12 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 
 ## Notes
 
-- Dev main: `scenes/test/DrivingSandbox.tscn` — ground, sky, lighting, scale refs, `PlayerVehicle`, `DrivingDebugHUD`
-- Vehicle: `scenes/vehicles/PlayerVehicle.tscn` + `scripts/vehicles/player_vehicle.gd` (arcade `CharacterBody3D`, primitives only)
-- Camera: `scripts/vehicles/vehicle_camera_controller.gd` — smooth third-person follow (`VehicleCameraController`)
-- Journey: `autoload/journey_system.gd` + `scripts/vehicles/journey_distance_reporter.gd`
-- Road: `RoadSegment` + `RoadManager` (fixed pool recycle; straight segments only for now)
-- World: `WorldOriginRecenter` — keeps player near origin on long drives
-- Dev HUD: `scenes/ui/DrivingDebugHUD.tscn` + `scripts/ui/driving_debug_hud.gd`
+- Dev main: `scenes/test/DrivingSandbox.tscn` — road pool, recenter, `PlayerVehicle`, `DrivingDebugHUD`
+- Vehicle: cruise + `RoadFollowAutopilot` (road-center steering; not Travel Mode)
+- Camera: `VehicleCameraController` — smooth third-person follow
+- Journey: `JourneySystem` + distance reporter
+- Road: `RoadSegment` + `RoadManager` (fixed pool recycle)
+- World: `WorldOriginRecenter`
+- Dev HUD: journey / cruise / autopilot / debug readouts
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: infinite road generation, multi-camera switching, cockpit, cinematic, fuel, damage, upgrades, final UI, inventory, save, quests
+- Not implemented yet: Travel Mode camera suite, curved procedural roads, fuel, damage, upgrades, final UI, inventory, save, quests
