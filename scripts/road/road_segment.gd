@@ -464,12 +464,15 @@ func _apply_markers() -> void:
 
 
 func _build_road_mesh() -> void:
-	var mesh := _make_strip_mesh(width * 0.5, width * 0.5)
+	var half := width * 0.5
+	var mesh := _make_strip_mesh(-half, half)
 	_road_mesh.mesh = mesh
 	if _road_mesh.material_override == null:
 		var mat := StandardMaterial3D.new()
 		mat.albedo_color = Color(0.22, 0.22, 0.24, 1)
 		_road_mesh.material_override = mat
+	# Prefer road over shoulders if any edge still shares a plane.
+	_road_mesh.sorting_offset = 0.0
 
 	_rebuild_box_colliders(_roadway_body, _road_collision, width, 0.0)
 
@@ -500,7 +503,8 @@ func _build_shoulder_meshes() -> void:
 		return
 
 	var half_road := width * 0.5
-	var left_mesh := _make_strip_mesh(half_road + shoulder_width, half_road)
+	# Signed lateral edges: shoulders sit OUTSIDE the roadway (no coplanar overlap).
+	var left_mesh := _make_strip_mesh(-(half_road + shoulder_width), -half_road)
 	var right_mesh := _make_strip_mesh(half_road, half_road + shoulder_width)
 	_shoulder_left.mesh = left_mesh
 	_shoulder_right.mesh = right_mesh
@@ -511,9 +515,18 @@ func _build_shoulder_meshes() -> void:
 		_shoulder_left.material_override = mat
 		_shoulder_right.material_override = mat
 
+	# Sink shoulders a hair so the shared edge with the road doesn't z-fight.
+	const SHOULDER_SINK := 0.02
+	_shoulder_left.position = Vector3(0.0, -SHOULDER_SINK, 0.0)
+	_shoulder_right.position = Vector3(0.0, -SHOULDER_SINK, 0.0)
+	_shoulder_left.sorting_offset = -1.0
+	_shoulder_right.sorting_offset = -1.0
+
 	var shoulder_center := half_road + shoulder_width * 0.5
 	_rebuild_box_colliders(_shoulder_left_body, _shoulder_left_collision, shoulder_width, -shoulder_center)
 	_rebuild_box_colliders(_shoulder_right_body, _shoulder_right_collision, shoulder_width, shoulder_center)
+	_shoulder_left_body.position = Vector3(0.0, -SHOULDER_SINK, 0.0)
+	_shoulder_right_body.position = Vector3(0.0, -SHOULDER_SINK, 0.0)
 
 
 func _clear_extra_collision(body: StaticBody3D, keep: CollisionShape3D) -> void:
@@ -572,35 +585,71 @@ func _rebuild_box_colliders(
 		col.transform = Transform3D(basis, mid)
 
 
-func _make_strip_mesh(left_offset: float, right_offset: float) -> ArrayMesh:
+## Build a roadway strip between signed lateral edges (negative = left of center).
+## Example: road = (-half, +half); left shoulder = (-half-sw, -half).
+func _make_strip_mesh(left_edge: float, right_edge: float) -> ArrayMesh:
 	_ensure_samples()
 	if _samples.size() < 2:
 		return null
+	if right_edge < left_edge:
+		var tmp := left_edge
+		left_edge = right_edge
+		right_edge = tmp
 
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 
+	# Tiny lengthwise inset so adjacent segment end-caps don't share a coplanar face.
+	const JOINT_INSET := 0.02
+	var total_len := 0.0
+	for i in range(_samples.size() - 1):
+		total_len += (_samples[i]["pos"] as Vector3).distance_to(_samples[i + 1]["pos"] as Vector3)
+	var inset_start := JOINT_INSET
+	var inset_end := maxf(total_len - JOINT_INSET, inset_start + 0.01)
+
+	var accum := 0.0
 	for i in range(_samples.size() - 1):
 		var a: Dictionary = _samples[i]
 		var b: Dictionary = _samples[i + 1]
+		var pa: Vector3 = a["pos"]
+		var pb: Vector3 = b["pos"]
+		var piece_len := pa.distance_to(pb)
+		var piece_start := accum
+		var piece_end := accum + piece_len
+		accum = piece_end
+
+		# Skip pieces wholly outside the inset range; trim pieces that cross inset bounds.
+		if piece_end <= inset_start or piece_start >= inset_end:
+			continue
+		var u0 := 0.0
+		var u1 := 1.0
+		if piece_len > 0.0001:
+			u0 = clampf((inset_start - piece_start) / piece_len, 0.0, 1.0)
+			u1 = clampf((inset_end - piece_start) / piece_len, 0.0, 1.0)
+		if u1 - u0 < 0.0001:
+			continue
+
 		var yaw_a: float = float(a["yaw"])
 		var yaw_b: float = float(b["yaw"])
 		var pitch_a: float = float(a.get("pitch", 0.0))
 		var pitch_b: float = float(b.get("pitch", 0.0))
-		var basis_a := _basis_from_yaw_pitch(yaw_a, pitch_a)
-		var basis_b := _basis_from_yaw_pitch(yaw_b, pitch_b)
-		# Samples sit on the top surface; mesh extends downward along local up.
-		var pa: Vector3 = a["pos"]
-		var pb: Vector3 = b["pos"]
+		var yaw0 := lerpf(yaw_a, yaw_b, u0)
+		var yaw1 := lerpf(yaw_a, yaw_b, u1)
+		var pitch0 := lerpf(pitch_a, pitch_b, u0)
+		var pitch1 := lerpf(pitch_a, pitch_b, u1)
+		var basis_a := _basis_from_yaw_pitch(yaw0, pitch0)
+		var basis_b := _basis_from_yaw_pitch(yaw1, pitch1)
+		pa = pa.lerp(pb, u0)
+		pb = (a["pos"] as Vector3).lerp(b["pos"] as Vector3, u1)
 		var right_a := basis_a.x
 		var right_b := basis_b.x
 		var up_a := basis_a.y
 		var up_b := basis_b.y
 
-		var a_l := pa - right_a * left_offset
-		var a_r := pa + right_a * right_offset
-		var b_l := pb - right_b * left_offset
-		var b_r := pb + right_b * right_offset
+		var a_l := pa + right_a * left_edge
+		var a_r := pa + right_a * right_edge
+		var b_l := pb + right_b * left_edge
+		var b_r := pb + right_b * right_edge
 		var a_lb := a_l - up_a * thickness
 		var a_rb := a_r - up_a * thickness
 		var b_lb := b_l - up_b * thickness
