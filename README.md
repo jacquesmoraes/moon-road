@@ -37,6 +37,10 @@ On `VehicleCameraController` (inside `PlayerVehicle.tscn`):
 
 Camera logic lives in `scripts/vehicles/vehicle_camera_controller.gd` (not in the vehicle script) so more modes can be added later.
 
+### Dev HUD
+
+`DrivingDebugHUD` (top-left debug labels in the sandbox): speed km/h, position, control strengths, optional FPS. Decoupled from the vehicle — set `vehicle_path` / toggle `show_fps` on the HUD node.
+
 ### Headless checks
 
 ```bash
@@ -59,8 +63,9 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 
 ## Notes
 
-- Dev main: `scenes/test/DrivingSandbox.tscn` — ground, sky, lighting, scale refs, `PlayerVehicle`
+- Dev main: `scenes/test/DrivingSandbox.tscn` — ground, sky, lighting, scale refs, `PlayerVehicle`, `DrivingDebugHUD`
 - Vehicle: `scenes/vehicles/PlayerVehicle.tscn` + `scripts/vehicles/player_vehicle.gd` (arcade `CharacterBody3D`, primitives only)
 - Camera: `scripts/vehicles/vehicle_camera_controller.gd` — smooth third-person follow (`VehicleCameraController`)
+- Dev HUD: `scenes/ui/DrivingDebugHUD.tscn` + `scripts/ui/driving_debug_hud.gd`
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: multi-camera switching, cockpit, cinematic, infinite road, fuel, damage, upgrades, inventory, save, quests, UI
+- Not implemented yet: multi-camera switching, cockpit, cinematic, infinite road, fuel, damage, upgrades, final UI, inventory, save, quests

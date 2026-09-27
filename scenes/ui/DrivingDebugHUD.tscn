@@ -1,0 +1,26 @@
+[gd_scene load_steps=2 format=3 uid="uid://bterra_driving_debug_hud"]
+
+[ext_resource type="Script" path="res://scripts/ui/driving_debug_hud.gd" id="1_script"]
+
+[node name="DrivingDebugHUD" type="CanvasLayer"]
+layer = 100
+script = ExtResource("1_script")
+vehicle_path = NodePath("../PlayerVehicle")
+show_fps = true
+
+[node name="Margin" type="MarginContainer" parent="."]
+anchors_preset = 0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = 320.0
+offset_bottom = 160.0
+theme_override_constants/margin_left = 0
+theme_override_constants/margin_top = 0
+
+[node name="Panel" type="PanelContainer" parent="Margin"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Margin/Panel"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "DEV HUD"

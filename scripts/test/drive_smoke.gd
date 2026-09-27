@@ -16,6 +16,8 @@ var _camera_rig: Node3D
 var _max_abs_speed: float = 0.0
 var _samples: int = 0
 var _camera_follow_ok: bool = false
+var _saw_speed_kmh: bool = false
+var _max_speed_kmh: float = 0.0
 
 
 func _initialize() -> void:
@@ -84,6 +86,13 @@ func _on_physics_frame() -> void:
 	if _vehicle.has_method("get_signed_speed"):
 		speed = float(_vehicle.call("get_signed_speed"))
 	_max_abs_speed = maxf(_max_abs_speed, absf(speed))
+
+	if _vehicle.has_method("get_speed_kmh"):
+		var kmh := absf(float(_vehicle.call("get_speed_kmh")))
+		_max_speed_kmh = maxf(_max_speed_kmh, kmh)
+		# 10 m/s ~= 36 km/h; require meaningful reading while accelerating.
+		if kmh > 5.0:
+			_saw_speed_kmh = true
 
 	if not _vehicle.global_position.is_finite() or not _vehicle.velocity.is_finite() or not is_finite(speed):
 		push_error("drive_smoke: unstable at t=%.2f pos=%s vel=%s speed=%s" % [_elapsed, _vehicle.global_position, _vehicle.velocity, speed])
@@ -157,9 +166,26 @@ func _finish() -> void:
 		quit(1)
 		return
 
+	if not _saw_speed_kmh:
+		push_error("drive_smoke: get_speed_kmh never rose above 5 (max=%.2f)" % _max_speed_kmh)
+		quit(1)
+		return
+
+	var hud := root.find_child("DrivingDebugHUD", true, false)
+	if hud == null:
+		push_error("drive_smoke: DrivingDebugHUD not found")
+		quit(1)
+		return
+
+	var hud_label := hud.find_child("Label", true, false) as Label
+	if hud_label == null or not ("km/h" in hud_label.text):
+		push_error("drive_smoke: HUD label missing km/h text (got: %s)" % (hud_label.text if hud_label else "<null>"))
+		quit(1)
+		return
+
 	var cam_pos := _camera_rig.global_position if _camera_rig else Vector3.ZERO
 	print(
-		"drive_smoke: OK elapsed=%.1fs samples=%d pos=%s max_abs_speed=%.2f cam=%s"
-		% [_elapsed, _samples, origin, _max_abs_speed, cam_pos]
+		"drive_smoke: OK elapsed=%.1fs samples=%d pos=%s max_abs_speed=%.2f max_kmh=%.1f cam=%s"
+		% [_elapsed, _samples, origin, _max_abs_speed, _max_speed_kmh, cam_pos]
 	)
 	quit(0)

@@ -1,6 +1,7 @@
-[gd_scene load_steps=15 format=3 uid="uid://bterra_drive_sandbox"]
+[gd_scene load_steps=16 format=3 uid="uid://bterra_drive_sandbox"]
 
 [ext_resource type="PackedScene" uid="uid://bterra_player_vehicle" path="res://scenes/vehicles/PlayerVehicle.tscn" id="1_vehicle"]
+[ext_resource type="PackedScene" uid="uid://bterra_driving_debug_hud" path="res://scenes/ui/DrivingDebugHUD.tscn" id="2_hud"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.28, 0.48, 0.78, 1)
@@ -101,3 +102,6 @@ mesh = SubResource("Mesh_lane_width")
 
 [node name="PlayerVehicle" parent="." instance=ExtResource("1_vehicle")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 12)
+
+[node name="DrivingDebugHUD" parent="." instance=ExtResource("2_hud")]
+vehicle_path = NodePath("../PlayerVehicle")

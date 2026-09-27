@@ -13,6 +13,7 @@ var _speed: float = 0.0
 const GRAVITY: float = 24.0
 const REVERSE_SPEED_FACTOR: float = 0.4
 const STEER_SPEED_REF: float = 8.0
+const MS_TO_KMH: float = 3.6
 
 
 func _physics_process(delta: float) -> void:
@@ -79,3 +80,8 @@ func _apply_steering(steer_input: float, delta: float) -> void:
 
 func get_signed_speed() -> float:
 	return _speed
+
+
+## Speed in km/h (signed: negative while reversing). Assumes 1 world unit = 1 meter.
+func get_speed_kmh() -> float:
+	return _speed * MS_TO_KMH
