@@ -1,7 +1,9 @@
 extends Node
 ## Feeds JourneySystem from physical travel. One-way: vehicle/scene → journey. No reverse deps.
+## Reports physical meters only; JourneySystem owns physical→journey scaling.
 
 @export var target_path: NodePath
+## How many physical meters one Godot world unit represents (project default: 1.0).
 @export var meters_per_world_unit: float = 1.0
 @export var enabled: bool = true
 
@@ -43,4 +45,4 @@ func _physics_process(_delta: float) -> void:
 	if meters <= 0.00001:
 		return
 
-	_journey.call("add_distance", meters / 1000.0)
+	_journey.call("add_physical_distance_meters", meters)

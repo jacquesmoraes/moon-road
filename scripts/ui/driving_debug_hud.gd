@@ -38,16 +38,19 @@ func _process(_delta: float) -> void:
 	var total_km := 384400.0
 	var remaining_km := total_km
 	var progress := 0.0
+	var scale := 1.0
 	if _journey != null:
 		current_km = float(_journey.call("get_current_distance_km"))
 		total_km = float(_journey.call("get_total_distance_km"))
 		remaining_km = float(_journey.call("get_remaining_distance_km"))
 		progress = float(_journey.call("get_progress_ratio"))
+		scale = float(_journey.call("get_physical_to_journey_scale"))
 
 	var lines: PackedStringArray = [
 		"DEV HUD",
 		"Journey: %s / %s km" % [_format_journey_km(current_km), _format_journey_km(total_km)],
 		"Remaining: %s km (%.4f%%)" % [_format_journey_km(remaining_km), progress * 100.0],
+		"Phys→Journey scale: %.3f" % scale,
 		"Speed: %.1f km/h" % speed_kmh,
 		"Pos: (%.1f, %.1f, %.1f)" % [pos.x, pos.y, pos.z],
 		"Controls: A=%.0f  B=%.0f  Steer=%+.0f" % [accel, brake, steer],

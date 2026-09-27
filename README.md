@@ -43,7 +43,17 @@ Camera logic lives in `scripts/vehicles/vehicle_camera_controller.gd` (not in th
 
 ### Journey (logical distance)
 
-Autoload `JourneySystem` (`autoload/journey_system.gd`) stores Earth→Moon progress (`total_distance_km = 384400`). Physical travel is reported one-way by `JourneyDistanceReporter` on the vehicle (XZ meters → km via `add_distance`). Independent of UI/camera/road.
+Autoload `JourneySystem` (`autoload/journey_system.gd`) stores Earth→Moon progress (`total_distance_km = 384400`).
+
+**Units**
+
+- Godot world space: **1 unit = 1 physical meter**
+- Physical km = meters / 1000
+- Journey km (narrative) = physical km × `physical_to_journey_scale`
+
+**Scale** (on the `JourneySystem` autoload node): `physical_to_journey_scale` default `1.0` means 1 physical km of scene travel → 1 journey km. Changing it only affects logical progress, not car physics.
+
+`JourneyDistanceReporter` on the vehicle reports physical meters only (`add_physical_distance_meters`); conversion lives solely in `JourneySystem`.
 
 ### Headless checks
 

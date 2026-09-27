@@ -208,9 +208,31 @@ func _finish() -> void:
 		quit(1)
 		return
 
+	# Scale must change logical km without touching vehicle physics (pure JourneySystem math).
+	var saved_scale := float(_journey.call("get_physical_to_journey_scale"))
+	_journey.call("set_physical_to_journey_scale", 1.0)
+	_journey.call("reset_journey")
+	_journey.call("add_physical_distance_meters", 1000.0)
+	var at_1x := float(_journey.call("get_current_distance_km"))
+	_journey.call("reset_journey")
+	_journey.call("set_physical_to_journey_scale", 2.5)
+	_journey.call("add_physical_distance_meters", 1000.0)
+	var at_2_5x := float(_journey.call("get_current_distance_km"))
+	_journey.call("set_physical_to_journey_scale", saved_scale)
+	_journey.call("set_current_distance_km", journey_km)
+
+	if absf(at_1x - 1.0) > 0.001:
+		push_error("drive_smoke: scale 1.0 expected 1 journey km from 1000 m, got %.6f" % at_1x)
+		quit(1)
+		return
+	if absf(at_2_5x - 2.5) > 0.001:
+		push_error("drive_smoke: scale 2.5 expected 2.5 journey km from 1000 m, got %.6f" % at_2_5x)
+		quit(1)
+		return
+
 	var cam_pos := _camera_rig.global_position if _camera_rig else Vector3.ZERO
 	print(
-		"drive_smoke: OK elapsed=%.1fs samples=%d pos=%s max_abs_speed=%.2f max_kmh=%.1f journey_km=%.6f cam=%s"
-		% [_elapsed, _samples, origin, _max_abs_speed, _max_speed_kmh, journey_km, cam_pos]
+		"drive_smoke: OK elapsed=%.1fs samples=%d pos=%s max_abs_speed=%.2f max_kmh=%.1f journey_km=%.6f scale_check=1.0→%.3f/2.5→%.3f cam=%s"
+		% [_elapsed, _samples, origin, _max_abs_speed, _max_speed_kmh, journey_km, at_1x, at_2_5x, cam_pos]
 	)
 	quit(0)
