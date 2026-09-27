@@ -380,12 +380,7 @@ func _build_road_mesh() -> void:
 		mat.albedo_color = Color(0.22, 0.22, 0.24, 1)
 		_road_mesh.material_override = mat
 
-	# Trimesh collision matches the curved surface (static only).
-	_clear_extra_collision(_roadway_body, _road_collision)
-	if mesh != null:
-		_road_collision.shape = mesh.create_trimesh_shape()
-	_road_collision.position = Vector3.ZERO
-	_road_collision.rotation = Vector3.ZERO
+	_rebuild_box_colliders(_roadway_body, _road_collision, width, 0.0)
 
 
 func _build_shoulder_meshes() -> void:
@@ -407,6 +402,8 @@ func _build_shoulder_meshes() -> void:
 	if not has_shoulders:
 		_shoulder_left.mesh = null
 		_shoulder_right.mesh = null
+		_clear_extra_collision(_shoulder_left_body, _shoulder_left_collision)
+		_clear_extra_collision(_shoulder_right_body, _shoulder_right_collision)
 		_shoulder_left_collision.shape = null
 		_shoulder_right_collision.shape = null
 		return
@@ -423,18 +420,63 @@ func _build_shoulder_meshes() -> void:
 		_shoulder_left.material_override = mat
 		_shoulder_right.material_override = mat
 
-	_clear_extra_collision(_shoulder_left_body, _shoulder_left_collision)
-	_clear_extra_collision(_shoulder_right_body, _shoulder_right_collision)
-	if left_mesh != null:
-		_shoulder_left_collision.shape = left_mesh.create_trimesh_shape()
-	if right_mesh != null:
-		_shoulder_right_collision.shape = right_mesh.create_trimesh_shape()
+	var shoulder_center := (half_road + shoulder_width * 0.5)
+	_rebuild_box_colliders(_shoulder_left_body, _shoulder_left_collision, shoulder_width, -shoulder_center)
+	_rebuild_box_colliders(_shoulder_right_body, _shoulder_right_collision, shoulder_width, shoulder_center)
 
 
 func _clear_extra_collision(body: StaticBody3D, keep: CollisionShape3D) -> void:
+	if body == null:
+		return
 	for child in body.get_children():
 		if child is CollisionShape3D and child != keep:
 			child.queue_free()
+
+
+## Convex box chain along the centerline — reliable for CharacterBody3D (unlike trimesh).
+func _rebuild_box_colliders(
+	body: StaticBody3D,
+	primary: CollisionShape3D,
+	collider_width: float,
+	lateral_offset: float
+) -> void:
+	_ensure_samples()
+	_clear_extra_collision(body, primary)
+	if _samples.size() < 2 or primary == null:
+		return
+
+	var piece_count := _samples.size() - 1
+	for i in range(piece_count):
+		var a: Dictionary = _samples[i]
+		var b: Dictionary = _samples[i + 1]
+		var pa: Vector3 = a["pos"]
+		var pb: Vector3 = b["pos"]
+		var yaw_a: float = float(a["yaw"])
+		var yaw_b: float = float(b["yaw"])
+		var yaw := lerpf(yaw_a, yaw_b, 0.5)
+		var mid := pa.lerp(pb, 0.5)
+		var right := Vector3(cos(yaw), 0.0, -sin(yaw))
+		mid += right * lateral_offset
+		# Slight overlap so CharacterBody doesn't fall through seams.
+		var seg_len := maxf(Vector2(pb.x - pa.x, pb.z - pa.z).length() * 1.08, 0.35)
+
+		var shape := BoxShape3D.new()
+		shape.size = Vector3(collider_width, thickness, seg_len)
+
+		var col: CollisionShape3D
+		if i == 0:
+			col = primary
+			if col.shape == null or not (col.shape is BoxShape3D):
+				col.shape = shape
+			else:
+				(col.shape as BoxShape3D).size = shape.size
+		else:
+			col = CollisionShape3D.new()
+			col.shape = shape
+			body.add_child(col)
+
+		col.position = Vector3(mid.x, 0.0, mid.z)
+		col.rotation = Vector3(0.0, yaw, 0.0)
 
 
 func _make_strip_mesh(left_offset: float, right_offset: float) -> ArrayMesh:
