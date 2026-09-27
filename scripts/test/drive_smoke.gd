@@ -50,6 +50,8 @@ var _saw_descent: bool = false
 var _min_vehicle_y: float = 9999.0
 var _max_vehicle_y: float = -9999.0
 var _max_height_above_road: float = 0.0
+var _last_road_y: float = 0.0
+var _has_road_sample: bool = false
 var _scenery: Node
 var _initial_scenery_props: int = 0
 var _max_scenery_nodes: int = 0
