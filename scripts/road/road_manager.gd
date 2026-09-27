@@ -24,8 +24,10 @@ class_name RoadManager
 @export var weight_gentle_descent: float = 0.25
 @export var curve_angle_degrees: float = 18.0
 @export var elevation_angle_degrees: float = 5.0
+@export var roadside_scenery_path: NodePath = NodePath("../RoadsideScenery")
 
 var _target: Node3D
+var _scenery: Node
 ## Ordered rear → front along the road chain.
 var _active: Array[Node3D] = []
 var _recycle_count: int = 0
@@ -35,6 +37,7 @@ var _spawn_index: int = 0
 
 func _ready() -> void:
 	_resolve_target()
+	_resolve_scenery()
 	call_deferred("_bootstrap")
 
 
@@ -211,8 +214,13 @@ func _bootstrap() -> void:
 		push_error("RoadManager: segment_scene is not set")
 		return
 
+	_resolve_scenery()
+	# Only free pooled road segments — never wipe sibling systems parented here by mistake.
 	for child in get_children():
-		child.queue_free()
+		if child.has_method("get_kind_name") or child.has_method("place_after_exit"):
+			if _scenery != null and _scenery.has_method("clear_segment"):
+				_scenery.call("clear_segment", child)
+			child.queue_free()
 	_active.clear()
 	_recycle_count = 0
 	_spawn_index = 0
@@ -221,6 +229,7 @@ func _bootstrap() -> void:
 	for i in count:
 		var seg := _spawn_segment()
 		_configure_segment(seg, _spawn_index)
+		var seq := _spawn_index
 		_spawn_index += 1
 		if i == 0:
 			seg.global_position = Vector3(0.0, 0.0, initial_first_center_z)
@@ -228,6 +237,7 @@ func _bootstrap() -> void:
 			var prev: Node3D = _active[i - 1]
 			_place_after(seg, prev)
 		_active.append(seg)
+		_notify_scenery_decorate(seg, seq)
 
 	_bootstrapped = true
 
@@ -236,6 +246,18 @@ func _spawn_segment() -> Node3D:
 	var seg := segment_scene.instantiate() as Node3D
 	add_child(seg)
 	return seg
+
+
+func _notify_scenery_decorate(segment: Node3D, sequence_index: int) -> void:
+	_resolve_scenery()
+	if _scenery != null and _scenery.has_method("decorate_segment"):
+		_scenery.call("decorate_segment", segment, sequence_index)
+
+
+func _notify_scenery_clear(segment: Node3D) -> void:
+	_resolve_scenery()
+	if _scenery != null and _scenery.has_method("clear_segment"):
+		_scenery.call("clear_segment", segment)
 
 
 func _configure_segment(segment: Node3D, sequence_index: int) -> void:
@@ -319,10 +341,13 @@ func _recycle_as_needed() -> void:
 
 		var front: Node3D = _active[_active.size() - 1]
 		_active.remove_at(0)
-		_configure_segment(rear, _spawn_index)
+		_notify_scenery_clear(rear)
+		var seq := _spawn_index
+		_configure_segment(rear, seq)
 		_spawn_index += 1
 		_place_after(rear, front)
 		_active.append(rear)
+		_notify_scenery_decorate(rear, seq)
 		_recycle_count += 1
 
 
@@ -340,3 +365,12 @@ func _is_rear_far_behind(rear: Node3D) -> bool:
 
 	var behind_z := rear.global_position.z - _target.global_position.z
 	return behind_z >= recycle_behind_distance
+
+
+func _resolve_scenery() -> void:
+	if _scenery != null and is_instance_valid(_scenery):
+		return
+	if roadside_scenery_path != NodePath():
+		_scenery = get_node_or_null(roadside_scenery_path)
+	if _scenery == null and get_tree() != null and get_tree().current_scene != null:
+		_scenery = get_tree().current_scene.find_child("RoadsideScenery", true, false)

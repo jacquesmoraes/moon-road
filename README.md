@@ -80,6 +80,12 @@ Knobs: `active_segment_count`, `segment_length`, `recycle_behind_distance`, `cur
 
 `WorldOriginRecenter` (`scripts/world/world_origin_recenter.gd`) shifts vehicle, road pool, and follow camera when planar distance from origin exceeds `recenter_distance` (sandbox default 500). Journey keeps using position deltas (`notify_origin_shifted`); vehicle velocity is preserved.
 
+### Roadside scenery
+
+`RoadsideScenery` (`scripts/world/roadside_scenery.gd`) — fixed pools of placeholder props (rocks, posts, signs, distant “mountains”). Decorates each `RoadSegment` from a deterministic `(world_seed, sequence_index)` RNG; clears and reuses the same props when the segment is recycled. Placement is offset past road width + shoulders + `roadside_clearance` (never on the roadway). Density knobs: `rocks_per_segment`, `posts_per_segment`, `signs_per_segment`, `mountains_per_segment`, `mountain_chance`, near/far lateral ranges.
+
+Props parent under each segment’s `SceneryAnchor`, so origin recenter moves them with the road. Node count stays bounded to the pool size.
+
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
@@ -106,7 +112,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Camera: `VehicleCameraController` — smooth third-person follow (no Travel Mode cinematics yet)
 - Journey: `JourneySystem` + distance reporter
 - Road: `RoadSegment` curve × elevation kinds + `RoadManager` pool recycle
-- World: `WorldOriginRecenter`
+- World: `WorldOriginRecenter` + `RoadsideScenery` (pooled procedural props)
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: Travel Mode cinematic cameras, sharper/procedural roads, fuel, damage, upgrades, final UI, inventory, save, quests
+- Not implemented yet: Travel Mode cinematic cameras, sharper/procedural roads, final art, fuel, damage, upgrades, final UI, inventory, save, quests

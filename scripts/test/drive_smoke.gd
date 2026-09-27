@@ -50,8 +50,12 @@ var _saw_descent: bool = false
 var _min_vehicle_y: float = 9999.0
 var _max_vehicle_y: float = -9999.0
 var _max_height_above_road: float = 0.0
-var _last_road_y: float = 0.0
-var _has_road_sample: bool = false
+var _scenery: Node
+var _initial_scenery_props: int = 0
+var _max_scenery_nodes: int = 0
+var _initial_scenery_nodes: int = 0
+var _saw_active_scenery: bool = false
+var _max_scenery_on_road: float = 0.0
 
 
 func _initialize() -> void:
@@ -97,6 +101,21 @@ func _begin() -> void:
 
 	_initial_pool_count = int(_road_manager.call("get_pool_node_count"))
 	_max_pool_count = _initial_pool_count
+
+	_scenery = root.find_child("RoadsideScenery", true, false)
+	if _scenery == null:
+		push_error("drive_smoke: RoadsideScenery not found")
+		quit(1)
+		return
+	if _scenery.has_method("get_total_prop_count"):
+		_initial_scenery_props = int(_scenery.call("get_total_prop_count"))
+	if _scenery.has_method("get_node_budget"):
+		_initial_scenery_nodes = int(_scenery.call("get_node_budget"))
+		_max_scenery_nodes = _initial_scenery_nodes
+	if _initial_scenery_props < 8:
+		push_error("drive_smoke: scenery pool too small (%d)" % _initial_scenery_props)
+		quit(1)
+		return
 
 	_journey = root.get_node_or_null("JourneySystem")
 	if _journey == null:
@@ -194,6 +213,31 @@ func _track_road_sample() -> void:
 			_saw_descent = true
 
 
+func _track_scenery_clearance() -> void:
+	## Sample a few active props via segment anchors; none may sit on the roadway.
+	if _road_manager == null or not _road_manager.has_method("get_active_segments"):
+		return
+	var segs: Array = _road_manager.call("get_active_segments")
+	for seg in segs:
+		if seg == null or not is_instance_valid(seg):
+			continue
+		var anchor = seg.get_node_or_null("SceneryAnchor")
+		if anchor == null:
+			continue
+		for child in anchor.get_children():
+			if not (child is Node3D):
+				continue
+			if not seg.has_method("project_on_centerline"):
+				continue
+			var proj: Dictionary = seg.call("project_on_centerline", (child as Node3D).global_position)
+			var lat := absf(float(proj.get("lateral", 0.0)))
+			_max_scenery_on_road = maxf(_max_scenery_on_road, 0.0 if lat >= 6.0 else (6.0 - lat))
+			if lat < 5.5:
+				push_error("drive_smoke: scenery on roadway lat=%.2f at %s" % [lat, (child as Node3D).global_position])
+				quit(1)
+				return
+
+
 func _on_physics_frame() -> void:
 	if _vehicle == null or _phase == PHASE_DONE:
 		return
@@ -215,7 +259,19 @@ func _on_physics_frame() -> void:
 	_min_vehicle_y = minf(_min_vehicle_y, pos.y)
 	_max_vehicle_y = maxf(_max_vehicle_y, pos.y)
 	_max_pool_count = maxi(_max_pool_count, int(_road_manager.call("get_pool_node_count")))
+	if _scenery != null:
+		if _scenery.has_method("get_node_budget"):
+			_max_scenery_nodes = maxi(_max_scenery_nodes, int(_scenery.call("get_node_budget")))
+		if _scenery.has_method("get_active_prop_count") and int(_scenery.call("get_active_prop_count")) > 0:
+			_saw_active_scenery = true
+		if _scenery.has_method("get_total_prop_count"):
+			var total_props := int(_scenery.call("get_total_prop_count"))
+			if total_props != _initial_scenery_props:
+				push_error("drive_smoke: scenery pool grew/shrank (%d → %d)" % [_initial_scenery_props, total_props])
+				quit(1)
+				return
 	_track_road_sample()
+	_track_scenery_clearance()
 
 	if _elapsed >= LONG_DRIVE_TOTAL_SEC * 0.5 and _journey_mid < 0.0:
 		_journey_mid = float(_journey.call("get_current_distance_km"))
@@ -335,6 +391,26 @@ func _finish() -> void:
 		quit(1)
 		return
 
+	if not _saw_active_scenery:
+		push_error("drive_smoke: no active roadside scenery observed")
+		quit(1)
+		return
+
+	var scenery_props_final := int(_scenery.call("get_total_prop_count"))
+	var scenery_nodes_final := int(_scenery.call("get_node_budget"))
+	if scenery_props_final != _initial_scenery_props:
+		push_error("drive_smoke: scenery prop pool changed (%d → %d)" % [_initial_scenery_props, scenery_props_final])
+		quit(1)
+		return
+	if scenery_nodes_final > _initial_scenery_nodes:
+		push_error("drive_smoke: scenery nodes grew (%d → %d)" % [_initial_scenery_nodes, scenery_nodes_final])
+		quit(1)
+		return
+	if _max_scenery_nodes > _initial_scenery_nodes:
+		push_error("drive_smoke: scenery node budget grew during run")
+		quit(1)
+		return
+
 	if _journey_mid < 0.0 or journey_km <= _journey_mid:
 		push_error("drive_smoke: journey did not keep increasing")
 		quit(1)
@@ -380,7 +456,21 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f cancel=MANUAL"
-		% [_elapsed, mean_speed, speed_span, _max_abs_lateral, recenters, recycles, journey_km, counts, elev_counts, elev_span]
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cancel=MANUAL"
+		% [
+			_elapsed,
+			mean_speed,
+			speed_span,
+			_max_abs_lateral,
+			recenters,
+			recycles,
+			journey_km,
+			counts,
+			elev_counts,
+			elev_span,
+			scenery_props_final,
+			int(_scenery.call("get_active_prop_count")),
+			scenery_nodes_final,
+		]
 	)
 	quit(0)
