@@ -52,6 +52,7 @@ func _process(_delta: float) -> void:
 		"Remaining: %s km (%.4f%%)" % [_format_journey_km(remaining_km), progress * 100.0],
 		"Phys→Journey scale: %.3f" % scale,
 		"Speed: %.1f km/h" % speed_kmh,
+		"Cruise: %s" % _format_cruise_state(),
 		"Pos: (%.1f, %.1f, %.1f)" % [pos.x, pos.y, pos.z],
 		"Controls: A=%.0f  B=%.0f  Steer=%+.0f" % [accel, brake, steer],
 	]
@@ -64,6 +65,20 @@ func _process(_delta: float) -> void:
 		lines.append("FPS: %d" % Engine.get_frames_per_second())
 
 	_label.text = "\n".join(lines)
+
+
+func _format_cruise_state() -> String:
+	if _vehicle == null:
+		return "n/a"
+	var active := false
+	var target_kmh := 0.0
+	if _vehicle.has_method("is_cruise_control_active"):
+		active = bool(_vehicle.call("is_cruise_control_active"))
+	if _vehicle.has_method("get_cruise_target_speed_kmh"):
+		target_kmh = float(_vehicle.call("get_cruise_target_speed_kmh"))
+	if active:
+		return "ON  target %.0f km/h" % target_kmh
+	return "OFF  target %.0f km/h" % target_kmh
 
 
 func _format_journey_km(km: float) -> String:

@@ -18,11 +18,12 @@ Current slice: **drivable placeholder vehicle** in a lit development sandbox. No
 | Action | Keys |
 |--------|------|
 | `vehicle_accelerate` | W / Up |
-| `vehicle_brake` (brake / reverse) | S / Down |
+| `vehicle_brake` (brake / reverse; cancels cruise) | S / Down |
 | `vehicle_left` | A / Left |
 | `vehicle_right` | D / Right |
+| `vehicle_cruise_toggle` | C |
 
-Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`.
+Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`, plus cruise `cruise_target_speed_kmh`, `cruise_speed_deadzone`, `cruise_control_gain`.
 
 ### Camera (third-person follow)
 

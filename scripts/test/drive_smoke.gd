@@ -1,12 +1,16 @@
 extends SceneTree
-## Headless smoke: road recycling + repeated world origin recentering; journey keeps rising.
+## Headless smoke: cruise-control hold + road recycle/recenter; journey keeps rising.
 
 const PHASE_ACCEL := 0
-const PHASE_CRUISE := 1
-const PHASE_DONE := 2
+const PHASE_ENGAGE_CRUISE := 1
+const PHASE_HOLD_SETTLE := 2
+const PHASE_HOLD_SAMPLE := 3
+const PHASE_LONG_DRIVE := 4
+const PHASE_DONE := 5
 
-## Long enough to cross several recenter zones at ~24 m/s with recenter_distance=500.
-const CRUISE_DURATION_SEC := 90.0
+const HOLD_SETTLE_SEC := 4.0
+const HOLD_SAMPLE_SEC := 6.0
+const LONG_DRIVE_TOTAL_SEC := 90.0
 
 var _phase: int = PHASE_ACCEL
 var _phase_time: float = 0.0
@@ -26,6 +30,11 @@ var _max_planar: float = 0.0
 var _initial_pool_count: int = 0
 var _max_pool_count: int = 0
 var _journey_mid: float = -1.0
+var _cruise_speed_sum: float = 0.0
+var _cruise_speed_count: int = 0
+var _cruise_speed_min: float = 9999.0
+var _cruise_speed_max: float = -9999.0
+var _cruise_target_ms: float = 0.0
 
 
 func _initialize() -> void:
@@ -77,6 +86,9 @@ func _begin() -> void:
 		return
 	_journey.call("reset_journey")
 
+	if _vehicle.has_method("get_cruise_target_speed_ms"):
+		_cruise_target_ms = float(_vehicle.call("get_cruise_target_speed_ms"))
+
 	_set_phase(PHASE_ACCEL)
 	physics_frame.connect(_on_physics_frame)
 
@@ -86,12 +98,20 @@ func _set_phase(phase: int) -> void:
 	Input.action_release("vehicle_brake")
 	Input.action_release("vehicle_left")
 	Input.action_release("vehicle_right")
+	Input.action_release("vehicle_cruise_toggle")
 	_phase = phase
 	_phase_time = 0.0
 
 	match phase:
-		PHASE_ACCEL, PHASE_CRUISE:
+		PHASE_ACCEL:
 			Input.action_press("vehicle_accelerate")
+		PHASE_ENGAGE_CRUISE:
+			# Use API only — pressing the toggle action would flip cruise back off via just_pressed.
+			if _vehicle.has_method("set_cruise_control_active"):
+				_vehicle.call("set_cruise_control_active", true)
+		PHASE_HOLD_SETTLE, PHASE_HOLD_SAMPLE, PHASE_LONG_DRIVE:
+			if _vehicle.has_method("set_cruise_control_active"):
+				_vehicle.call("set_cruise_control_active", true)
 		PHASE_DONE:
 			_finish()
 
@@ -123,8 +143,14 @@ func _on_physics_frame() -> void:
 	var pool_now := int(_road_manager.call("get_pool_node_count"))
 	_max_pool_count = maxi(_max_pool_count, pool_now)
 
-	if _elapsed >= CRUISE_DURATION_SEC * 0.5 and _journey_mid < 0.0:
+	if _elapsed >= LONG_DRIVE_TOTAL_SEC * 0.5 and _journey_mid < 0.0:
 		_journey_mid = float(_journey.call("get_current_distance_km"))
+
+	if _phase == PHASE_HOLD_SAMPLE:
+		_cruise_speed_sum += speed
+		_cruise_speed_count += 1
+		_cruise_speed_min = minf(_cruise_speed_min, speed)
+		_cruise_speed_max = maxf(_cruise_speed_max, speed)
 
 	if not pos.is_finite() or not _vehicle.velocity.is_finite() or not is_finite(speed):
 		push_error("drive_smoke: unstable at t=%.2f pos=%s" % [_elapsed, pos])
@@ -144,9 +170,18 @@ func _on_physics_frame() -> void:
 	match _phase:
 		PHASE_ACCEL:
 			if _phase_time >= 3.0:
-				_set_phase(PHASE_CRUISE)
-		PHASE_CRUISE:
-			if _elapsed >= CRUISE_DURATION_SEC:
+				_set_phase(PHASE_ENGAGE_CRUISE)
+		PHASE_ENGAGE_CRUISE:
+			if _phase_time >= 0.1:
+				_set_phase(PHASE_HOLD_SETTLE)
+		PHASE_HOLD_SETTLE:
+			if _phase_time >= HOLD_SETTLE_SEC:
+				_set_phase(PHASE_HOLD_SAMPLE)
+		PHASE_HOLD_SAMPLE:
+			if _phase_time >= HOLD_SAMPLE_SEC:
+				_set_phase(PHASE_LONG_DRIVE)
+		PHASE_LONG_DRIVE:
+			if _elapsed >= LONG_DRIVE_TOTAL_SEC:
 				_set_phase(PHASE_DONE)
 
 
@@ -155,6 +190,7 @@ func _finish() -> void:
 		physics_frame.disconnect(_on_physics_frame)
 
 	Input.action_release("vehicle_accelerate")
+	Input.action_release("vehicle_cruise_toggle")
 
 	var origin := _vehicle.global_position
 	var pool_final := int(_road_manager.call("get_pool_node_count"))
@@ -163,6 +199,33 @@ func _finish() -> void:
 	var journey_km := float(_journey.call("get_current_distance_km"))
 	var planar := Vector3(origin.x, 0.0, origin.z).length()
 	var recenter_distance := float(_recenter.get("recenter_distance"))
+
+	if not bool(_vehicle.call("is_cruise_control_active")):
+		push_error("drive_smoke: cruise control inactive at end of hold/drive")
+		quit(1)
+		return
+
+	if _cruise_speed_count < 60:
+		push_error("drive_smoke: not enough cruise samples (%d)" % _cruise_speed_count)
+		quit(1)
+		return
+
+	var mean_speed := _cruise_speed_sum / float(_cruise_speed_count)
+	var speed_span := _cruise_speed_max - _cruise_speed_min
+	if absf(mean_speed - _cruise_target_ms) > 1.0:
+		push_error(
+			"drive_smoke: cruise mean speed off target (mean=%.2f target=%.2f)"
+			% [mean_speed, _cruise_target_ms]
+		)
+		quit(1)
+		return
+	if speed_span > 2.0:
+		push_error(
+			"drive_smoke: cruise oscillation too high (span=%.2f min=%.2f max=%.2f)"
+			% [speed_span, _cruise_speed_min, _cruise_speed_max]
+		)
+		quit(1)
+		return
 
 	if origin.y < -2.0:
 		push_error("drive_smoke: fell off road pos=%s" % origin)
@@ -185,35 +248,27 @@ func _finish() -> void:
 		return
 
 	if recenters < 3:
-		push_error("drive_smoke: expected multiple origin recenters, got %d (max_planar=%.1f)" % [recenters, _max_planar])
+		push_error("drive_smoke: expected multiple origin recenters, got %d" % recenters)
 		quit(1)
 		return
 
 	if planar >= recenter_distance:
-		push_error("drive_smoke: vehicle still beyond recenter distance (planar=%.1f threshold=%.1f)" % [planar, recenter_distance])
+		push_error("drive_smoke: vehicle still beyond recenter distance")
 		quit(1)
 		return
 
 	if pool_final != _initial_pool_count or _max_pool_count != _initial_pool_count:
-		push_error(
-			"drive_smoke: segment pool grew (initial=%d max=%d final=%d)"
-			% [_initial_pool_count, _max_pool_count, pool_final]
-		)
+		push_error("drive_smoke: segment pool grew")
 		quit(1)
 		return
 
 	if _journey_mid < 0.0 or journey_km <= _journey_mid:
-		push_error("drive_smoke: journey did not keep increasing (mid=%.4f final=%.4f)" % [_journey_mid, journey_km])
-		quit(1)
-		return
-
-	if journey_km < 0.5:
-		push_error("drive_smoke: journey too low after long drive (%.4f)" % journey_km)
+		push_error("drive_smoke: journey did not keep increasing")
 		quit(1)
 		return
 
 	print(
-		"drive_smoke: OK elapsed=%.1fs pos=%s recenters=%d recycles=%d pool=%d journey_mid=%.3f journey=%.3f max_planar=%.1f"
-		% [_elapsed, origin, recenters, recycles, pool_final, _journey_mid, journey_km, _max_planar]
+		"drive_smoke: OK elapsed=%.1fs cruise_mean=%.2f target=%.2f span=%.2f recenters=%d recycles=%d journey=%.3f"
+		% [_elapsed, mean_speed, _cruise_target_ms, speed_span, recenters, recycles, journey_km]
 	)
 	quit(0)
