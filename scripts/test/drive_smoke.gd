@@ -1,5 +1,5 @@
 extends SceneTree
-## Headless smoke: Travel Mode on mixed straight + gentle curve segments.
+## Headless smoke: Travel Mode on mixed curves + gentle elevation.
 
 const PHASE_ACCEL := 0
 const PHASE_ENGAGE_TRAVEL := 1
@@ -44,6 +44,14 @@ var _max_abs_lateral: float = 0.0
 var _saw_gentle_left: bool = false
 var _saw_gentle_right: bool = false
 var _saw_straight: bool = false
+var _saw_level: bool = false
+var _saw_climb: bool = false
+var _saw_descent: bool = false
+var _min_vehicle_y: float = 9999.0
+var _max_vehicle_y: float = -9999.0
+var _max_height_above_road: float = 0.0
+var _last_road_y: float = 0.0
+var _has_road_sample: bool = false
 
 
 func _initialize() -> void:
@@ -144,6 +152,11 @@ func _track_road_sample() -> void:
 	if _phase == PHASE_HOLD_SAMPLE:
 		_sample_abs_lateral_max = maxf(_sample_abs_lateral_max, lateral)
 
+	var point: Vector3 = sample.get("point", _vehicle.global_position)
+	_last_road_y = point.y
+	_has_road_sample = true
+	_max_height_above_road = maxf(_max_height_above_road, _vehicle.global_position.y - point.y)
+
 	var kind := str(sample.get("kind", ""))
 	match kind:
 		"straight":
@@ -153,6 +166,15 @@ func _track_road_sample() -> void:
 		"gentle_right":
 			_saw_gentle_right = true
 
+	var elev := str(sample.get("elevation", ""))
+	match elev:
+		"level":
+			_saw_level = true
+		"gentle_climb":
+			_saw_climb = true
+		"gentle_descent":
+			_saw_descent = true
+
 	if _road_manager.has_method("get_active_kind_counts"):
 		var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 		if int(counts.get("straight", 0)) > 0:
@@ -161,6 +183,15 @@ func _track_road_sample() -> void:
 			_saw_gentle_left = true
 		if int(counts.get("gentle_right", 0)) > 0:
 			_saw_gentle_right = true
+
+	if _road_manager.has_method("get_active_elevation_counts"):
+		var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
+		if int(elev_counts.get("level", 0)) > 0:
+			_saw_level = true
+		if int(elev_counts.get("gentle_climb", 0)) > 0:
+			_saw_climb = true
+		if int(elev_counts.get("gentle_descent", 0)) > 0:
+			_saw_descent = true
 
 
 func _on_physics_frame() -> void:
@@ -181,6 +212,8 @@ func _on_physics_frame() -> void:
 
 	var pos := _vehicle.global_position
 	_max_planar = maxf(_max_planar, Vector3(pos.x, 0.0, pos.z).length())
+	_min_vehicle_y = minf(_min_vehicle_y, pos.y)
+	_max_vehicle_y = maxf(_max_vehicle_y, pos.y)
 	_max_pool_count = maxi(_max_pool_count, int(_road_manager.call("get_pool_node_count")))
 	_track_road_sample()
 
@@ -193,8 +226,13 @@ func _on_physics_frame() -> void:
 		_cruise_speed_min = minf(_cruise_speed_min, speed)
 		_cruise_speed_max = maxf(_cruise_speed_max, speed)
 
-	if not pos.is_finite() or pos.y < -2.0:
-		push_error("drive_smoke: left road / unstable pos=%s" % pos)
+	# Fall-through check relative to road surface (absolute Y drops on descents).
+	if not pos.is_finite():
+		push_error("drive_smoke: unstable pos=%s" % pos)
+		quit(1)
+		return
+	if _has_road_sample and pos.y < _last_road_y - 2.5:
+		push_error("drive_smoke: fell through road pos=%s road_y=%.2f" % [pos, _last_road_y])
 		quit(1)
 		return
 
@@ -310,6 +348,20 @@ func _finish() -> void:
 		quit(1)
 		return
 
+	if not _saw_level or not _saw_climb or not _saw_descent:
+		push_error(
+			"drive_smoke: missing elevation (level=%s climb=%s descent=%s)"
+			% [_saw_level, _saw_climb, _saw_descent]
+		)
+		quit(1)
+		return
+
+	var elev_span := _max_vehicle_y - _min_vehicle_y
+	if elev_span < 1.0:
+		push_error("drive_smoke: elevation span too small (%.2f)" % elev_span)
+		quit(1)
+		return
+
 	# Immediate cancel path: Travel Mode → MANUAL via API.
 	_mode_controller.call("set_mode", MODE_MANUAL)
 	if str(_mode_controller.call("get_mode_name")) != "MANUAL":
@@ -326,8 +378,9 @@ func _finish() -> void:
 		return
 
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
+	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s cancel=MANUAL"
-		% [_elapsed, mean_speed, speed_span, _max_abs_lateral, recenters, recycles, journey_km, counts]
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f cancel=MANUAL"
+		% [_elapsed, mean_speed, speed_span, _max_abs_lateral, recenters, recycles, journey_km, counts, elev_counts, elev_span]
 	)
 	quit(0)

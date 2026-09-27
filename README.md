@@ -72,11 +72,11 @@ Autoload `JourneySystem` (`autoload/journey_system.gd`) stores Earth→Moon prog
 
 ### Road segments
 
-`scenes/road/RoadSegment.tscn` — modular piece with kinds **`straight`**, **`gentle_left`**, **`gentle_right`**. Arc length = `length` (default 40 m); gentle curves turn `curve_angle_degrees` (default 18°). Markers `Entrance` / `Exit` carry position **and** heading so the next segment aligns.
+`scenes/road/RoadSegment.tscn` — modular piece with curve kinds **`straight`**, **`gentle_left`**, **`gentle_right`** and elevation **`level`**, **`gentle_climb`**, **`gentle_descent`**. Arc length = `length` (default 40 m); curves turn `curve_angle_degrees` (default 18°); grades use `elevation_angle_degrees` (default 5°). Markers `Entrance` / `Exit` carry position, heading, **and pitch** so the next segment aligns in height and grade.
 
-`RoadManager` keeps a **fixed pool** around the player: recycles the rearmost segment to the front via `place_after_exit` (entrance←exit transform). After `start_straight_count` opening straights, recycled segments pick weighted random kinds. `sample_road` / centerline APIs follow the arc (look-ahead walks across segments). Recycle distance is measured along the rear segment’s forward, not world +Z.
+`RoadManager` keeps a **fixed pool** around the player: recycles the rearmost segment to the front via `place_after_exit`. After `start_straight_count` opening straight/level pieces, recycled segments pick weighted random curve + elevation. `sample_road` / centerline follow arcs and grades. Recycle distance is along the rear segment’s forward (planar).
 
-Knobs: `active_segment_count`, `segment_length`, `recycle_behind_distance`, `curve_angle_degrees`, kind weights. Pooling, origin recenter, and JourneySystem stay unchanged.
+Knobs: `active_segment_count`, `segment_length`, `recycle_behind_distance`, `curve_angle_degrees`, `elevation_angle_degrees`, kind/elevation weights. Pooling, origin recenter, and JourneySystem stay unchanged.
 
 `WorldOriginRecenter` (`scripts/world/world_origin_recenter.gd`) shifts vehicle, road pool, and follow camera when planar distance from origin exceeds `recenter_distance` (sandbox default 500). Journey keeps using position deltas (`notify_origin_shifted`); vehicle velocity is preserved.
 
@@ -105,7 +105,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Vehicle: cruise speed hold + `RoadFollowAutopilot` (steering under Travel Mode)
 - Camera: `VehicleCameraController` — smooth third-person follow (no Travel Mode cinematics yet)
 - Journey: `JourneySystem` + distance reporter
-- Road: `RoadSegment` kinds straight / gentle_left / gentle_right + `RoadManager` pool recycle
+- Road: `RoadSegment` curve × elevation kinds + `RoadManager` pool recycle
 - World: `WorldOriginRecenter`
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`

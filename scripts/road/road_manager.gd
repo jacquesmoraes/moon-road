@@ -1,6 +1,6 @@
 extends Node3D
 class_name RoadManager
-## Keeps a fixed pool of RoadSegments (straight + gentle curves) around the player.
+## Keeps a fixed pool of RoadSegments (curves + gentle elevation) around the player.
 ## Recycles the rearmost segment to the front — no unbounded Node growth.
 
 @export var target_path: NodePath = NodePath("../PlayerVehicle")
@@ -10,14 +10,20 @@ class_name RoadManager
 ## Recycle when the player has traveled this far past the rear segment mid-point.
 @export var recycle_behind_distance: float = 80.0
 @export var initial_first_center_z: float = 0.0
-## First N segments stay straight so the sandbox spawn is predictable.
+## First N segments stay straight + level so the sandbox spawn is predictable.
 @export var start_straight_count: int = 2
 @export var randomize_segment_kinds: bool = true
-## Relative weights for random kinds after the opening straights.
+@export var randomize_elevation: bool = true
+## Relative weights for random curve kinds after the opening straights.
 @export var weight_straight: float = 0.45
 @export var weight_gentle_left: float = 0.275
 @export var weight_gentle_right: float = 0.275
+## Relative weights for elevation profiles after the opening segments.
+@export var weight_level: float = 0.5
+@export var weight_gentle_climb: float = 0.25
+@export var weight_gentle_descent: float = 0.25
 @export var curve_angle_degrees: float = 18.0
+@export var elevation_angle_degrees: float = 5.0
 
 var _target: Node3D
 ## Ordered rear → front along the road chain.
@@ -75,6 +81,22 @@ func get_active_kind_counts() -> Dictionary:
 	return counts
 
 
+## Elevation name histogram for the active pool (smoke / debug).
+func get_active_elevation_counts() -> Dictionary:
+	var counts := {"level": 0, "gentle_climb": 0, "gentle_descent": 0}
+	for seg in _active:
+		if seg == null or not is_instance_valid(seg):
+			continue
+		var name := "level"
+		if seg.has_method("get_elevation_name"):
+			name = str(seg.call("get_elevation_name"))
+		if counts.has(name):
+			counts[name] = int(counts[name]) + 1
+		else:
+			counts[name] = 1
+	return counts
+
+
 ## Sample roadway near [param world_pos] with a look-ahead point along the centerline.
 func sample_road(world_pos: Vector3, look_ahead_distance: float = 12.0) -> Dictionary:
 	var best: Node3D = null
@@ -93,7 +115,6 @@ func sample_road(world_pos: Vector3, look_ahead_distance: float = 12.0) -> Dicti
 		var delta := world_pos - point
 		delta.y = 0.0
 		# Planar distance to the clamped centerline point — not lateral alone.
-		# Past-end projections on rear segments have small lateral but large along-track error.
 		var score := delta.length()
 		var t: float = float(proj.get("t", 0.5))
 		if t <= 0.001 or t >= 0.999:
@@ -109,6 +130,9 @@ func sample_road(world_pos: Vector3, look_ahead_distance: float = 12.0) -> Dicti
 
 	var forward: Vector3 = best_proj.get("forward", Vector3.FORWARD)
 	var point: Vector3 = best_proj.get("point", world_pos)
+	var elev_name := "level"
+	if best.has_method("get_elevation_name"):
+		elev_name = str(best.call("get_elevation_name"))
 	var look := _look_ahead_from(best_idx, float(best_proj.get("t", 0.0)), maxf(look_ahead_distance, 0.0))
 	if not look.is_empty():
 		forward = look.get("forward", forward)
@@ -121,6 +145,8 @@ func sample_road(world_pos: Vector3, look_ahead_distance: float = 12.0) -> Dicti
 			"look_at": look_at,
 			"t": float(best_proj.get("t", 0.0)),
 			"kind": best.call("get_kind_name") if best.has_method("get_kind_name") else "straight",
+			"elevation": elev_name,
+			"pitch": float(best_proj.get("pitch", look.get("pitch", 0.0))),
 		}
 
 	return {
@@ -131,6 +157,8 @@ func sample_road(world_pos: Vector3, look_ahead_distance: float = 12.0) -> Dicti
 		"look_at": point + forward * look_ahead_distance,
 		"t": float(best_proj.get("t", 0.0)),
 		"kind": best.call("get_kind_name") if best.has_method("get_kind_name") else "straight",
+		"elevation": elev_name,
+		"pitch": float(best_proj.get("pitch", 0.0)),
 	}
 
 
@@ -215,6 +243,8 @@ func _configure_segment(segment: Node3D, sequence_index: int) -> void:
 		segment.set("length", segment_length)
 	if segment.get("curve_angle_degrees") != null:
 		segment.set("curve_angle_degrees", curve_angle_degrees)
+	if segment.get("elevation_angle_degrees") != null:
+		segment.set("elevation_angle_degrees", elevation_angle_degrees)
 
 	var kind_value := 0  # STRAIGHT
 	if sequence_index >= start_straight_count and randomize_segment_kinds:
@@ -224,7 +254,15 @@ func _configure_segment(segment: Node3D, sequence_index: int) -> void:
 	elif segment.get("kind") != null:
 		segment.set("kind", kind_value)
 
-	# Markers must match kind before place_after_exit (bootstrap may run pre-_ready).
+	var elev_value := 0  # LEVEL
+	if sequence_index >= start_straight_count and randomize_elevation:
+		elev_value = _pick_random_elevation()
+	if segment.has_method("set_elevation"):
+		segment.call("set_elevation", elev_value)
+	elif segment.get("elevation") != null:
+		segment.set("elevation", elev_value)
+
+	# Markers must match kind/elevation before place_after_exit (bootstrap may run pre-_ready).
 	if segment.has_method("ensure_built"):
 		segment.call("ensure_built")
 
@@ -243,6 +281,22 @@ func _pick_random_kind() -> int:
 	if r < w_l:
 		return 1  # GENTLE_LEFT
 	return 2  # GENTLE_RIGHT
+
+
+func _pick_random_elevation() -> int:
+	var w_lvl := maxf(weight_level, 0.0)
+	var w_up := maxf(weight_gentle_climb, 0.0)
+	var w_dn := maxf(weight_gentle_descent, 0.0)
+	var total := w_lvl + w_up + w_dn
+	if total <= 0.0001:
+		return 0
+	var r := randf() * total
+	if r < w_lvl:
+		return 0  # LEVEL
+	r -= w_lvl
+	if r < w_up:
+		return 1  # GENTLE_CLIMB
+	return 2  # GENTLE_DESCENT
 
 
 func _place_after(segment: Node3D, previous: Node3D) -> void:
@@ -284,6 +338,5 @@ func _is_rear_far_behind(rear: Node3D) -> bool:
 			var behind := (_target.global_position - mid_point).dot(forward)
 			return behind >= recycle_behind_distance
 
-	# Fallback for pre-curve segments: world +Z behind while traveling -Z.
 	var behind_z := rear.global_position.z - _target.global_position.z
 	return behind_z >= recycle_behind_distance
