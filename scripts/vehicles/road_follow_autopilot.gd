@@ -5,10 +5,10 @@ class_name RoadFollowAutopilot
 
 @export var vehicle_path: NodePath
 @export var road_manager_path: NodePath = NodePath("../../RoadManager")
-@export var look_ahead_distance: float = 14.0
-@export var lateral_gain: float = 0.28
-@export var heading_gain: float = 1.35
-@export var pursuit_gain: float = 1.1
+@export var look_ahead_distance: float = 16.0
+@export var lateral_gain: float = 0.32
+@export var heading_gain: float = 1.45
+@export var pursuit_gain: float = 1.15
 ## Kept for compatibility; mode controller sets this false and owns cruise.
 @export var enable_cruise_when_active: bool = false
 ## When false, input toggles are owned by DrivingModeController.

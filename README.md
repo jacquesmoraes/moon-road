@@ -72,9 +72,11 @@ Autoload `JourneySystem` (`autoload/journey_system.gd`) stores Earth→Moon prog
 
 ### Road segments
 
-`scenes/road/RoadSegment.tscn` — modular straight piece (primitives). Exports: `length`, `width`, `thickness`, `shoulder_width`, `show_shoulders`. Markers `Entrance` (+Z) and `Exit` (−Z).
+`scenes/road/RoadSegment.tscn` — modular piece with kinds **`straight`**, **`gentle_left`**, **`gentle_right`**. Arc length = `length` (default 40 m); gentle curves turn `curve_angle_degrees` (default 18°). Markers `Entrance` / `Exit` carry position **and** heading so the next segment aligns.
 
-`RoadManager` (`scripts/road/road_manager.gd`) in DrivingSandbox keeps a **fixed pool** of segments around the player: recycles the rearmost segment to the front (`place_after_exit`). Knobs: `active_segment_count`, `segment_length`, `recycle_behind_distance`, `initial_first_center_z`. No infinite Node growth; no JourneySystem / UI coupling.
+`RoadManager` keeps a **fixed pool** around the player: recycles the rearmost segment to the front via `place_after_exit` (entrance←exit transform). After `start_straight_count` opening straights, recycled segments pick weighted random kinds. `sample_road` / centerline APIs follow the arc (look-ahead walks across segments). Recycle distance is measured along the rear segment’s forward, not world +Z.
+
+Knobs: `active_segment_count`, `segment_length`, `recycle_behind_distance`, `curve_angle_degrees`, kind weights. Pooling, origin recenter, and JourneySystem stay unchanged.
 
 `WorldOriginRecenter` (`scripts/world/world_origin_recenter.gd`) shifts vehicle, road pool, and follow camera when planar distance from origin exceeds `recenter_distance` (sandbox default 500). Journey keeps using position deltas (`notify_origin_shifted`); vehicle velocity is preserved.
 
@@ -103,8 +105,8 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Vehicle: cruise speed hold + `RoadFollowAutopilot` (steering under Travel Mode)
 - Camera: `VehicleCameraController` — smooth third-person follow (no Travel Mode cinematics yet)
 - Journey: `JourneySystem` + distance reporter
-- Road: `RoadSegment` + `RoadManager` (fixed pool recycle)
+- Road: `RoadSegment` kinds straight / gentle_left / gentle_right + `RoadManager` pool recycle
 - World: `WorldOriginRecenter`
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: Travel Mode cinematic cameras, curved procedural roads, fuel, damage, upgrades, final UI, inventory, save, quests
+- Not implemented yet: Travel Mode cinematic cameras, sharper/procedural roads, fuel, damage, upgrades, final UI, inventory, save, quests

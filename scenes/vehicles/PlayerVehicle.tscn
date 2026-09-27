@@ -100,10 +100,10 @@ script = ExtResource("3_journey")
 [node name="RoadFollowAutopilot" type="Node" parent="."]
 script = ExtResource("4_autopilot")
 road_manager_path = NodePath("../../RoadManager")
-look_ahead_distance = 14.0
-lateral_gain = 0.28
-heading_gain = 1.35
-pursuit_gain = 1.1
+look_ahead_distance = 16.0
+lateral_gain = 0.32
+heading_gain = 1.45
+pursuit_gain = 1.15
 enable_cruise_when_active = false
 handle_input = false
 

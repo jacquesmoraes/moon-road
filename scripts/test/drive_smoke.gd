@@ -1,5 +1,5 @@
 extends SceneTree
-## Headless smoke: Travel Mode (cruise + road-follow); recycle/recenter remain stable.
+## Headless smoke: Travel Mode on mixed straight + gentle curve segments.
 
 const PHASE_ACCEL := 0
 const PHASE_ENGAGE_TRAVEL := 1
@@ -30,7 +30,6 @@ var _camera_follow_ok: bool = false
 var _saw_speed_kmh: bool = false
 var _max_speed_kmh: float = 0.0
 var _journey: Node
-var _max_abs_x: float = 0.0
 var _max_planar: float = 0.0
 var _initial_pool_count: int = 0
 var _max_pool_count: int = 0
@@ -40,10 +39,16 @@ var _cruise_speed_count: int = 0
 var _cruise_speed_min: float = 9999.0
 var _cruise_speed_max: float = -9999.0
 var _cruise_target_ms: float = 0.0
-var _sample_abs_x_max: float = 0.0
+var _sample_abs_lateral_max: float = 0.0
+var _max_abs_lateral: float = 0.0
+var _saw_gentle_left: bool = false
+var _saw_gentle_right: bool = false
+var _saw_straight: bool = false
 
 
 func _initialize() -> void:
+	# Deterministic mixed-kind sequence for CI-style smoke.
+	seed(4804)
 	var err := change_scene_to_file("res://scenes/test/DrivingSandbox.tscn")
 	if err != OK:
 		push_error("drive_smoke: failed to load DrivingSandbox (%s)" % error_string(err))
@@ -128,6 +133,36 @@ func _set_phase(phase: int) -> void:
 			_finish()
 
 
+func _track_road_sample() -> void:
+	if _road_manager == null or not _road_manager.has_method("sample_road"):
+		return
+	var sample: Dictionary = _road_manager.call("sample_road", _vehicle.global_position, 14.0)
+	if sample.is_empty():
+		return
+	var lateral := absf(float(sample.get("lateral", 0.0)))
+	_max_abs_lateral = maxf(_max_abs_lateral, lateral)
+	if _phase == PHASE_HOLD_SAMPLE:
+		_sample_abs_lateral_max = maxf(_sample_abs_lateral_max, lateral)
+
+	var kind := str(sample.get("kind", ""))
+	match kind:
+		"straight":
+			_saw_straight = true
+		"gentle_left":
+			_saw_gentle_left = true
+		"gentle_right":
+			_saw_gentle_right = true
+
+	if _road_manager.has_method("get_active_kind_counts"):
+		var counts: Dictionary = _road_manager.call("get_active_kind_counts")
+		if int(counts.get("straight", 0)) > 0:
+			_saw_straight = true
+		if int(counts.get("gentle_left", 0)) > 0:
+			_saw_gentle_left = true
+		if int(counts.get("gentle_right", 0)) > 0:
+			_saw_gentle_right = true
+
+
 func _on_physics_frame() -> void:
 	if _vehicle == null or _phase == PHASE_DONE:
 		return
@@ -145,9 +180,9 @@ func _on_physics_frame() -> void:
 			_saw_speed_kmh = true
 
 	var pos := _vehicle.global_position
-	_max_abs_x = maxf(_max_abs_x, absf(pos.x))
 	_max_planar = maxf(_max_planar, Vector3(pos.x, 0.0, pos.z).length())
 	_max_pool_count = maxi(_max_pool_count, int(_road_manager.call("get_pool_node_count")))
+	_track_road_sample()
 
 	if _elapsed >= LONG_DRIVE_TOTAL_SEC * 0.5 and _journey_mid < 0.0:
 		_journey_mid = float(_journey.call("get_current_distance_km"))
@@ -157,7 +192,6 @@ func _on_physics_frame() -> void:
 		_cruise_speed_count += 1
 		_cruise_speed_min = minf(_cruise_speed_min, speed)
 		_cruise_speed_max = maxf(_cruise_speed_max, speed)
-		_sample_abs_x_max = maxf(_sample_abs_x_max, absf(pos.x))
 
 	if not pos.is_finite() or pos.y < -2.0:
 		push_error("drive_smoke: left road / unstable pos=%s" % pos)
@@ -238,9 +272,12 @@ func _finish() -> void:
 		quit(1)
 		return
 
-	# Stay well inside 10 m roadway during sampled Travel Mode stretch.
-	if _sample_abs_x_max > 2.5 or _max_abs_x > 4.0:
-		push_error("drive_smoke: left lane center too far (sample|x|=%.2f max|x|=%.2f)" % [_sample_abs_x_max, _max_abs_x])
+	# Lane-keeping uses centerline lateral (world X is not meaningful once curves appear).
+	if _sample_abs_lateral_max > 2.5 or _max_abs_lateral > 3.5:
+		push_error(
+			"drive_smoke: left lane center too far (sample|lat|=%.2f max|lat|=%.2f)"
+			% [_sample_abs_lateral_max, _max_abs_lateral]
+		)
 		quit(1)
 		return
 
@@ -264,6 +301,14 @@ func _finish() -> void:
 		quit(1)
 		return
 
+	if not _saw_straight or not _saw_gentle_left or not _saw_gentle_right:
+		push_error(
+			"drive_smoke: missing segment kinds (straight=%s left=%s right=%s)"
+			% [_saw_straight, _saw_gentle_left, _saw_gentle_right]
+		)
+		quit(1)
+		return
+
 	# Immediate cancel path: Travel Mode → MANUAL via API.
 	_mode_controller.call("set_mode", MODE_MANUAL)
 	if str(_mode_controller.call("get_mode_name")) != "MANUAL":
@@ -279,8 +324,9 @@ func _finish() -> void:
 		quit(1)
 		return
 
+	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|x|=%.2f recenters=%d recycles=%d journey=%.3f cancel=MANUAL"
-		% [_elapsed, mean_speed, speed_span, _max_abs_x, recenters, recycles, journey_km]
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s cancel=MANUAL"
+		% [_elapsed, mean_speed, speed_span, _max_abs_lateral, recenters, recycles, journey_km, counts]
 	)
 	quit(0)
