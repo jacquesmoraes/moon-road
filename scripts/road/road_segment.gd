@@ -428,9 +428,13 @@ func _build_shoulder_meshes() -> void:
 func _clear_extra_collision(body: StaticBody3D, keep: CollisionShape3D) -> void:
 	if body == null:
 		return
+	var to_remove: Array[Node] = []
 	for child in body.get_children():
 		if child is CollisionShape3D and child != keep:
-			child.queue_free()
+			to_remove.append(child)
+	for child in to_remove:
+		body.remove_child(child)
+		child.free()
 
 
 ## Convex box chain along the centerline — reliable for CharacterBody3D (unlike trimesh).
@@ -466,10 +470,7 @@ func _rebuild_box_colliders(
 		var col: CollisionShape3D
 		if i == 0:
 			col = primary
-			if col.shape == null or not (col.shape is BoxShape3D):
-				col.shape = shape
-			else:
-				(col.shape as BoxShape3D).size = shape.size
+			col.shape = shape
 		else:
 			col = CollisionShape3D.new()
 			col.shape = shape
