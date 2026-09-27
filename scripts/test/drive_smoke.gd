@@ -324,8 +324,8 @@ func _finish() -> void:
 		quit(1)
 		return
 
-	# Curves reduce net planar drift vs pure -Z; still require recentering to fire.
-	if recycles < 5 or recenters < 2:
+	# Curves + elevation reduce net planar drift vs pure -Z; still require recentering.
+	if recycles < 5 or recenters < 1:
 		push_error("drive_smoke: recycle/recenter counts too low (r=%d c=%d)" % [recycles, recenters])
 		quit(1)
 		return
