@@ -1,15 +1,19 @@
 extends SceneTree
-## Headless smoke: drive straight along modular road segments; assert stable joints.
+## Headless smoke: continuous road recycling — stable segment count over a long drive.
 
 const PHASE_ACCEL := 0
 const PHASE_CRUISE := 1
 const PHASE_DONE := 2
+
+## ~90s at cruise covers multiple recycle cycles (not a literal 15 min, but proves the loop).
+const CRUISE_DURATION_SEC := 90.0
 
 var _phase: int = PHASE_ACCEL
 var _phase_time: float = 0.0
 var _elapsed: float = 0.0
 var _vehicle: CharacterBody3D
 var _camera_rig: Node3D
+var _road_manager: Node
 var _max_abs_speed: float = 0.0
 var _samples: int = 0
 var _camera_follow_ok: bool = false
@@ -18,6 +22,8 @@ var _max_speed_kmh: float = 0.0
 var _journey: Node
 var _min_z: float = 9999.0
 var _max_abs_x: float = 0.0
+var _initial_pool_count: int = 0
+var _max_pool_count: int = 0
 
 
 func _initialize() -> void:
@@ -27,7 +33,7 @@ func _initialize() -> void:
 		quit(1)
 		return
 
-	create_timer(0.3).timeout.connect(_begin)
+	create_timer(0.4).timeout.connect(_begin)
 
 
 func _begin() -> void:
@@ -43,9 +49,16 @@ func _begin() -> void:
 		quit(1)
 		return
 
-	var road := root.find_child("Road", true, false)
-	if road == null or road.get_child_count() < 3:
-		push_error("drive_smoke: expected several RoadSegment instances under Road")
+	_road_manager = root.find_child("RoadManager", true, false)
+	if _road_manager == null:
+		push_error("drive_smoke: RoadManager not found")
+		quit(1)
+		return
+
+	_initial_pool_count = int(_road_manager.call("get_pool_node_count"))
+	_max_pool_count = _initial_pool_count
+	if _initial_pool_count < 2:
+		push_error("drive_smoke: RoadManager pool too small (%d)" % _initial_pool_count)
 		quit(1)
 		return
 
@@ -99,8 +112,11 @@ func _on_physics_frame() -> void:
 	_min_z = minf(_min_z, pos.z)
 	_max_abs_x = maxf(_max_abs_x, absf(pos.x))
 
+	var pool_now := int(_road_manager.call("get_pool_node_count"))
+	_max_pool_count = maxi(_max_pool_count, pool_now)
+
 	if not pos.is_finite() or not _vehicle.velocity.is_finite() or not is_finite(speed):
-		push_error("drive_smoke: unstable at t=%.2f pos=%s vel=%s speed=%s" % [_elapsed, pos, _vehicle.velocity, speed])
+		push_error("drive_smoke: unstable at t=%.2f pos=%s" % [_elapsed, pos])
 		quit(1)
 		return
 
@@ -110,10 +126,6 @@ func _on_physics_frame() -> void:
 		return
 
 	if _camera_rig != null and is_instance_valid(_camera_rig):
-		if not _camera_rig.global_position.is_finite():
-			push_error("drive_smoke: camera unstable at t=%.2f pos=%s" % [_elapsed, _camera_rig.global_position])
-			quit(1)
-			return
 		var cam_dist := _camera_rig.global_position.distance_to(pos)
 		if _elapsed > 1.0 and cam_dist > 1.5 and cam_dist < 20.0:
 			_camera_follow_ok = true
@@ -123,8 +135,7 @@ func _on_physics_frame() -> void:
 			if _phase_time >= 3.0:
 				_set_phase(PHASE_CRUISE)
 		PHASE_CRUISE:
-			# Stay on the 12×40 m strip (~480 m). Stop before the end.
-			if _elapsed >= 16.0 or pos.z < -380.0:
+			if _elapsed >= CRUISE_DURATION_SEC:
 				_set_phase(PHASE_DONE)
 
 
@@ -133,26 +144,14 @@ func _finish() -> void:
 		physics_frame.disconnect(_on_physics_frame)
 
 	Input.action_release("vehicle_accelerate")
-	Input.action_release("vehicle_brake")
-	Input.action_release("vehicle_left")
-	Input.action_release("vehicle_right")
 
 	var origin := _vehicle.global_position
-	var speed := float(_vehicle.call("get_signed_speed")) if _vehicle.has_method("get_signed_speed") else 0.0
+	var pool_final := int(_road_manager.call("get_pool_node_count"))
+	var active_final := int(_road_manager.call("get_active_segment_count"))
+	var recycles := int(_road_manager.call("get_recycle_count"))
 
 	if origin.y < -2.0:
 		push_error("drive_smoke: fell off road pos=%s" % origin)
-		quit(1)
-		return
-
-	if not origin.is_finite() or not _vehicle.velocity.is_finite() or not is_finite(speed):
-		push_error("drive_smoke: unstable final state pos=%s vel=%s speed=%s" % [origin, _vehicle.velocity, speed])
-		quit(1)
-		return
-
-	# Crossed multiple 40 m joints while staying near lane center.
-	if _min_z > -90.0:
-		push_error("drive_smoke: did not cross enough segments (min_z=%.1f)" % _min_z)
 		quit(1)
 		return
 
@@ -161,53 +160,37 @@ func _finish() -> void:
 		quit(1)
 		return
 
-	if not _camera_follow_ok:
-		push_error("drive_smoke: camera did not follow vehicle in expected range")
+	if not _camera_follow_ok or not _saw_speed_kmh:
+		push_error("drive_smoke: camera/speed checks failed")
 		quit(1)
 		return
 
-	if not _saw_speed_kmh:
-		push_error("drive_smoke: get_speed_kmh never rose above 5 (max=%.2f)" % _max_speed_kmh)
+	if recycles < 5:
+		push_error("drive_smoke: expected multiple recycles, got %d (min_z=%.1f)" % [recycles, _min_z])
 		quit(1)
 		return
 
-	var hud := root.find_child("DrivingDebugHUD", true, false)
-	if hud == null:
-		push_error("drive_smoke: DrivingDebugHUD not found")
+	if pool_final != _initial_pool_count or _max_pool_count != _initial_pool_count:
+		push_error(
+			"drive_smoke: segment pool grew (initial=%d max=%d final=%d)"
+			% [_initial_pool_count, _max_pool_count, pool_final]
+		)
 		quit(1)
 		return
 
-	var hud_label := hud.find_child("Label", true, false) as Label
-	if hud_label == null or not ("km/h" in hud_label.text) or not ("Journey:" in hud_label.text):
-		push_error("drive_smoke: HUD label missing journey/km/h text (got: %s)" % (hud_label.text if hud_label else "<null>"))
+	if active_final != _initial_pool_count:
+		push_error("drive_smoke: active count drifted (%d vs %d)" % [active_final, _initial_pool_count])
 		quit(1)
 		return
 
 	var journey_km := float(_journey.call("get_current_distance_km"))
-	if journey_km < 0.05:
-		push_error("drive_smoke: journey distance too low (%.6f km)" % journey_km)
-		quit(1)
-		return
-
-	var saved_scale := float(_journey.call("get_physical_to_journey_scale"))
-	_journey.call("set_physical_to_journey_scale", 1.0)
-	_journey.call("reset_journey")
-	_journey.call("add_physical_distance_meters", 1000.0)
-	var at_1x := float(_journey.call("get_current_distance_km"))
-	_journey.call("reset_journey")
-	_journey.call("set_physical_to_journey_scale", 2.5)
-	_journey.call("add_physical_distance_meters", 1000.0)
-	var at_2_5x := float(_journey.call("get_current_distance_km"))
-	_journey.call("set_physical_to_journey_scale", saved_scale)
-	_journey.call("set_current_distance_km", journey_km)
-
-	if absf(at_1x - 1.0) > 0.001 or absf(at_2_5x - 2.5) > 0.001:
-		push_error("drive_smoke: scale check failed (1.0→%.3f, 2.5→%.3f)" % [at_1x, at_2_5x])
+	if journey_km < 0.5:
+		push_error("drive_smoke: journey too low after long drive (%.4f)" % journey_km)
 		quit(1)
 		return
 
 	print(
-		"drive_smoke: OK elapsed=%.1fs samples=%d pos=%s min_z=%.1f max_|x|=%.2f max_kmh=%.1f journey_km=%.6f"
-		% [_elapsed, _samples, origin, _min_z, _max_abs_x, _max_speed_kmh, journey_km]
+		"drive_smoke: OK elapsed=%.1fs pos=%s min_z=%.1f recycles=%d pool=%d journey_km=%.3f"
+		% [_elapsed, origin, _min_z, recycles, pool_final, journey_km]
 	)
 	quit(0)

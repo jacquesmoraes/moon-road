@@ -57,7 +57,9 @@ Autoload `JourneySystem` (`autoload/journey_system.gd`) stores Earth→Moon prog
 
 ### Road segments
 
-`scenes/road/RoadSegment.tscn` — modular straight piece (primitives). Exports: `length`, `width`, `thickness`, `shoulder_width`, `show_shoulders`. Markers `Entrance` (+Z) and `Exit` (−Z); chain by placing the next segment so its Entrance sits on the previous Exit (`place_after_exit()` helper). DrivingSandbox manually instances 12×40 m segments along −Z (no infinite generation yet).
+`scenes/road/RoadSegment.tscn` — modular straight piece (primitives). Exports: `length`, `width`, `thickness`, `shoulder_width`, `show_shoulders`. Markers `Entrance` (+Z) and `Exit` (−Z).
+
+`RoadManager` (`scripts/road/road_manager.gd`) in DrivingSandbox keeps a **fixed pool** of segments around the player: recycles the rearmost segment to the front (`place_after_exit`). Knobs: `active_segment_count`, `segment_length`, `recycle_behind_distance`, `initial_first_center_z`. No infinite Node growth; no JourneySystem / UI coupling.
 
 ```bash
 godot --path . --headless --quit-after 3
@@ -83,7 +85,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Vehicle: `scenes/vehicles/PlayerVehicle.tscn` + `scripts/vehicles/player_vehicle.gd` (arcade `CharacterBody3D`, primitives only)
 - Camera: `scripts/vehicles/vehicle_camera_controller.gd` — smooth third-person follow (`VehicleCameraController`)
 - Journey: `autoload/journey_system.gd` + `scripts/vehicles/journey_distance_reporter.gd`
-- Road: `scenes/road/RoadSegment.tscn` + `scripts/road/road_segment.gd` (manual chain in sandbox)
+- Road: `RoadSegment` + `RoadManager` (fixed pool recycle; straight segments only for now)
 - Dev HUD: `scenes/ui/DrivingDebugHUD.tscn` + `scripts/ui/driving_debug_hud.gd`
 - Empty entry: `scenes/core/Main.tscn`
 - Not implemented yet: infinite road generation, multi-camera switching, cockpit, cinematic, fuel, damage, upgrades, final UI, inventory, save, quests

@@ -1,8 +1,9 @@
-[gd_scene load_steps=10 format=3 uid="uid://bterra_drive_sandbox"]
+[gd_scene load_steps=13 format=3 uid="uid://bterra_drive_sandbox"]
 
 [ext_resource type="PackedScene" uid="uid://bterra_player_vehicle" path="res://scenes/vehicles/PlayerVehicle.tscn" id="1_vehicle"]
 [ext_resource type="PackedScene" uid="uid://bterra_driving_debug_hud" path="res://scenes/ui/DrivingDebugHUD.tscn" id="2_hud"]
 [ext_resource type="PackedScene" uid="uid://bterra_road_segment" path="res://scenes/road/RoadSegment.tscn" id="3_road"]
+[ext_resource type="Script" path="res://scripts/road/road_manager.gd" id="4_road_manager"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.28, 0.48, 0.78, 1)
@@ -55,43 +56,14 @@ transform = Transform3D(0.8660254, -0.25, 0.4330127, 0, 0.8660254, 0.5, -0.5, -0
 current = false
 fov = 70.0
 
-[node name="Road" type="Node3D" parent="."]
-
-[node name="Segment0" parent="Road" instance=ExtResource("3_road")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
-
-[node name="Segment1" parent="Road" instance=ExtResource("3_road")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -40)
-
-[node name="Segment2" parent="Road" instance=ExtResource("3_road")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -80)
-
-[node name="Segment3" parent="Road" instance=ExtResource("3_road")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -120)
-
-[node name="Segment4" parent="Road" instance=ExtResource("3_road")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -160)
-
-[node name="Segment5" parent="Road" instance=ExtResource("3_road")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -200)
-
-[node name="Segment6" parent="Road" instance=ExtResource("3_road")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -240)
-
-[node name="Segment7" parent="Road" instance=ExtResource("3_road")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -280)
-
-[node name="Segment8" parent="Road" instance=ExtResource("3_road")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -320)
-
-[node name="Segment9" parent="Road" instance=ExtResource("3_road")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -360)
-
-[node name="Segment10" parent="Road" instance=ExtResource("3_road")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -400)
-
-[node name="Segment11" parent="Road" instance=ExtResource("3_road")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -440)
+[node name="RoadManager" type="Node3D" parent="."]
+script = ExtResource("4_road_manager")
+target_path = NodePath("../PlayerVehicle")
+segment_scene = ExtResource("3_road")
+active_segment_count = 8
+segment_length = 40.0
+recycle_behind_distance = 80.0
+initial_first_center_z = 0.0
 
 [node name="ScaleRefs" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0, 0)
