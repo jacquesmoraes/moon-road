@@ -55,7 +55,9 @@ Autoload `JourneySystem` (`autoload/journey_system.gd`) stores Earth→Moon prog
 
 `JourneyDistanceReporter` on the vehicle reports physical meters only (`add_physical_distance_meters`); conversion lives solely in `JourneySystem`.
 
-### Headless checks
+### Road segments
+
+`scenes/road/RoadSegment.tscn` — modular straight piece (primitives). Exports: `length`, `width`, `thickness`, `shoulder_width`, `show_shoulders`. Markers `Entrance` (+Z) and `Exit` (−Z); chain by placing the next segment so its Entrance sits on the previous Exit (`place_after_exit()` helper). DrivingSandbox manually instances 12×40 m segments along −Z (no infinite generation yet).
 
 ```bash
 godot --path . --headless --quit-after 3
@@ -81,6 +83,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Vehicle: `scenes/vehicles/PlayerVehicle.tscn` + `scripts/vehicles/player_vehicle.gd` (arcade `CharacterBody3D`, primitives only)
 - Camera: `scripts/vehicles/vehicle_camera_controller.gd` — smooth third-person follow (`VehicleCameraController`)
 - Journey: `autoload/journey_system.gd` + `scripts/vehicles/journey_distance_reporter.gd`
+- Road: `scenes/road/RoadSegment.tscn` + `scripts/road/road_segment.gd` (manual chain in sandbox)
 - Dev HUD: `scenes/ui/DrivingDebugHUD.tscn` + `scripts/ui/driving_debug_hud.gd`
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: multi-camera switching, cockpit, cinematic, infinite road, fuel, damage, upgrades, final UI, inventory, save, quests
+- Not implemented yet: infinite road generation, multi-camera switching, cockpit, cinematic, fuel, damage, upgrades, final UI, inventory, save, quests

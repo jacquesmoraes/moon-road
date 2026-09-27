@@ -1,0 +1,74 @@
+[gd_scene load_steps=8 format=3 uid="uid://bterra_road_segment"]
+
+[ext_resource type="Script" path="res://scripts/road/road_segment.gd" id="1_script"]
+
+[sub_resource type="StandardMaterial3D" id="Mat_road"]
+albedo_color = Color(0.22, 0.22, 0.24, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_road"]
+size = Vector3(10, 0.2, 40)
+
+[sub_resource type="BoxShape3D" id="Shape_road"]
+size = Vector3(10, 0.2, 40)
+
+[sub_resource type="StandardMaterial3D" id="Mat_shoulder"]
+albedo_color = Color(0.45, 0.4, 0.32, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_shoulder"]
+size = Vector3(1.5, 0.2, 40)
+
+[sub_resource type="BoxShape3D" id="Shape_shoulder"]
+size = Vector3(1.5, 0.2, 40)
+
+[node name="RoadSegment" type="Node3D"]
+script = ExtResource("1_script")
+length = 40.0
+width = 10.0
+thickness = 0.2
+shoulder_width = 1.5
+show_shoulders = true
+
+[node name="Roadway" type="StaticBody3D" parent="."]
+collision_layer = 1
+collision_mask = 0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Roadway"]
+material_override = SubResource("Mat_road")
+mesh = SubResource("Mesh_road")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Roadway"]
+shape = SubResource("Shape_road")
+
+[node name="Shoulders" type="Node3D" parent="."]
+
+[node name="Left" type="MeshInstance3D" parent="Shoulders"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.75, 0, 0)
+material_override = SubResource("Mat_shoulder")
+mesh = SubResource("Mesh_shoulder")
+
+[node name="Right" type="MeshInstance3D" parent="Shoulders"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.75, 0, 0)
+material_override = SubResource("Mat_shoulder")
+mesh = SubResource("Mesh_shoulder")
+
+[node name="LeftBody" type="StaticBody3D" parent="Shoulders"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.75, 0, 0)
+collision_layer = 1
+collision_mask = 0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Shoulders/LeftBody"]
+shape = SubResource("Shape_shoulder")
+
+[node name="RightBody" type="StaticBody3D" parent="Shoulders"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.75, 0, 0)
+collision_layer = 1
+collision_mask = 0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Shoulders/RightBody"]
+shape = SubResource("Shape_shoulder")
+
+[node name="Entrance" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 20)
+
+[node name="Exit" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, -20)
