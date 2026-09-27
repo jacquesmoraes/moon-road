@@ -1,8 +1,8 @@
 # TerraLua
 
-Godot 4.x 3D project scaffold for a long road-trip game from Earth to the Moon.
+Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-This repository currently contains **project structure only** — no gameplay systems yet.
+Current slice: **drivable placeholder vehicle** in a lit development sandbox. No fuel, road, UI, or other gameplay systems yet.
 
 ## Requirements
 
@@ -11,13 +11,24 @@ This repository currently contains **project structure only** — no gameplay sy
 ## Run
 
 1. Open this folder in the Godot editor (`project.godot`).
-2. Press **F5** (or Play). Development main scene is currently `scenes/test/DrivingSandbox.tscn` (lit ground + scale refs; no vehicle yet). Production entry remains `scenes/core/Main.tscn`.
+2. Press **F5** (or Play). Dev main scene: `scenes/test/DrivingSandbox.tscn`.
 
-Headless smoke check:
+### Drive controls
+
+| Action | Keys |
+|--------|------|
+| `vehicle_accelerate` | W / Up |
+| `vehicle_brake` (brake / reverse) | S / Down |
+| `vehicle_left` | A / Left |
+| `vehicle_right` | D / Right |
+
+Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`.
+
+### Headless checks
 
 ```bash
-godot --path . --headless --quit-after 2
-godot --path . --headless --scene res://scenes/test/DrivingSandbox.tscn --quit-after 3
+godot --path . --headless --quit-after 3
+godot --path . --headless -s res://scripts/test/drive_smoke.gd
 ```
 
 ## Layout (`res://`)
@@ -25,7 +36,7 @@ godot --path . --headless --scene res://scenes/test/DrivingSandbox.tscn --quit-a
 | Path | Purpose |
 |------|---------|
 | `scenes/{core,player,vehicles,road,world,ui,test}` | Scenes by domain |
-| `scripts/{core,player,vehicles,road,world,ui}` | GDScript by domain |
+| `scripts/{core,player,vehicles,road,world,ui,test}` | GDScript by domain |
 | `resources/{vehicles,road,world}` | Shared resources / configs |
 | `assets/{models,materials,textures,audio}` | Art and audio |
 | `autoload/` | Future autoload scripts (none registered yet) |
@@ -35,7 +46,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 
 ## Notes
 
-- Dev main (temporary): `scenes/test/DrivingSandbox.tscn` — ground, sky, lighting, scale refs for future vehicle work
+- Dev main: `scenes/test/DrivingSandbox.tscn` — ground, sky, lighting, scale refs, `PlayerVehicle`
+- Vehicle: `scenes/vehicles/PlayerVehicle.tscn` + `scripts/vehicles/player_vehicle.gd` (arcade `CharacterBody3D`, primitives only)
 - Empty entry: `scenes/core/Main.tscn`
-- Minimal sandbox: `scenes/test/TestSandbox.tscn`
-- No vehicle, road, inventory, save, quest, procedural, or UI systems yet.
+- Not implemented yet: infinite road, fuel, damage, upgrades, inventory, save, quests, UI

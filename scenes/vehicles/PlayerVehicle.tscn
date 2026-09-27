@@ -1,0 +1,85 @@
+[gd_scene load_steps=10 format=3 uid="uid://bterra_player_vehicle"]
+
+[ext_resource type="Script" path="res://scripts/vehicles/player_vehicle.gd" id="1_script"]
+
+[sub_resource type="BoxShape3D" id="Shape_body"]
+size = Vector3(1.8, 0.7, 4.0)
+
+[sub_resource type="StandardMaterial3D" id="Mat_body"]
+albedo_color = Color(0.78, 0.22, 0.18, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_body"]
+size = Vector3(1.8, 0.55, 4.0)
+
+[sub_resource type="StandardMaterial3D" id="Mat_cabin"]
+albedo_color = Color(0.2, 0.28, 0.36, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_cabin"]
+size = Vector3(1.5, 0.55, 1.6)
+
+[sub_resource type="StandardMaterial3D" id="Mat_wheel"]
+albedo_color = Color(0.12, 0.12, 0.12, 1)
+
+[sub_resource type="CylinderMesh" id="Mesh_wheel"]
+top_radius = 0.35
+bottom_radius = 0.35
+height = 0.28
+radial_segments = 12
+
+[sub_resource type="StandardMaterial3D" id="Mat_nose"]
+albedo_color = Color(0.95, 0.85, 0.25, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_nose"]
+size = Vector3(0.35, 0.12, 0.12)
+
+[node name="PlayerVehicle" type="CharacterBody3D"]
+collision_layer = 2
+collision_mask = 1
+floor_stop_on_slope = true
+script = ExtResource("1_script")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.55, 0)
+shape = SubResource("Shape_body")
+
+[node name="Model" type="Node3D" parent="."]
+
+[node name="Body" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.55, 0)
+material_override = SubResource("Mat_body")
+mesh = SubResource("Mesh_body")
+
+[node name="Cabin" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.05, 0.35)
+material_override = SubResource("Mat_cabin")
+mesh = SubResource("Mesh_cabin")
+
+[node name="NoseMarker" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.7, -2.05)
+material_override = SubResource("Mat_nose")
+mesh = SubResource("Mesh_nose")
+
+[node name="WheelFL" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -0.95, 0.35, -1.2)
+material_override = SubResource("Mat_wheel")
+mesh = SubResource("Mesh_wheel")
+
+[node name="WheelFR" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 0.95, 0.35, -1.2)
+material_override = SubResource("Mat_wheel")
+mesh = SubResource("Mesh_wheel")
+
+[node name="WheelRL" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -0.95, 0.35, 1.2)
+material_override = SubResource("Mat_wheel")
+mesh = SubResource("Mesh_wheel")
+
+[node name="WheelRR" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 0.95, 0.35, 1.2)
+material_override = SubResource("Mat_wheel")
+mesh = SubResource("Mesh_wheel")
+
+[node name="ChaseCamera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.9396926, 0.3420201, 0, -0.3420201, 0.9396926, 0, 3.2, 7.5)
+current = true
+fov = 70.0

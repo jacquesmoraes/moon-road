@@ -1,4 +1,6 @@
-[gd_scene format=3 uid="uid://bterra_drive_sandbox"]
+[gd_scene load_steps=15 format=3 uid="uid://bterra_drive_sandbox"]
+
+[ext_resource type="PackedScene" uid="uid://bterra_player_vehicle" path="res://scenes/vehicles/PlayerVehicle.tscn" id="1_vehicle"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.28, 0.48, 0.78, 1)
@@ -20,10 +22,10 @@ tonemap_mode = 2
 albedo_color = Color(0.32, 0.36, 0.3, 1)
 
 [sub_resource type="BoxMesh" id="Mesh_ground"]
-size = Vector3(60, 0.2, 60)
+size = Vector3(500, 0.2, 500)
 
 [sub_resource type="BoxShape3D" id="Shape_ground"]
-size = Vector3(60, 0.2, 60)
+size = Vector3(500, 0.2, 500)
 
 [sub_resource type="StandardMaterial3D" id="Mat_ref_1m"]
 albedo_color = Color(0.85, 0.45, 0.18, 1)
@@ -63,7 +65,7 @@ light_energy = 1.15
 
 [node name="TempCamera" type="Camera3D" parent="."]
 transform = Transform3D(0.8660254, -0.25, 0.4330127, 0, 0.8660254, 0.5, -0.5, -0.4330127, 0.75, 6, 4.5, 10)
-current = true
+current = false
 fov = 70.0
 
 [node name="Ground" type="StaticBody3D" parent="."]
@@ -96,3 +98,6 @@ mesh = SubResource("Mesh_2m_pole")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.125, 3)
 material_override = SubResource("Mat_ref_lane")
 mesh = SubResource("Mesh_lane_width")
+
+[node name="PlayerVehicle" parent="." instance=ExtResource("1_vehicle")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 12)
