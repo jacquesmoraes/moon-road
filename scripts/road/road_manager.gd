@@ -89,10 +89,15 @@ func sample_road(world_pos: Vector3, look_ahead_distance: float = 12.0) -> Dicti
 		if not seg.has_method("project_on_centerline"):
 			continue
 		var proj: Dictionary = seg.call("project_on_centerline", world_pos)
-		var lateral: float = absf(float(proj.get("lateral", 999.0)))
+		var point: Vector3 = proj.get("point", world_pos)
+		var delta := world_pos - point
+		delta.y = 0.0
+		# Planar distance to the clamped centerline point — not lateral alone.
+		# Past-end projections on rear segments have small lateral but large along-track error.
+		var score := delta.length()
 		var t: float = float(proj.get("t", 0.5))
-		var along_penalty := 0.0 if (t >= 0.0 and t <= 1.0) else absf(t - clampf(t, 0.0, 1.0)) * 100.0
-		var score := lateral + along_penalty
+		if t <= 0.001 or t >= 0.999:
+			score += 2.5
 		if score < best_score:
 			best_score = score
 			best = seg
