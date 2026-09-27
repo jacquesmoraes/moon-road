@@ -24,6 +24,19 @@ Current slice: **drivable placeholder vehicle** in a lit development sandbox. No
 
 Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`.
 
+### Camera (third-person follow)
+
+On `VehicleCameraController` (inside `PlayerVehicle.tscn`):
+
+| Export | Role |
+|--------|------|
+| `follow_distance` | How far behind the car |
+| `follow_height` | How high above the car |
+| `follow_smoothing` | Position catch-up (higher = snappier) |
+| `rotation_speed` | How fast the chase yaw follows turns (higher = snappier) |
+
+Camera logic lives in `scripts/vehicles/vehicle_camera_controller.gd` (not in the vehicle script) so more modes can be added later.
+
 ### Headless checks
 
 ```bash
@@ -48,5 +61,6 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 
 - Dev main: `scenes/test/DrivingSandbox.tscn` — ground, sky, lighting, scale refs, `PlayerVehicle`
 - Vehicle: `scenes/vehicles/PlayerVehicle.tscn` + `scripts/vehicles/player_vehicle.gd` (arcade `CharacterBody3D`, primitives only)
+- Camera: `scripts/vehicles/vehicle_camera_controller.gd` — smooth third-person follow (`VehicleCameraController`)
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: infinite road, fuel, damage, upgrades, inventory, save, quests, UI
+- Not implemented yet: multi-camera switching, cockpit, cinematic, infinite road, fuel, damage, upgrades, inventory, save, quests, UI

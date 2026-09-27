@@ -12,8 +12,10 @@ var _phase: int = PHASE_ACCEL
 var _phase_time: float = 0.0
 var _elapsed: float = 0.0
 var _vehicle: CharacterBody3D
+var _camera_rig: Node3D
 var _max_abs_speed: float = 0.0
 var _samples: int = 0
+var _camera_follow_ok: bool = false
 
 
 func _initialize() -> void:
@@ -30,6 +32,12 @@ func _begin() -> void:
 	_vehicle = root.find_child("PlayerVehicle", true, false) as CharacterBody3D
 	if _vehicle == null:
 		push_error("drive_smoke: PlayerVehicle not found")
+		quit(1)
+		return
+
+	_camera_rig = root.find_child("VehicleCameraController", true, false) as Node3D
+	if _camera_rig == null:
+		push_error("drive_smoke: VehicleCameraController not found")
 		quit(1)
 		return
 
@@ -87,6 +95,16 @@ func _on_physics_frame() -> void:
 		quit(1)
 		return
 
+	if _camera_rig != null and is_instance_valid(_camera_rig):
+		if not _camera_rig.global_position.is_finite():
+			push_error("drive_smoke: camera unstable at t=%.2f pos=%s" % [_elapsed, _camera_rig.global_position])
+			quit(1)
+			return
+		var cam_dist := _camera_rig.global_position.distance_to(_vehicle.global_position)
+		# Follow camera should stay near the configured distance/height band, not glued to origin.
+		if _elapsed > 1.0 and cam_dist > 1.5 and cam_dist < 20.0:
+			_camera_follow_ok = true
+
 	match _phase:
 		PHASE_ACCEL:
 			if _phase_time >= 3.0:
@@ -134,5 +152,14 @@ func _finish() -> void:
 		quit(1)
 		return
 
-	print("drive_smoke: OK elapsed=%.1fs samples=%d pos=%s max_abs_speed=%.2f" % [_elapsed, _samples, origin, _max_abs_speed])
+	if not _camera_follow_ok:
+		push_error("drive_smoke: camera did not follow vehicle in expected range")
+		quit(1)
+		return
+
+	var cam_pos := _camera_rig.global_position if _camera_rig else Vector3.ZERO
+	print(
+		"drive_smoke: OK elapsed=%.1fs samples=%d pos=%s max_abs_speed=%.2f cam=%s"
+		% [_elapsed, _samples, origin, _max_abs_speed, cam_pos]
+	)
 	quit(0)

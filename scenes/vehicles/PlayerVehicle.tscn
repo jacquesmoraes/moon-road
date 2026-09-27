@@ -1,6 +1,7 @@
-[gd_scene load_steps=10 format=3 uid="uid://bterra_player_vehicle"]
+[gd_scene load_steps=11 format=3 uid="uid://bterra_player_vehicle"]
 
 [ext_resource type="Script" path="res://scripts/vehicles/player_vehicle.gd" id="1_script"]
+[ext_resource type="Script" path="res://scripts/vehicles/vehicle_camera_controller.gd" id="2_camera"]
 
 [sub_resource type="BoxShape3D" id="Shape_body"]
 size = Vector3(1.8, 0.7, 4.0)
@@ -79,7 +80,13 @@ transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 0.95, 0.35, 1.2)
 material_override = SubResource("Mat_wheel")
 mesh = SubResource("Mesh_wheel")
 
-[node name="ChaseCamera" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.9396926, 0.3420201, 0, -0.3420201, 0.9396926, 0, 3.2, 7.5)
+[node name="VehicleCameraController" type="Node3D" parent="."]
+script = ExtResource("2_camera")
+follow_distance = 7.5
+follow_height = 3.2
+follow_smoothing = 5.5
+rotation_speed = 3.2
+
+[node name="Camera3D" type="Camera3D" parent="VehicleCameraController"]
 current = true
 fov = 70.0
