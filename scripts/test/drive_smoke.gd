@@ -1,12 +1,16 @@
 extends SceneTree
-## Headless smoke: road-follow autopilot + cruise; recycle/recenter remain stable.
+## Headless smoke: Travel Mode (cruise + road-follow); recycle/recenter remain stable.
 
 const PHASE_ACCEL := 0
-const PHASE_ENGAGE_AUTOPILOT := 1
+const PHASE_ENGAGE_TRAVEL := 1
 const PHASE_HOLD_SETTLE := 2
 const PHASE_HOLD_SAMPLE := 3
 const PHASE_LONG_DRIVE := 4
 const PHASE_DONE := 5
+
+## DrivingModeController.Mode.TRAVEL_MODE
+const MODE_TRAVEL := 2
+const MODE_MANUAL := 0
 
 const HOLD_SETTLE_SEC := 3.0
 const HOLD_SAMPLE_SEC := 6.0
@@ -16,6 +20,7 @@ var _phase: int = PHASE_ACCEL
 var _phase_time: float = 0.0
 var _elapsed: float = 0.0
 var _vehicle: CharacterBody3D
+var _mode_controller: Node
 var _autopilot: Node
 var _camera_rig: Node3D
 var _road_manager: Node
@@ -55,6 +60,12 @@ func _begin() -> void:
 		quit(1)
 		return
 
+	_mode_controller = _vehicle.get_node_or_null("DrivingModeController")
+	if _mode_controller == null:
+		push_error("drive_smoke: DrivingModeController not found")
+		quit(1)
+		return
+
 	_autopilot = _vehicle.get_node_or_null("RoadFollowAutopilot")
 	if _autopilot == null:
 		_autopilot = root.find_child("RoadFollowAutopilot", true, false)
@@ -88,6 +99,11 @@ func _begin() -> void:
 	physics_frame.connect(_on_physics_frame)
 
 
+func _engage_travel_mode() -> void:
+	if _mode_controller.has_method("set_mode"):
+		_mode_controller.call("set_mode", MODE_TRAVEL)
+
+
 func _set_phase(phase: int) -> void:
 	Input.action_release("vehicle_accelerate")
 	Input.action_release("vehicle_brake")
@@ -96,18 +112,18 @@ func _set_phase(phase: int) -> void:
 	Input.action_release("vehicle_cruise_toggle")
 	Input.action_release("vehicle_autopilot_toggle")
 	Input.action_release("vehicle_autopilot_cancel")
+	Input.action_release("vehicle_travel_mode_toggle")
+	Input.action_release("vehicle_travel_mode_cancel")
 	_phase = phase
 	_phase_time = 0.0
 
 	match phase:
 		PHASE_ACCEL:
 			Input.action_press("vehicle_accelerate")
-		PHASE_ENGAGE_AUTOPILOT:
-			if _autopilot.has_method("set_autopilot_active"):
-				_autopilot.call("set_autopilot_active", true)
+		PHASE_ENGAGE_TRAVEL:
+			_engage_travel_mode()
 		PHASE_HOLD_SETTLE, PHASE_HOLD_SAMPLE, PHASE_LONG_DRIVE:
-			if _autopilot.has_method("set_autopilot_active"):
-				_autopilot.call("set_autopilot_active", true)
+			_engage_travel_mode()
 		PHASE_DONE:
 			_finish()
 
@@ -156,8 +172,8 @@ func _on_physics_frame() -> void:
 	match _phase:
 		PHASE_ACCEL:
 			if _phase_time >= 2.5:
-				_set_phase(PHASE_ENGAGE_AUTOPILOT)
-		PHASE_ENGAGE_AUTOPILOT:
+				_set_phase(PHASE_ENGAGE_TRAVEL)
+		PHASE_ENGAGE_TRAVEL:
 			if _phase_time >= 0.1:
 				_set_phase(PHASE_HOLD_SETTLE)
 		PHASE_HOLD_SETTLE:
@@ -185,13 +201,24 @@ func _finish() -> void:
 	var planar := Vector3(origin.x, 0.0, origin.z).length()
 	var recenter_distance := float(_recenter.get("recenter_distance"))
 
+	var mode_name := str(_mode_controller.call("get_mode_name"))
+	if mode_name != "TRAVEL_MODE":
+		push_error("drive_smoke: expected TRAVEL_MODE, got %s" % mode_name)
+		quit(1)
+		return
+
+	if not bool(_vehicle.call("is_travel_mode")):
+		push_error("drive_smoke: vehicle.is_travel_mode false")
+		quit(1)
+		return
+
 	if not bool(_autopilot.call("is_autopilot_active")):
-		push_error("drive_smoke: autopilot inactive at end")
+		push_error("drive_smoke: autopilot inactive under Travel Mode")
 		quit(1)
 		return
 
 	if not bool(_vehicle.call("is_cruise_control_active")):
-		push_error("drive_smoke: cruise inactive under autopilot")
+		push_error("drive_smoke: cruise inactive under Travel Mode")
 		quit(1)
 		return
 
@@ -211,7 +238,7 @@ func _finish() -> void:
 		quit(1)
 		return
 
-	# Stay well inside 10 m roadway during sampled autopilot stretch.
+	# Stay well inside 10 m roadway during sampled Travel Mode stretch.
 	if _sample_abs_x_max > 2.5 or _max_abs_x > 4.0:
 		push_error("drive_smoke: left lane center too far (sample|x|=%.2f max|x|=%.2f)" % [_sample_abs_x_max, _max_abs_x])
 		quit(1)
@@ -237,8 +264,23 @@ func _finish() -> void:
 		quit(1)
 		return
 
+	# Immediate cancel path: Travel Mode → MANUAL via API.
+	_mode_controller.call("set_mode", MODE_MANUAL)
+	if str(_mode_controller.call("get_mode_name")) != "MANUAL":
+		push_error("drive_smoke: cancel did not return to MANUAL")
+		quit(1)
+		return
+	if bool(_autopilot.call("is_autopilot_active")):
+		push_error("drive_smoke: autopilot still active after cancel")
+		quit(1)
+		return
+	if bool(_vehicle.call("is_cruise_control_active")):
+		push_error("drive_smoke: cruise still active after cancel")
+		quit(1)
+		return
+
 	print(
-		"drive_smoke: OK elapsed=%.1fs autopilot ON cruise_mean=%.2f span=%.2f max_|x|=%.2f recenters=%d recycles=%d journey=%.3f"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|x|=%.2f recenters=%d recycles=%d journey=%.3f cancel=MANUAL"
 		% [_elapsed, mean_speed, speed_span, _max_abs_x, recenters, recycles, journey_km]
 	)
 	quit(0)

@@ -1,5 +1,6 @@
 extends CanvasLayer
 ## Development-only driving HUD. Reads vehicle/journey public data; never controls the vehicle.
+## In TRAVEL_MODE, shows only essential contemplative readouts.
 
 @export var vehicle_path: NodePath = NodePath("../PlayerVehicle")
 @export var show_fps: bool = true
@@ -25,6 +26,42 @@ func _process(_delta: float) -> void:
 	if _journey == null:
 		_journey = get_node_or_null("/root/JourneySystem")
 
+	var travel_mode := false
+	if _vehicle.has_method("is_travel_mode"):
+		travel_mode = bool(_vehicle.call("is_travel_mode"))
+
+	if travel_mode:
+		_label.text = "\n".join(_build_travel_mode_lines())
+	else:
+		_label.text = "\n".join(_build_full_lines())
+
+
+func _build_travel_mode_lines() -> PackedStringArray:
+	var speed_kmh := 0.0
+	if _vehicle.has_method("get_speed_kmh"):
+		speed_kmh = float(_vehicle.call("get_speed_kmh"))
+
+	var current_km := 0.0
+	var remaining_km := 384400.0
+	if _journey != null:
+		current_km = float(_journey.call("get_current_distance_km"))
+		remaining_km = float(_journey.call("get_remaining_distance_km"))
+
+	var target_kmh := 0.0
+	if _vehicle.has_method("get_cruise_target_speed_kmh"):
+		target_kmh = float(_vehicle.call("get_cruise_target_speed_kmh"))
+
+	var lines: PackedStringArray = [
+		"TRAVEL MODE",
+		"Journey: %s km" % _format_journey_km(current_km),
+		"Remaining: %s km" % _format_journey_km(remaining_km),
+		"Speed: %.0f / %.0f km/h" % [speed_kmh, target_kmh],
+		"Cancel: V / T / X / Esc / brake / steer",
+	]
+	return lines
+
+
+func _build_full_lines() -> PackedStringArray:
 	var speed_kmh := 0.0
 	if _vehicle.has_method("get_speed_kmh"):
 		speed_kmh = float(_vehicle.call("get_speed_kmh"))
@@ -48,6 +85,7 @@ func _process(_delta: float) -> void:
 
 	var lines: PackedStringArray = [
 		"DEV HUD",
+		"Mode: %s" % _format_driving_mode(),
 		"Journey: %s / %s km" % [_format_journey_km(current_km), _format_journey_km(total_km)],
 		"Remaining: %s km (%.4f%%)" % [_format_journey_km(remaining_km), progress * 100.0],
 		"Phys→Journey scale: %.3f" % scale,
@@ -65,7 +103,15 @@ func _process(_delta: float) -> void:
 	if show_fps:
 		lines.append("FPS: %d" % Engine.get_frames_per_second())
 
-	_label.text = "\n".join(lines)
+	return lines
+
+
+func _format_driving_mode() -> String:
+	if _vehicle == null:
+		return "n/a"
+	if _vehicle.has_method("get_driving_mode_name"):
+		return str(_vehicle.call("get_driving_mode_name"))
+	return "MANUAL"
 
 
 func _format_cruise_state() -> String:

@@ -1,5 +1,6 @@
 extends CharacterBody3D
 ## Arcade-style player vehicle. Light feel, not a physics sim.
+## Assisted driving state lives in DrivingModeController (MANUAL / CRUISE / TRAVEL_MODE).
 
 @export var acceleration: float = 18.0
 @export var braking: float = 32.0
@@ -7,7 +8,7 @@ extends CharacterBody3D
 @export var steering_strength: float = 2.4
 @export var drag: float = 5.0
 
-## Target hold speed for cruise control (km/h). Clamped to max_speed in m/s.
+## Target hold speed for cruise / travel mode (km/h). Clamped to max_speed in m/s.
 @export var cruise_target_speed_kmh: float = 60.0
 ## Speed error (m/s) inside which cruise holds without correcting.
 @export var cruise_speed_deadzone: float = 0.25
@@ -16,9 +17,11 @@ extends CharacterBody3D
 
 ## Signed forward speed along local -Z (positive = forward).
 var _speed: float = 0.0
+## Legacy flag kept in sync by DrivingModeController / set_cruise_control_active.
 var _cruise_active: bool = false
 var _steer_override_enabled: bool = false
 var _steer_override: float = 0.0
+var _mode_controller: Node
 
 const GRAVITY: float = 24.0
 const REVERSE_SPEED_FACTOR: float = 0.4
@@ -26,8 +29,13 @@ const STEER_SPEED_REF: float = 8.0
 const MS_TO_KMH: float = 3.6
 
 
+func _ready() -> void:
+	_mode_controller = get_node_or_null("DrivingModeController")
+
+
 func _physics_process(delta: float) -> void:
-	if Input.is_action_just_pressed("vehicle_cruise_toggle"):
+	# Cruise / travel toggles are owned by DrivingModeController when present.
+	if _mode_controller == null and Input.is_action_just_pressed("vehicle_cruise_toggle"):
 		_toggle_cruise_control()
 
 	var accel_input := Input.get_action_strength("vehicle_accelerate")
@@ -63,23 +71,28 @@ func _physics_process(delta: float) -> void:
 		_speed = 0.0
 		velocity = Vector3.ZERO
 		_cruise_active = false
+		if _mode_controller != null and _mode_controller.has_method("set_mode"):
+			_mode_controller.call("set_mode", 0)  # MANUAL
 
 
 func _toggle_cruise_control() -> void:
 	if _cruise_active:
 		_cruise_active = false
 		return
-	# Cruise only engages for forward travel toward a positive target.
 	if get_cruise_target_speed_ms() <= 0.05:
 		return
 	_cruise_active = true
 
 
+func _wants_speed_hold() -> bool:
+	if _mode_controller != null and _mode_controller.has_method("is_speed_hold_active"):
+		return bool(_mode_controller.call("is_speed_hold_active"))
+	return _cruise_active
+
+
 func _apply_longitudinal(accel_input: float, brake_input: float, delta: float) -> void:
-	# Manual brake always cancels cruise, then applies normal braking/reverse.
 	if brake_input > 0.0:
-		if _cruise_active:
-			_cruise_active = false
+		_cruise_active = false
 		if _speed > 0.15:
 			_speed -= braking * brake_input * delta
 			if _speed < 0.0:
@@ -89,8 +102,7 @@ func _apply_longitudinal(accel_input: float, brake_input: float, delta: float) -
 		_clamp_speed()
 		return
 
-	# Cruise holds target when the player is not manually accelerating.
-	if _cruise_active and accel_input <= 0.0:
+	if _wants_speed_hold() and accel_input <= 0.0:
 		_apply_cruise_hold(delta)
 		_clamp_speed()
 		return
@@ -111,7 +123,6 @@ func _apply_cruise_hold(delta: float) -> void:
 	var target_ms := get_cruise_target_speed_ms()
 	var error := target_ms - _speed
 
-	# Inside deadzone: hold speed (skip drag so we don't oscillate around the set point).
 	if absf(error) <= cruise_speed_deadzone:
 		return
 
@@ -119,7 +130,6 @@ func _apply_cruise_hold(delta: float) -> void:
 		var throttle := clampf(error * cruise_control_gain, 0.0, 1.0)
 		_speed += acceleration * throttle * delta
 	else:
-		# Smooth settle down to target (still gentler than full manual braking).
 		var brake_str := clampf(-error * cruise_control_gain, 0.15, 1.0)
 		_speed -= braking * 0.65 * brake_str * delta
 		if _speed < 0.0:
@@ -135,7 +145,6 @@ func _apply_steering(steer_input: float, delta: float) -> void:
 	if is_zero_approx(steer_input) or is_zero_approx(_speed):
 		return
 
-	# Stronger turn as speed rises; weak near standstill (no spin-in-place).
 	var speed_factor := clampf(absf(_speed) / STEER_SPEED_REF, 0.0, 1.0)
 	var yaw := -steer_input * steering_strength * speed_factor * signf(_speed) * delta
 	rotate_y(yaw)
@@ -145,13 +154,12 @@ func get_signed_speed() -> float:
 	return _speed
 
 
-## Speed in km/h (signed: negative while reversing). Assumes 1 world unit = 1 meter.
 func get_speed_kmh() -> float:
 	return _speed * MS_TO_KMH
 
 
 func is_cruise_control_active() -> bool:
-	return _cruise_active
+	return _wants_speed_hold()
 
 
 func get_cruise_target_speed_kmh() -> float:
@@ -172,7 +180,6 @@ func set_cruise_control_active(active: bool) -> void:
 		_cruise_active = false
 
 
-## Used by RoadFollowAutopilot. When enabled, replaces manual steer axis.
 func set_steer_override(value: float, enabled: bool) -> void:
 	_steer_override = clampf(value, -1.0, 1.0)
 	_steer_override_enabled = enabled
@@ -180,3 +187,17 @@ func set_steer_override(value: float, enabled: bool) -> void:
 
 func is_steer_override_enabled() -> bool:
 	return _steer_override_enabled
+
+
+func get_driving_mode_name() -> String:
+	if _mode_controller != null and _mode_controller.has_method("get_mode_name"):
+		return str(_mode_controller.call("get_mode_name"))
+	if _wants_speed_hold():
+		return "CRUISE"
+	return "MANUAL"
+
+
+func is_travel_mode() -> bool:
+	if _mode_controller != null and _mode_controller.has_method("is_travel_mode"):
+		return bool(_mode_controller.call("is_travel_mode"))
+	return false

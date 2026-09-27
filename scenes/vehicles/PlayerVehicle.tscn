@@ -1,9 +1,10 @@
-[gd_scene load_steps=13 format=3 uid="uid://bterra_player_vehicle"]
+[gd_scene load_steps=14 format=3 uid="uid://bterra_player_vehicle"]
 
 [ext_resource type="Script" path="res://scripts/vehicles/player_vehicle.gd" id="1_script"]
 [ext_resource type="Script" path="res://scripts/vehicles/vehicle_camera_controller.gd" id="2_camera"]
 [ext_resource type="Script" path="res://scripts/vehicles/journey_distance_reporter.gd" id="3_journey"]
 [ext_resource type="Script" path="res://scripts/vehicles/road_follow_autopilot.gd" id="4_autopilot"]
+[ext_resource type="Script" path="res://scripts/vehicles/driving_mode_controller.gd" id="5_mode"]
 
 [sub_resource type="BoxShape3D" id="Shape_body"]
 size = Vector3(1.8, 0.7, 4.0)
@@ -103,4 +104,10 @@ look_ahead_distance = 14.0
 lateral_gain = 0.28
 heading_gain = 1.35
 pursuit_gain = 1.1
-enable_cruise_when_active = true
+enable_cruise_when_active = false
+handle_input = false
+
+[node name="DrivingModeController" type="Node" parent="."]
+script = ExtResource("5_mode")
+vehicle_path = NodePath("..")
+autopilot_path = NodePath("../RoadFollowAutopilot")

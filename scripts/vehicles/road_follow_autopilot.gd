@@ -1,7 +1,7 @@
 extends Node
 class_name RoadFollowAutopilot
 ## Keeps the vehicle centered on RoadManager segments. Not a generic pathfinder.
-## Enables cruise for speed; steers via vehicle steer override. Cancel anytime via input.
+## Steering only — DrivingModeController owns when this is enabled (Travel Mode).
 
 @export var vehicle_path: NodePath
 @export var road_manager_path: NodePath = NodePath("../../RoadManager")
@@ -9,7 +9,10 @@ class_name RoadFollowAutopilot
 @export var lateral_gain: float = 0.28
 @export var heading_gain: float = 1.35
 @export var pursuit_gain: float = 1.1
-@export var enable_cruise_when_active: bool = true
+## Kept for compatibility; mode controller sets this false and owns cruise.
+@export var enable_cruise_when_active: bool = false
+## When false, input toggles are owned by DrivingModeController.
+@export var handle_input: bool = false
 
 var _vehicle: Node3D
 var _road_manager: Node
@@ -21,16 +24,17 @@ func _ready() -> void:
 
 
 func _physics_process(_delta: float) -> void:
-	if Input.is_action_just_pressed("vehicle_autopilot_toggle"):
-		set_autopilot_active(not _active)
-	if Input.is_action_just_pressed("vehicle_autopilot_cancel"):
-		set_autopilot_active(false)
+	if handle_input:
+		if Input.is_action_just_pressed("vehicle_autopilot_toggle"):
+			set_autopilot_active(not _active)
+		if Input.is_action_just_pressed("vehicle_autopilot_cancel"):
+			set_autopilot_active(false)
 
 	if not _active:
 		return
 
-	# Immediate cancel on manual intervene.
-	if (
+	# Safety: if somehow active without mode controller, still cancel on intervene.
+	if handle_input and (
 		Input.get_action_strength("vehicle_brake") > 0.1
 		or absf(Input.get_axis("vehicle_left", "vehicle_right")) > 0.1
 	):
@@ -98,7 +102,6 @@ func _compute_steer(sample: Dictionary) -> float:
 	if road_forward.length_squared() > 0.0001:
 		road_forward = road_forward.normalized()
 
-	# Positive cross.y => road forward is to the right of vehicle forward => steer right.
 	var heading_err: float = vehicle_forward.x * road_forward.z - vehicle_forward.z * road_forward.x
 
 	var to_look: Vector3 = look_at - _vehicle.global_position
@@ -112,7 +115,6 @@ func _compute_steer(sample: Dictionary) -> float:
 			vehicle_right = vehicle_right.normalized()
 			pursuit = vehicle_right.dot(to_look)
 
-	# lateral > 0 => right of center => steer left (negative).
 	var steer: float = (-lateral * lateral_gain) + (heading_err * heading_gain) + (pursuit * pursuit_gain)
 	return clampf(steer, -1.0, 1.0)
 

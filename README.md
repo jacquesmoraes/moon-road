@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **drivable placeholder vehicle** in a lit development sandbox. No fuel, road, UI, or other gameplay systems yet.
+Current slice: **Travel Mode** — contemplative autopilot so the car can drive the road while you leave the game running. Sandbox still has no fuel, cinematic cameras, or final UI.
 
 ## Requirements
 
@@ -18,16 +18,26 @@ Current slice: **drivable placeholder vehicle** in a lit development sandbox. No
 | Action | Keys |
 |--------|------|
 | `vehicle_accelerate` | W / Up |
-| `vehicle_brake` (brake / reverse; cancels cruise) | S / Down |
-| `vehicle_left` | A / Left |
-| `vehicle_right` | D / Right |
-| `vehicle_cruise_toggle` | C |
-| `vehicle_autopilot_toggle` | T |
-| `vehicle_autopilot_cancel` | X / Esc |
+| `vehicle_brake` (cancels assisted modes) | S / Down |
+| `vehicle_left` / `vehicle_right` | A·D / arrows (steer cancels Travel Mode) |
+| `vehicle_cruise_toggle` | C — MANUAL↔CRUISE; from Travel Mode drops to CRUISE |
+| `vehicle_travel_mode_toggle` | V — enter/exit Travel Mode |
+| `vehicle_autopilot_toggle` | T — Travel Mode shortcut (same as V while mode controller is present) |
+| `vehicle_travel_mode_cancel` / `vehicle_autopilot_cancel` | X / Esc |
 
 Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`, plus cruise `cruise_target_speed_kmh`, `cruise_speed_deadzone`, `cruise_control_gain`.
 
-Road-follow autopilot (`RoadFollowAutopilot`): samples `RoadManager.sample_road()` (centerline lateral + look-ahead). Enables cruise for speed and steers via `set_steer_override`. Cancel with X/Esc, brake, or manual steer.
+### Driving states (`DrivingModeController`)
+
+| Mode | Speed | Steering |
+|------|-------|----------|
+| `MANUAL` | player | player |
+| `CRUISE` | hold target km/h | player |
+| `TRAVEL_MODE` | hold target km/h | `RoadFollowAutopilot` road-center |
+
+Travel Mode enables cruise + road-follow together. Cancel immediately with V/T toggle, X/Esc, brake, or manual steer. No cinematic camera suite yet — chase cam stays as-is.
+
+`RoadFollowAutopilot` only steers (`set_steer_override`); the mode controller owns when it is on.
 
 ### Camera (third-person follow)
 
@@ -44,7 +54,7 @@ Camera logic lives in `scripts/vehicles/vehicle_camera_controller.gd` (not in th
 
 ### Dev HUD
 
-`DrivingDebugHUD` (top-left debug labels): journey `current / 384.400 km`, remaining, speed km/h, position, controls, optional FPS. Reads `JourneySystem` + vehicle public APIs only.
+`DrivingDebugHUD` (top-left): full debug in MANUAL/CRUISE (mode, journey, cruise, autopilot, pos, controls, FPS). In **TRAVEL_MODE** it shrinks to essentials — Travel Mode label, journey km, remaining, speed/target, cancel hint.
 
 ### Journey (logical distance)
 
@@ -89,11 +99,12 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 ## Notes
 
 - Dev main: `scenes/test/DrivingSandbox.tscn` — road pool, recenter, `PlayerVehicle`, `DrivingDebugHUD`
-- Vehicle: cruise + `RoadFollowAutopilot` (road-center steering; not Travel Mode)
-- Camera: `VehicleCameraController` — smooth third-person follow
+- Driving modes: `DrivingModeController` — MANUAL / CRUISE / TRAVEL_MODE
+- Vehicle: cruise speed hold + `RoadFollowAutopilot` (steering under Travel Mode)
+- Camera: `VehicleCameraController` — smooth third-person follow (no Travel Mode cinematics yet)
 - Journey: `JourneySystem` + distance reporter
 - Road: `RoadSegment` + `RoadManager` (fixed pool recycle)
 - World: `WorldOriginRecenter`
-- Dev HUD: journey / cruise / autopilot / debug readouts
+- Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: Travel Mode camera suite, curved procedural roads, fuel, damage, upgrades, final UI, inventory, save, quests
+- Not implemented yet: Travel Mode cinematic cameras, curved procedural roads, fuel, damage, upgrades, final UI, inventory, save, quests
