@@ -16,6 +16,10 @@ run/main_scene="res://scenes/test/DrivingSandbox.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
+[autoload]
+
+JourneySystem="*res://autoload/journey_system.gd"
+
 [input]
 
 vehicle_accelerate={

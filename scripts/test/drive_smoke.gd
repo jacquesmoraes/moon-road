@@ -18,6 +18,7 @@ var _samples: int = 0
 var _camera_follow_ok: bool = false
 var _saw_speed_kmh: bool = false
 var _max_speed_kmh: float = 0.0
+var _journey: Node
 
 
 func _initialize() -> void:
@@ -42,6 +43,13 @@ func _begin() -> void:
 		push_error("drive_smoke: VehicleCameraController not found")
 		quit(1)
 		return
+
+	_journey = root.get_node_or_null("JourneySystem")
+	if _journey == null:
+		push_error("drive_smoke: JourneySystem autoload missing")
+		quit(1)
+		return
+	_journey.call("reset_journey")
 
 	_set_phase(PHASE_ACCEL)
 	physics_frame.connect(_on_physics_frame)
@@ -178,14 +186,31 @@ func _finish() -> void:
 		return
 
 	var hud_label := hud.find_child("Label", true, false) as Label
-	if hud_label == null or not ("km/h" in hud_label.text):
-		push_error("drive_smoke: HUD label missing km/h text (got: %s)" % (hud_label.text if hud_label else "<null>"))
+	if hud_label == null or not ("km/h" in hud_label.text) or not ("Journey:" in hud_label.text):
+		push_error("drive_smoke: HUD label missing journey/km/h text (got: %s)" % (hud_label.text if hud_label else "<null>"))
+		quit(1)
+		return
+
+	var journey_km := float(_journey.call("get_current_distance_km"))
+	# ~48s of driving at up to 24 m/s should accumulate well above a few meters → km.
+	if journey_km < 0.05:
+		push_error("drive_smoke: journey distance too low (%.6f km); physical travel not feeding JourneySystem" % journey_km)
+		quit(1)
+		return
+
+	# Horizontal path length in km should be in the same ballpark as displacement magnitude.
+	var displacement_km := origin.distance_to(Vector3(0.0, 0.2, 12.0)) / 1000.0
+	if journey_km + 0.001 < displacement_km * 0.5:
+		push_error(
+			"drive_smoke: journey km incoherent with displacement (journey=%.6f displacement=%.6f)"
+			% [journey_km, displacement_km]
+		)
 		quit(1)
 		return
 
 	var cam_pos := _camera_rig.global_position if _camera_rig else Vector3.ZERO
 	print(
-		"drive_smoke: OK elapsed=%.1fs samples=%d pos=%s max_abs_speed=%.2f max_kmh=%.1f cam=%s"
-		% [_elapsed, _samples, origin, _max_abs_speed, _max_speed_kmh, cam_pos]
+		"drive_smoke: OK elapsed=%.1fs samples=%d pos=%s max_abs_speed=%.2f max_kmh=%.1f journey_km=%.6f cam=%s"
+		% [_elapsed, _samples, origin, _max_abs_speed, _max_speed_kmh, journey_km, cam_pos]
 	)
 	quit(0)

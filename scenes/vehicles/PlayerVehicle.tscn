@@ -1,7 +1,8 @@
-[gd_scene load_steps=11 format=3 uid="uid://bterra_player_vehicle"]
+[gd_scene load_steps=12 format=3 uid="uid://bterra_player_vehicle"]
 
 [ext_resource type="Script" path="res://scripts/vehicles/player_vehicle.gd" id="1_script"]
 [ext_resource type="Script" path="res://scripts/vehicles/vehicle_camera_controller.gd" id="2_camera"]
+[ext_resource type="Script" path="res://scripts/vehicles/journey_distance_reporter.gd" id="3_journey"]
 
 [sub_resource type="BoxShape3D" id="Shape_body"]
 size = Vector3(1.8, 0.7, 4.0)
@@ -90,3 +91,6 @@ rotation_speed = 3.2
 [node name="Camera3D" type="Camera3D" parent="VehicleCameraController"]
 current = true
 fov = 70.0
+
+[node name="JourneyDistanceReporter" type="Node" parent="."]
+script = ExtResource("3_journey")

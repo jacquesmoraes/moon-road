@@ -39,7 +39,11 @@ Camera logic lives in `scripts/vehicles/vehicle_camera_controller.gd` (not in th
 
 ### Dev HUD
 
-`DrivingDebugHUD` (top-left debug labels in the sandbox): speed km/h, position, control strengths, optional FPS. Decoupled from the vehicle — set `vehicle_path` / toggle `show_fps` on the HUD node.
+`DrivingDebugHUD` (top-left debug labels): journey `current / 384.400 km`, remaining, speed km/h, position, controls, optional FPS. Reads `JourneySystem` + vehicle public APIs only.
+
+### Journey (logical distance)
+
+Autoload `JourneySystem` (`autoload/journey_system.gd`) stores Earth→Moon progress (`total_distance_km = 384400`). Physical travel is reported one-way by `JourneyDistanceReporter` on the vehicle (XZ meters → km via `add_distance`). Independent of UI/camera/road.
 
 ### Headless checks
 
@@ -56,7 +60,7 @@ godot --path . --headless -s res://scripts/test/drive_smoke.gd
 | `scripts/{core,player,vehicles,road,world,ui,test}` | GDScript by domain |
 | `resources/{vehicles,road,world}` | Shared resources / configs |
 | `assets/{models,materials,textures,audio}` | Art and audio |
-| `autoload/` | Future autoload scripts (none registered yet) |
+| `autoload/` | Autoload scripts (`JourneySystem`) |
 | `data/` | Static data files |
 
 Empty directories keep a `.gdkeep` placeholder so Git tracks them.
@@ -66,6 +70,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Dev main: `scenes/test/DrivingSandbox.tscn` — ground, sky, lighting, scale refs, `PlayerVehicle`, `DrivingDebugHUD`
 - Vehicle: `scenes/vehicles/PlayerVehicle.tscn` + `scripts/vehicles/player_vehicle.gd` (arcade `CharacterBody3D`, primitives only)
 - Camera: `scripts/vehicles/vehicle_camera_controller.gd` — smooth third-person follow (`VehicleCameraController`)
+- Journey: `autoload/journey_system.gd` + `scripts/vehicles/journey_distance_reporter.gd`
 - Dev HUD: `scenes/ui/DrivingDebugHUD.tscn` + `scripts/ui/driving_debug_hud.gd`
 - Empty entry: `scenes/core/Main.tscn`
 - Not implemented yet: multi-camera switching, cockpit, cinematic, infinite road, fuel, damage, upgrades, final UI, inventory, save, quests
