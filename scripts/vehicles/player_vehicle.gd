@@ -56,13 +56,21 @@ func _physics_process(delta: float) -> void:
 	else:
 		forward = Vector3.FORWARD
 
-	velocity.x = forward.x * _speed
-	velocity.z = forward.z * _speed
-
-	if not is_on_floor():
-		velocity.y -= GRAVITY * delta
+	if is_on_floor():
+		# Follow gentle road grades instead of pushing horizontally into the slope.
+		var floor_n := get_floor_normal()
+		var along := floor_n.cross(forward.cross(floor_n))
+		if along.length_squared() > 0.0001:
+			along = along.normalized()
+			if along.dot(forward) < 0.0:
+				along = -along
+			velocity = along * _speed
+		else:
+			velocity = Vector3(forward.x, 0.0, forward.z) * _speed
 	else:
-		velocity.y = 0.0
+		velocity.x = forward.x * _speed
+		velocity.z = forward.z * _speed
+		velocity.y -= GRAVITY * delta
 
 	move_and_slide()
 

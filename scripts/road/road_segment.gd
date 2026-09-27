@@ -554,7 +554,8 @@ func _rebuild_box_colliders(
 		mid += right * lateral_offset
 		# Shift from top-surface sample down to box center along local up.
 		mid -= basis.y * (thickness * 0.5)
-		var seg_len := maxf(pa.distance_to(pb) * 1.08, 0.35)
+		# Generous overlap so CharacterBody rides the grade without hitting box ends.
+		var seg_len := maxf(pa.distance_to(pb) * 1.2, 0.5)
 
 		var shape := BoxShape3D.new()
 		shape.size = Vector3(collider_width, thickness, seg_len)
