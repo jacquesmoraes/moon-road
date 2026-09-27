@@ -55,6 +55,11 @@ func _process(_delta: float) -> void:
 		"Pos: (%.1f, %.1f, %.1f)" % [pos.x, pos.y, pos.z],
 		"Controls: A=%.0f  B=%.0f  Steer=%+.0f" % [accel, brake, steer],
 	]
+
+	var recenter := get_tree().current_scene.find_child("WorldOriginRecenter", true, false)
+	if recenter != null and recenter.has_method("get_recenter_count"):
+		lines.append("Origin recenters: %d" % int(recenter.call("get_recenter_count")))
+
 	if show_fps:
 		lines.append("FPS: %d" % Engine.get_frames_per_second())
 

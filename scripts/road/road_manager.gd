@@ -45,6 +45,15 @@ func get_recycle_count() -> int:
 	return _recycle_count
 
 
+## Shift all pooled segments by -[param offset] (world origin recentering).
+func apply_origin_shift(offset: Vector3) -> void:
+	if not offset.is_finite() or offset.length_squared() < 0.0001:
+		return
+	for child in get_children():
+		if child is Node3D:
+			(child as Node3D).global_position -= offset
+
+
 func _resolve_target() -> void:
 	if target_path != NodePath():
 		_target = get_node_or_null(target_path) as Node3D

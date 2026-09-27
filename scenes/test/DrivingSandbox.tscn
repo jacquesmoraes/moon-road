@@ -1,9 +1,10 @@
-[gd_scene load_steps=13 format=3 uid="uid://bterra_drive_sandbox"]
+[gd_scene load_steps=14 format=3 uid="uid://bterra_drive_sandbox"]
 
 [ext_resource type="PackedScene" uid="uid://bterra_player_vehicle" path="res://scenes/vehicles/PlayerVehicle.tscn" id="1_vehicle"]
 [ext_resource type="PackedScene" uid="uid://bterra_driving_debug_hud" path="res://scenes/ui/DrivingDebugHUD.tscn" id="2_hud"]
 [ext_resource type="PackedScene" uid="uid://bterra_road_segment" path="res://scenes/road/RoadSegment.tscn" id="3_road"]
 [ext_resource type="Script" path="res://scripts/road/road_manager.gd" id="4_road_manager"]
+[ext_resource type="Script" path="res://scripts/world/world_origin_recenter.gd" id="5_recenter"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.28, 0.48, 0.78, 1)
@@ -64,6 +65,14 @@ active_segment_count = 8
 segment_length = 40.0
 recycle_behind_distance = 80.0
 initial_first_center_z = 0.0
+
+[node name="WorldOriginRecenter" type="Node" parent="."]
+script = ExtResource("5_recenter")
+target_path = NodePath("../PlayerVehicle")
+road_manager_path = NodePath("../RoadManager")
+recenter_distance = 500.0
+enabled = true
+shift_scale_refs = true
 
 [node name="ScaleRefs" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0, 0)

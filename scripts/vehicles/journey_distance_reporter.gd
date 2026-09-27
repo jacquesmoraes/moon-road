@@ -46,3 +46,9 @@ func _physics_process(_delta: float) -> void:
 		return
 
 	_journey.call("add_physical_distance_meters", meters)
+
+
+## Called when the world is recentered by [param offset] (same vector subtracted from nodes).
+func notify_origin_shifted(offset: Vector3) -> void:
+	if _has_last_position:
+		_last_position -= offset

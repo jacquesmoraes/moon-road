@@ -61,6 +61,8 @@ Autoload `JourneySystem` (`autoload/journey_system.gd`) stores Earth→Moon prog
 
 `RoadManager` (`scripts/road/road_manager.gd`) in DrivingSandbox keeps a **fixed pool** of segments around the player: recycles the rearmost segment to the front (`place_after_exit`). Knobs: `active_segment_count`, `segment_length`, `recycle_behind_distance`, `initial_first_center_z`. No infinite Node growth; no JourneySystem / UI coupling.
 
+`WorldOriginRecenter` (`scripts/world/world_origin_recenter.gd`) shifts vehicle, road pool, and follow camera when planar distance from origin exceeds `recenter_distance` (sandbox default 500). Journey keeps using position deltas (`notify_origin_shifted`); vehicle velocity is preserved.
+
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
@@ -86,6 +88,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Camera: `scripts/vehicles/vehicle_camera_controller.gd` — smooth third-person follow (`VehicleCameraController`)
 - Journey: `autoload/journey_system.gd` + `scripts/vehicles/journey_distance_reporter.gd`
 - Road: `RoadSegment` + `RoadManager` (fixed pool recycle; straight segments only for now)
+- World: `WorldOriginRecenter` — keeps player near origin on long drives
 - Dev HUD: `scenes/ui/DrivingDebugHUD.tscn` + `scripts/ui/driving_debug_hud.gd`
 - Empty entry: `scenes/core/Main.tscn`
 - Not implemented yet: infinite road generation, multi-camera switching, cockpit, cinematic, fuel, damage, upgrades, final UI, inventory, save, quests
