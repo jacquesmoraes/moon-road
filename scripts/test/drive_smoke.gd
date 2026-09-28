@@ -136,11 +136,97 @@ func _begin() -> void:
 		return
 	_journey.call("reset_journey")
 
+	if not _verify_world_regions():
+		return
+
+	# Restore clean journey start after region API probes.
+	_journey.call("reset_journey")
+
 	if _vehicle.has_method("get_cruise_target_speed_ms"):
 		_cruise_target_ms = float(_vehicle.call("get_cruise_target_speed_ms"))
 
 	_set_phase(PHASE_ACCEL)
 	physics_frame.connect(_on_physics_frame)
+
+
+func _verify_world_regions() -> bool:
+	var regions: Node = root.get_node_or_null("WorldRegionSystem")
+	if regions == null:
+		push_error("drive_smoke: WorldRegionSystem missing")
+		quit(1)
+		return false
+	if int(regions.call("get_region_count")) < 7:
+		push_error("drive_smoke: expected >=7 catalog regions")
+		quit(1)
+		return false
+
+	var signal_count := {"n": 0}
+	var on_changed := func(_new_region, _previous_region) -> void:
+		signal_count["n"] = int(signal_count["n"]) + 1
+	regions.region_changed.connect(on_changed)
+
+	# Samples: mid-span + exact boundaries (half-open → next region owns the shared edge).
+	var samples: Array = [
+		[0.0, "ENDLESS_SUMMER"],
+		[20000.0, "ENDLESS_SUMMER"],
+		[40000.0, "CLOUDLINE"],
+		[90000.0, "ORBITAL_BLUE"],
+		[150000.0, "DEEP_VIOLET"],
+		[230000.0, "THE_LONG_NIGHT"],
+		[310000.0, "MOONRISE"],
+		[370000.0, "LUNAR_DESCENT"],
+		[384400.0, "LUNAR_DESCENT"],
+	]
+
+	var expected_emits := 0
+	var last_id := str(regions.call("get_current_region_id"))
+	for sample in samples:
+		var km: float = float(sample[0])
+		var expect_id: String = str(sample[1])
+		_journey.call("set_current_distance_km", km)
+		var got_id := str(regions.call("get_current_region_id"))
+		if got_id != expect_id:
+			push_error("drive_smoke: region at %.1f km got %s want %s" % [km, got_id, expect_id])
+			quit(1)
+			return false
+		var at := regions.call("get_region_at_distance", km)
+		if at == null or str(at.region_id) != expect_id:
+			push_error("drive_smoke: get_region_at_distance mismatch at %.1f" % km)
+			quit(1)
+			return false
+		if got_id != last_id:
+			expected_emits += 1
+			last_id = got_id
+
+	if int(signal_count["n"]) != expected_emits:
+		push_error(
+			"drive_smoke: region_changed emits=%d expected=%d"
+			% [int(signal_count["n"]), expected_emits]
+		)
+		quit(1)
+		return false
+
+	# Same-region distance change must not emit again.
+	var before := int(signal_count["n"])
+	_journey.call("set_current_distance_km", 375000.0)  # still LUNAR_DESCENT
+	_journey.call("set_current_distance_km", 380000.0)
+	if int(signal_count["n"]) != before:
+		push_error("drive_smoke: region_changed fired without region change")
+		quit(1)
+		return false
+
+	var progress := float(regions.call("get_region_progress"))
+	if progress < 0.0 or progress > 1.0:
+		push_error("drive_smoke: region progress out of range %.3f" % progress)
+		quit(1)
+		return false
+
+	regions.region_changed.disconnect(on_changed)
+	print(
+		"drive_smoke: regions OK count=%d emits=%d final=%s progress=%.2f"
+		% [int(regions.call("get_region_count")), expected_emits, last_id, progress]
+	)
+	return true
 
 
 func _engage_travel_mode() -> void:

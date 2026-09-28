@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="WorldRegionCatalog" load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/world_region_catalog.gd" id="1_catalog"]
+[ext_resource type="Resource" path="res://resources/world/regions/endless_summer.tres" id="2_summer"]
+[ext_resource type="Resource" path="res://resources/world/regions/cloudline.tres" id="3_cloud"]
+[ext_resource type="Resource" path="res://resources/world/regions/orbital_blue.tres" id="4_orbital"]
+[ext_resource type="Resource" path="res://resources/world/regions/deep_violet.tres" id="5_violet"]
+[ext_resource type="Resource" path="res://resources/world/regions/the_long_night.tres" id="6_night"]
+[ext_resource type="Resource" path="res://resources/world/regions/moonrise.tres" id="7_moonrise"]
+[ext_resource type="Resource" path="res://resources/world/regions/lunar_descent.tres" id="8_descent"]
+
+[resource]
+script = ExtResource("1_catalog")
+regions = [ExtResource("2_summer"), ExtResource("3_cloud"), ExtResource("4_orbital"), ExtResource("5_violet"), ExtResource("6_night"), ExtResource("7_moonrise"), ExtResource("8_descent")]

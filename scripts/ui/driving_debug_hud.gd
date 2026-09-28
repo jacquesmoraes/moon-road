@@ -9,11 +9,13 @@ extends CanvasLayer
 
 var _vehicle: Node3D
 var _journey: Node
+var _regions: Node
 
 
 func _ready() -> void:
 	_resolve_vehicle()
 	_journey = get_node_or_null("/root/JourneySystem")
+	_regions = get_node_or_null("/root/WorldRegionSystem")
 
 
 func _process(_delta: float) -> void:
@@ -25,6 +27,8 @@ func _process(_delta: float) -> void:
 
 	if _journey == null:
 		_journey = get_node_or_null("/root/JourneySystem")
+	if _regions == null:
+		_regions = get_node_or_null("/root/WorldRegionSystem")
 
 	var travel_mode := false
 	if _vehicle.has_method("is_travel_mode"):
@@ -53,6 +57,7 @@ func _build_travel_mode_lines() -> PackedStringArray:
 
 	var lines: PackedStringArray = [
 		"TRAVEL MODE",
+		"Region: %s" % _format_region_name(),
 		"Journey: %s km" % _format_journey_km(current_km),
 		"Remaining: %s km" % _format_journey_km(remaining_km),
 		"Speed: %.0f / %.0f km/h" % [speed_kmh, target_kmh],
@@ -87,6 +92,7 @@ func _build_full_lines() -> PackedStringArray:
 	var lines: PackedStringArray = [
 		"DEV HUD",
 		"Mode: %s" % _format_driving_mode(),
+		"Region: %s (%.0f%%)" % [_format_region_name(), _format_region_progress() * 100.0],
 		"Camera: %s (M cine · F / Shift+F)" % _format_camera_mode(),
 		"Journey: %s / %s km" % [_format_journey_km(current_km), _format_journey_km(total_km)],
 		"Remaining: %s km (%.4f%%)" % [_format_journey_km(remaining_km), progress * 100.0],
@@ -114,6 +120,20 @@ func _format_driving_mode() -> String:
 	if _vehicle.has_method("get_driving_mode_name"):
 		return str(_vehicle.call("get_driving_mode_name"))
 	return "MANUAL"
+
+
+func _format_region_name() -> String:
+	if _regions != null and _regions.has_method("get_current_region_name"):
+		var name := str(_regions.call("get_current_region_name"))
+		if not name.is_empty():
+			return name
+	return "n/a"
+
+
+func _format_region_progress() -> float:
+	if _regions != null and _regions.has_method("get_region_progress"):
+		return float(_regions.call("get_region_progress"))
+	return 0.0
 
 
 func _format_camera_mode() -> String:

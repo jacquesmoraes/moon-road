@@ -68,7 +68,7 @@ Travel Mode enables cruise + road-follow together. Cancel immediately with V/T t
 
 ### Dev HUD
 
-`DrivingDebugHUD` (top-left): full debug in MANUAL/CRUISE (mode, journey, camera, cruise, autopilot, pos, controls, FPS). In **TRAVEL_MODE** it shrinks to essentials — Travel Mode label, journey km, remaining, speed/target, camera (incl. `CINEMATIC→MODE`), cancel hint.
+`DrivingDebugHUD` (top-left): full debug in MANUAL/CRUISE (mode, **region**, journey, camera, cruise, autopilot, pos, controls, FPS). In **TRAVEL_MODE** it shrinks to essentials — Travel Mode label, **region name**, journey km, remaining, speed/target, camera (incl. `CINEMATIC→MODE`), cancel hint.
 
 ### Journey (logical distance)
 
@@ -83,6 +83,24 @@ Autoload `JourneySystem` (`autoload/journey_system.gd`) stores Earth→Moon prog
 **Scale** (on the `JourneySystem` autoload node): `physical_to_journey_scale` default `1.0` means 1 physical km of scene travel → 1 journey km. Changing it only affects logical progress, not car physics.
 
 `JourneyDistanceReporter` on the vehicle reports physical meters only (`add_physical_distance_meters`); conversion lives solely in `JourneySystem`.
+
+### World regions (logical)
+
+Autoload `WorldRegionSystem` maps `JourneySystem.current_distance_km` → a data-driven `WorldRegion`. Independent of UI, scenery, and road systems — the HUD only *reads* the current name.
+
+| region_id | Span (journey km) |
+|-----------|-------------------|
+| `ENDLESS_SUMMER` | 0 – 40000 |
+| `CLOUDLINE` | 40000 – 90000 |
+| `ORBITAL_BLUE` | 90000 – 150000 |
+| `DEEP_VIOLET` | 150000 – 230000 |
+| `THE_LONG_NIGHT` | 230000 – 310000 |
+| `MOONRISE` | 310000 – 370000 |
+| `LUNAR_DESCENT` | 370000 – 384400 |
+
+**Edit regions without code:** change `.tres` under `resources/world/regions/`, or the list in `resources/world/world_region_catalog.tres`. Spans / names / future stubs (`scenery_density_scale`, `climate_tag`, `visual_tint`, `audio_ambience_tag`, `poi_tags`) live in those resources — not in `JourneySystem`.
+
+API: `get_current_region()`, `get_current_region_name()`, `get_region_progress()`, `get_region_at_distance(km)`. Signal `region_changed` fires **only** when the region identity actually changes (half-open spans; final region includes its end km).
 
 ### Road segments
 
@@ -113,7 +131,7 @@ godot --path . --headless -s res://scripts/test/drive_smoke.gd
 | `scripts/{core,player,vehicles,road,world,ui,test}` | GDScript by domain |
 | `resources/{vehicles,road,world}` | Shared resources / configs |
 | `assets/{models,materials,textures,audio}` | Art and audio |
-| `autoload/` | Autoload scripts (`JourneySystem`) |
+| `autoload/` | Autoload scripts (`JourneySystem`, `WorldRegionSystem`) |
 | `data/` | Static data files |
 
 Empty directories keep a `.gdkeep` placeholder so Git tracks them.
@@ -125,8 +143,9 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Vehicle: cruise speed hold + `RoadFollowAutopilot` (steering under Travel Mode)
 - Camera: `VehicleCameraController` — FOLLOW / FAR / HOOD / PASSENGER / WINDOW + Travel Mode cinematic director
 - Journey: `JourneySystem` + distance reporter
+- Regions: `WorldRegionSystem` + `resources/world/world_region_catalog.tres`
 - Road: `RoadSegment` curve × elevation kinds + `RoadManager` pool recycle
 - World: `WorldOriginRecenter` + `RoadsideScenery` (pooled procedural props)
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: sharper/procedural roads, final art, fuel, damage, upgrades, final UI, inventory, save, quests
+- Not implemented yet: region-driven visuals/audio/scenery, sharper/procedural roads, final art, fuel, damage, upgrades, final UI, inventory, save, quests

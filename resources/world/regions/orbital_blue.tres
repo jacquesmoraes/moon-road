@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="WorldRegion" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/world_region.gd" id="1_region"]
+
+[resource]
+script = ExtResource("1_region")
+region_id = "ORBITAL_BLUE"
+display_name = "Orbital Blue"
+start_km = 90000.0
+end_km = 150000.0
+scenery_density_scale = 0.85
+climate_tag = "thin_air"
+visual_tint = Color(0.55, 0.7, 1, 1)
+audio_ambience_tag = "orbital_hum"
+poi_tags = PackedStringArray("relay", "depot")

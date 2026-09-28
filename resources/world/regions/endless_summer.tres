@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="WorldRegion" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/world_region.gd" id="1_region"]
+
+[resource]
+script = ExtResource("1_region")
+region_id = "ENDLESS_SUMMER"
+display_name = "Endless Summer"
+start_km = 0.0
+end_km = 40000.0
+scenery_density_scale = 1.15
+climate_tag = "warm_clear"
+visual_tint = Color(1, 0.95, 0.75, 1)
+audio_ambience_tag = "summer_highway"
+poi_tags = PackedStringArray("motel", "diner", "gas")
