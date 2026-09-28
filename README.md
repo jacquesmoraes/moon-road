@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **Travel Mode** — contemplative autopilot so the car can drive the road while you leave the game running. Sandbox still has no fuel, cinematic cameras, or final UI.
+Current slice: **Travel Mode cinematic camera** — automatic contemplative camera cycling while the car drives itself. Sandbox still has no fuel or final UI.
 
 ## Requirements
 
@@ -24,7 +24,8 @@ Current slice: **Travel Mode** — contemplative autopilot so the car can drive 
 | `vehicle_travel_mode_toggle` | V — enter/exit Travel Mode |
 | `vehicle_autopilot_toggle` | T — Travel Mode shortcut (same as V while mode controller is present) |
 | `vehicle_travel_mode_cancel` / `vehicle_autopilot_cancel` | X / Esc |
-| `vehicle_camera_next` / `vehicle_camera_previous` | F / Shift+F |
+| `vehicle_camera_next` / `vehicle_camera_previous` | F / Shift+F (cancels cinematic, then cycles) |
+| `vehicle_camera_cinematic_toggle` | M — Travel Mode only: toggle automatic cinematic camera |
 
 Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`, plus cruise `cruise_target_speed_kmh`, `cruise_speed_deadzone`, `cruise_control_gain`.
 
@@ -36,7 +37,7 @@ Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `
 | `CRUISE` | hold target km/h | player |
 | `TRAVEL_MODE` | hold target km/h | `RoadFollowAutopilot` road-center |
 
-Travel Mode enables cruise + road-follow together. Cancel immediately with V/T toggle, X/Esc, brake, or manual steer. No cinematic camera suite yet — chase cam stays as-is.
+Travel Mode enables cruise + road-follow together. Cancel immediately with V/T toggle, X/Esc, brake, or manual steer. While Travel Mode is on, press **M** for cinematic camera (auto shot cycling).
 
 `RoadFollowAutopilot` only steers (`set_steer_override`); the mode controller owns when it is on.
 
@@ -56,12 +57,18 @@ Travel Mode enables cruise + road-follow together. Cancel immediately with V/T t
 |--------|------|
 | `vehicle_camera_next` | F |
 | `vehicle_camera_previous` | Shift+F |
+| `vehicle_camera_cinematic_toggle` | M (Travel Mode only) |
 
-Camera never touches vehicle physics. Works in MANUAL / CRUISE / TRAVEL_MODE. Origin recenter shifts the rig with the world. No auto/cinematic switching yet.
+**Cinematic (Travel Mode)** — director layer over the five modes (not a sixth mode). Weighted auto-cycle: FOLLOW/FAR more often, PASSENGER/WINDOW occasional, HOOD short holds. Each shot lasts a random duration (`cinematic_min_duration`–`cinematic_max_duration`, default 8–25 s; HOOD capped by `cinematic_hood_max_duration`). Swaps use a smooth live-pose blend (`cinematic_transition_duration`, default 2 s) — no hard cuts. Allowed modes: `cinematic_allowed_modes`.
+
+- **M** toggles cinematic on/off instantly (enable only while Travel Mode is active).
+- **F / Shift+F** cancel cinematic immediately, then cycle manually.
+- Leaving Travel Mode also clears cinematic.
+- Camera never touches vehicle physics, autopilot, JourneySystem, or RoadManager. Origin recenter stays stable because blends recompute desired poses from the live vehicle transform.
 
 ### Dev HUD
 
-`DrivingDebugHUD` (top-left): full debug in MANUAL/CRUISE (mode, journey, cruise, autopilot, pos, controls, FPS). In **TRAVEL_MODE** it shrinks to essentials — Travel Mode label, journey km, remaining, speed/target, cancel hint.
+`DrivingDebugHUD` (top-left): full debug in MANUAL/CRUISE (mode, journey, camera, cruise, autopilot, pos, controls, FPS). In **TRAVEL_MODE** it shrinks to essentials — Travel Mode label, journey km, remaining, speed/target, camera (incl. `CINEMATIC→MODE`), cancel hint.
 
 ### Journey (logical distance)
 
@@ -116,10 +123,10 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Dev main: `scenes/test/DrivingSandbox.tscn` — road pool, recenter, `PlayerVehicle`, `DrivingDebugHUD`
 - Driving modes: `DrivingModeController` — MANUAL / CRUISE / TRAVEL_MODE
 - Vehicle: cruise speed hold + `RoadFollowAutopilot` (steering under Travel Mode)
-- Camera: `VehicleCameraController` — FOLLOW / FAR / HOOD / PASSENGER / WINDOW (no auto-cine yet)
+- Camera: `VehicleCameraController` — FOLLOW / FAR / HOOD / PASSENGER / WINDOW + Travel Mode cinematic director
 - Journey: `JourneySystem` + distance reporter
 - Road: `RoadSegment` curve × elevation kinds + `RoadManager` pool recycle
 - World: `WorldOriginRecenter` + `RoadsideScenery` (pooled procedural props)
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: Travel Mode cinematic cameras, sharper/procedural roads, final art, fuel, damage, upgrades, final UI, inventory, save, quests
+- Not implemented yet: sharper/procedural roads, final art, fuel, damage, upgrades, final UI, inventory, save, quests

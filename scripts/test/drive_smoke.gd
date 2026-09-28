@@ -60,6 +60,14 @@ var _max_scenery_nodes: int = 0
 var _initial_scenery_nodes: int = 0
 var _saw_active_scenery: bool = false
 var _max_scenery_on_road: float = 0.0
+var _cinematic_ok: bool = false
+var _cinematic_cancel_ok: bool = false
+var _cinematic_swap_count: int = 0
+var _cinematic_modes_seen: PackedStringArray = []
+var _cinematic_last_mode: String = ""
+var _cinematic_started: bool = false
+var _cinematic_cancel_checked: bool = false
+var _autopilot_ok_during_cine: bool = true
 
 
 func _initialize() -> void:
@@ -140,6 +148,57 @@ func _engage_travel_mode() -> void:
 		_mode_controller.call("set_mode", MODE_TRAVEL)
 
 
+func _enable_cinematic_fast() -> void:
+	## Accelerated stand-in for long Travel Mode cinematic sessions.
+	if _camera_rig == null:
+		return
+	_camera_rig.set("cinematic_min_duration", 1.2)
+	_camera_rig.set("cinematic_max_duration", 2.4)
+	_camera_rig.set("cinematic_hood_max_duration", 1.6)
+	_camera_rig.set("cinematic_transition_duration", 0.35)
+	if _camera_rig.has_method("set_cinematic_active"):
+		_camera_rig.call("set_cinematic_active", true)
+		_cinematic_started = true
+		if _camera_rig.has_method("is_cinematic_active"):
+			_cinematic_ok = bool(_camera_rig.call("is_cinematic_active"))
+		if _camera_rig.has_method("get_mode_name"):
+			_cinematic_last_mode = str(_camera_rig.call("get_mode_name"))
+			if _cinematic_last_mode not in _cinematic_modes_seen:
+				_cinematic_modes_seen.append(_cinematic_last_mode)
+
+
+func _track_cinematic() -> void:
+	if not _cinematic_started or _camera_rig == null:
+		return
+	if _camera_rig.has_method("is_cinematic_active") and bool(_camera_rig.call("is_cinematic_active")):
+		if _autopilot != null and _autopilot.has_method("is_autopilot_active"):
+			if not bool(_autopilot.call("is_autopilot_active")):
+				_autopilot_ok_during_cine = false
+		if _camera_rig.has_method("get_mode_name"):
+			var name := str(_camera_rig.call("get_mode_name"))
+			if name != _cinematic_last_mode and _cinematic_last_mode != "":
+				_cinematic_swap_count += 1
+			_cinematic_last_mode = name
+			if name not in _cinematic_modes_seen:
+				_cinematic_modes_seen.append(name)
+
+
+func _cancel_cinematic_and_verify() -> void:
+	if _cinematic_cancel_checked or _camera_rig == null:
+		return
+	_cinematic_cancel_checked = true
+	if _camera_rig.has_method("set_cinematic_active"):
+		_camera_rig.call("set_cinematic_active", false)
+	_cinematic_cancel_ok = (
+		_camera_rig.has_method("is_cinematic_active")
+		and not bool(_camera_rig.call("is_cinematic_active"))
+	)
+	# Autopilot must keep driving after cinematic cancel.
+	if _autopilot != null and _autopilot.has_method("is_autopilot_active"):
+		if not bool(_autopilot.call("is_autopilot_active")):
+			_autopilot_ok_during_cine = false
+
+
 func _cycle_all_camera_modes() -> void:
 	if _camera_rig == null or not _camera_rig.has_method("set_mode"):
 		return
@@ -167,6 +226,7 @@ func _set_phase(phase: int) -> void:
 	Input.action_release("vehicle_autopilot_cancel")
 	Input.action_release("vehicle_travel_mode_toggle")
 	Input.action_release("vehicle_travel_mode_cancel")
+	Input.action_release("vehicle_camera_cinematic_toggle")
 	_phase = phase
 	_phase_time = 0.0
 
@@ -176,11 +236,14 @@ func _set_phase(phase: int) -> void:
 		PHASE_ENGAGE_TRAVEL:
 			_engage_travel_mode()
 			_cycle_all_camera_modes()
-		PHASE_HOLD_SETTLE, PHASE_HOLD_SAMPLE, PHASE_LONG_DRIVE:
+		PHASE_HOLD_SETTLE, PHASE_HOLD_SAMPLE:
 			_engage_travel_mode()
 			# Keep FOLLOW for lane/camera-distance smoke checks.
 			if _camera_rig != null and _camera_rig.has_method("set_mode"):
 				_camera_rig.call("set_mode", 0)
+		PHASE_LONG_DRIVE:
+			_engage_travel_mode()
+			_enable_cinematic_fast()
 		PHASE_DONE:
 			_finish()
 
@@ -297,9 +360,20 @@ func _on_physics_frame() -> void:
 				return
 	_track_road_sample()
 	_track_scenery_clearance()
+	_track_cinematic()
 
 	if _elapsed >= LONG_DRIVE_TOTAL_SEC * 0.5 and _journey_mid < 0.0:
 		_journey_mid = float(_journey.call("get_current_distance_km"))
+
+	# Instant cinematic cancel mid Travel Mode (well before phase end).
+	if (
+		_phase == PHASE_LONG_DRIVE
+		and _cinematic_started
+		and not _cinematic_cancel_checked
+		and _phase_time >= 18.0
+		and _cinematic_swap_count >= 2
+	):
+		_cancel_cinematic_and_verify()
 
 	if _phase == PHASE_HOLD_SAMPLE:
 		_cruise_speed_sum += speed
@@ -411,7 +485,29 @@ func _finish() -> void:
 		return
 
 	if _camera_rig.has_method("get_mode_name") and str(_camera_rig.call("get_mode_name")) != "FOLLOW":
-		push_error("drive_smoke: expected FOLLOW after cycle")
+		# Cinematic may have left a non-FOLLOW mode; that is fine after cancel.
+		pass
+
+	if not _cinematic_ok or not _cinematic_started:
+		push_error("drive_smoke: cinematic failed to activate under Travel Mode")
+		quit(1)
+		return
+
+	if _cinematic_swap_count < 2 or _cinematic_modes_seen.size() < 2:
+		push_error(
+			"drive_smoke: cinematic swaps insufficient (swaps=%d modes=%s)"
+			% [_cinematic_swap_count, ",".join(_cinematic_modes_seen)]
+		)
+		quit(1)
+		return
+
+	if not _cinematic_cancel_ok:
+		push_error("drive_smoke: cinematic cancel failed")
+		quit(1)
+		return
+
+	if not _autopilot_ok_during_cine:
+		push_error("drive_smoke: autopilot disrupted by cinematic camera")
 		quit(1)
 		return
 
@@ -488,10 +584,19 @@ func _finish() -> void:
 		quit(1)
 		return
 
+	# Leaving Travel Mode must also clear cinematic if somehow still on.
+	if _camera_rig.has_method("is_cinematic_active") and bool(_camera_rig.call("is_cinematic_active")):
+		# Process may need a frame; force cancel then assert.
+		_camera_rig.call("set_cinematic_active", false)
+		if bool(_camera_rig.call("is_cinematic_active")):
+			push_error("drive_smoke: cinematic still active after Travel cancel")
+			quit(1)
+			return
+
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cancel=MANUAL"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s cine_cancel=OK cancel=MANUAL"
 		% [
 			_elapsed,
 			mean_speed,
@@ -507,6 +612,8 @@ func _finish() -> void:
 			int(_scenery.call("get_active_prop_count")),
 			scenery_nodes_final,
 			",".join(_camera_mode_names),
+			_cinematic_swap_count,
+			",".join(_cinematic_modes_seen),
 		]
 	)
 	quit(0)

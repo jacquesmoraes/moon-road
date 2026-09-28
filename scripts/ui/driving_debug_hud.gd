@@ -56,6 +56,7 @@ func _build_travel_mode_lines() -> PackedStringArray:
 		"Journey: %s km" % _format_journey_km(current_km),
 		"Remaining: %s km" % _format_journey_km(remaining_km),
 		"Speed: %.0f / %.0f km/h" % [speed_kmh, target_kmh],
+		"Camera: %s (M cine · F / Shift+F)" % _format_camera_mode(),
 		"Cancel: V / T / X / Esc / brake / steer",
 	]
 	return lines
@@ -86,7 +87,7 @@ func _build_full_lines() -> PackedStringArray:
 	var lines: PackedStringArray = [
 		"DEV HUD",
 		"Mode: %s" % _format_driving_mode(),
-		"Camera: %s (F / Shift+F)" % _format_camera_mode(),
+		"Camera: %s (M cine · F / Shift+F)" % _format_camera_mode(),
 		"Journey: %s / %s km" % [_format_journey_km(current_km), _format_journey_km(total_km)],
 		"Remaining: %s km (%.4f%%)" % [_format_journey_km(remaining_km), progress * 100.0],
 		"Phys→Journey scale: %.3f" % scale,
@@ -117,7 +118,11 @@ func _format_driving_mode() -> String:
 
 func _format_camera_mode() -> String:
 	var cam := get_tree().current_scene.find_child("VehicleCameraController", true, false)
-	if cam != null and cam.has_method("get_mode_name"):
+	if cam == null:
+		return "FOLLOW"
+	if cam.has_method("get_cinematic_label"):
+		return str(cam.call("get_cinematic_label"))
+	if cam.has_method("get_mode_name"):
 		return str(cam.call("get_mode_name"))
 	return "FOLLOW"
 
