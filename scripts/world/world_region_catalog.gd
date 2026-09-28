@@ -9,8 +9,8 @@ class_name WorldRegionCatalog
 func get_sorted_regions() -> Array[WorldRegion]:
 	var out: Array[WorldRegion] = []
 	for region in regions:
-		if region != null:
-			out.append(region)
+		if region is WorldRegion:
+			out.append(region as WorldRegion)
 	out.sort_custom(func(a: WorldRegion, b: WorldRegion) -> bool:
 		return a.start_km < b.start_km
 	)
