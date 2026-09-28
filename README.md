@@ -24,6 +24,7 @@ Current slice: **Travel Mode** — contemplative autopilot so the car can drive 
 | `vehicle_travel_mode_toggle` | V — enter/exit Travel Mode |
 | `vehicle_autopilot_toggle` | T — Travel Mode shortcut (same as V while mode controller is present) |
 | `vehicle_travel_mode_cancel` / `vehicle_autopilot_cancel` | X / Esc |
+| `vehicle_camera_next` / `vehicle_camera_previous` | F / Shift+F |
 
 Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`, plus cruise `cruise_target_speed_kmh`, `cruise_speed_deadzone`, `cruise_control_gain`.
 
@@ -39,18 +40,24 @@ Travel Mode enables cruise + road-follow together. Cancel immediately with V/T t
 
 `RoadFollowAutopilot` only steers (`set_steer_override`); the mode controller owns when it is on.
 
-### Camera (third-person follow)
+### Camera modes
 
-On `VehicleCameraController` (inside `PlayerVehicle.tscn`):
+`VehicleCameraController` — single detached rig, default **FOLLOW** (same chase feel as before).
 
-| Export | Role |
+| Mode | Feel |
+|------|------|
+| `FOLLOW` | Third-person behind/above |
+| `FAR` | Farther chase, wider FOV |
+| `HOOD` | Near hood, locked to vehicle |
+| `PASSENGER` | Passenger seat, road ahead |
+| `WINDOW` | Right-side window / landscape |
+
+| Action | Keys |
 |--------|------|
-| `follow_distance` | How far behind the car |
-| `follow_height` | How high above the car |
-| `follow_smoothing` | Position catch-up (higher = snappier) |
-| `rotation_speed` | How fast the chase yaw follows turns (higher = snappier) |
+| `vehicle_camera_next` | F |
+| `vehicle_camera_previous` | Shift+F |
 
-Camera logic lives in `scripts/vehicles/vehicle_camera_controller.gd` (not in the vehicle script) so more modes can be added later.
+Camera never touches vehicle physics. Works in MANUAL / CRUISE / TRAVEL_MODE. Origin recenter shifts the rig with the world. No auto/cinematic switching yet.
 
 ### Dev HUD
 
@@ -109,7 +116,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Dev main: `scenes/test/DrivingSandbox.tscn` — road pool, recenter, `PlayerVehicle`, `DrivingDebugHUD`
 - Driving modes: `DrivingModeController` — MANUAL / CRUISE / TRAVEL_MODE
 - Vehicle: cruise speed hold + `RoadFollowAutopilot` (steering under Travel Mode)
-- Camera: `VehicleCameraController` — smooth third-person follow (no Travel Mode cinematics yet)
+- Camera: `VehicleCameraController` — FOLLOW / FAR / HOOD / PASSENGER / WINDOW (no auto-cine yet)
 - Journey: `JourneySystem` + distance reporter
 - Road: `RoadSegment` curve × elevation kinds + `RoadManager` pool recycle
 - World: `WorldOriginRecenter` + `RoadsideScenery` (pooled procedural props)

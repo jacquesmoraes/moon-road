@@ -80,6 +80,8 @@ func _apply_shift(offset: Vector3) -> void:
 	var camera := get_tree().current_scene.find_child("VehicleCameraController", true, false) as Node3D
 	if camera != null:
 		camera.global_position -= offset
+		if camera.has_method("notify_origin_shifted"):
+			camera.call("notify_origin_shifted", offset)
 
 	if shift_scale_refs:
 		var refs := get_tree().current_scene.find_child("ScaleRefs", true, false) as Node3D

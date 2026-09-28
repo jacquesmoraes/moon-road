@@ -27,6 +27,8 @@ var _road_manager: Node
 var _recenter: Node
 var _samples: int = 0
 var _camera_follow_ok: bool = false
+var _camera_modes_ok: bool = false
+var _camera_mode_names: PackedStringArray = []
 var _saw_speed_kmh: bool = false
 var _max_speed_kmh: float = 0.0
 var _journey: Node
@@ -133,9 +135,30 @@ func _begin() -> void:
 	physics_frame.connect(_on_physics_frame)
 
 
+var _camera_modes_ok: bool = false
+var _camera_mode_names: PackedStringArray = []
+
+
 func _engage_travel_mode() -> void:
 	if _mode_controller.has_method("set_mode"):
 		_mode_controller.call("set_mode", MODE_TRAVEL)
+
+
+func _cycle_all_camera_modes() -> void:
+	if _camera_rig == null or not _camera_rig.has_method("set_mode"):
+		return
+	_camera_mode_names.clear()
+	# CameraMode: FOLLOW=0, FAR=1, HOOD=2, PASSENGER=3, WINDOW=4
+	for m in range(5):
+		_camera_rig.call("set_mode", m)
+		if _camera_rig.has_method("get_mode_name"):
+			_camera_mode_names.append(str(_camera_rig.call("get_mode_name")))
+	_camera_rig.call("set_mode", 0)  # back to FOLLOW for distance checks
+	_camera_modes_ok = _camera_mode_names.size() == 5
+	for expected in ["FOLLOW", "FAR", "HOOD", "PASSENGER", "WINDOW"]:
+		if expected not in _camera_mode_names:
+			_camera_modes_ok = false
+			break
 
 
 func _set_phase(phase: int) -> void:
@@ -156,8 +179,12 @@ func _set_phase(phase: int) -> void:
 			Input.action_press("vehicle_accelerate")
 		PHASE_ENGAGE_TRAVEL:
 			_engage_travel_mode()
+			_cycle_all_camera_modes()
 		PHASE_HOLD_SETTLE, PHASE_HOLD_SAMPLE, PHASE_LONG_DRIVE:
 			_engage_travel_mode()
+			# Keep FOLLOW for lane/camera-distance smoke checks.
+			if _camera_rig != null and _camera_rig.has_method("set_mode"):
+				_camera_rig.call("set_mode", 0)
 		PHASE_DONE:
 			_finish()
 
@@ -382,6 +409,16 @@ func _finish() -> void:
 		quit(1)
 		return
 
+	if not _camera_modes_ok:
+		push_error("drive_smoke: camera mode cycle failed (%s)" % [_camera_mode_names])
+		quit(1)
+		return
+
+	if _camera_rig.has_method("get_mode_name") and str(_camera_rig.call("get_mode_name")) != "FOLLOW":
+		push_error("drive_smoke: expected FOLLOW after cycle")
+		quit(1)
+		return
+
 	# Curves + elevation reduce net planar drift vs pure -Z; still require recentering.
 	if recycles < 5 or recenters < 1:
 		push_error("drive_smoke: recycle/recenter counts too low (r=%d c=%d)" % [recycles, recenters])
@@ -458,7 +495,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cancel=MANUAL"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cancel=MANUAL"
 		% [
 			_elapsed,
 			mean_speed,
@@ -473,6 +510,7 @@ func _finish() -> void:
 			scenery_props_final,
 			int(_scenery.call("get_active_prop_count")),
 			scenery_nodes_final,
+			",".join(_camera_mode_names),
 		]
 	)
 	quit(0)

@@ -86,6 +86,7 @@ func _build_full_lines() -> PackedStringArray:
 	var lines: PackedStringArray = [
 		"DEV HUD",
 		"Mode: %s" % _format_driving_mode(),
+		"Camera: %s (F / Shift+F)" % _format_camera_mode(),
 		"Journey: %s / %s km" % [_format_journey_km(current_km), _format_journey_km(total_km)],
 		"Remaining: %s km (%.4f%%)" % [_format_journey_km(remaining_km), progress * 100.0],
 		"Phys→Journey scale: %.3f" % scale,
@@ -112,6 +113,13 @@ func _format_driving_mode() -> String:
 	if _vehicle.has_method("get_driving_mode_name"):
 		return str(_vehicle.call("get_driving_mode_name"))
 	return "MANUAL"
+
+
+func _format_camera_mode() -> String:
+	var cam := get_tree().current_scene.find_child("VehicleCameraController", true, false)
+	if cam != null and cam.has_method("get_mode_name"):
+		return str(cam.call("get_mode_name"))
+	return "FOLLOW"
 
 
 func _format_cruise_state() -> String:

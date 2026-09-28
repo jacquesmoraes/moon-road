@@ -90,7 +90,9 @@ script = ExtResource("2_camera")
 follow_distance = 7.5
 follow_height = 3.2
 follow_smoothing = 5.5
+follow_rotation_speed = 3.2
 rotation_speed = 3.2
+mode = 0
 
 [node name="Camera3D" type="Camera3D" parent="VehicleCameraController"]
 current = true
