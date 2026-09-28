@@ -135,10 +135,6 @@ func _begin() -> void:
 	physics_frame.connect(_on_physics_frame)
 
 
-var _camera_modes_ok: bool = false
-var _camera_mode_names: PackedStringArray = []
-
-
 func _engage_travel_mode() -> void:
 	if _mode_controller.has_method("set_mode"):
 		_mode_controller.call("set_mode", MODE_TRAVEL)
