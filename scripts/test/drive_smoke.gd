@@ -189,7 +189,7 @@ func _verify_world_regions() -> bool:
 			push_error("drive_smoke: region at %.1f km got %s want %s" % [km, got_id, expect_id])
 			quit(1)
 			return false
-		var at := regions.call("get_region_at_distance", km)
+		var at: Variant = regions.call("get_region_at_distance", km)
 		if at == null or str(at.region_id) != expect_id:
 			push_error("drive_smoke: get_region_at_distance mismatch at %.1f" % km)
 			quit(1)
