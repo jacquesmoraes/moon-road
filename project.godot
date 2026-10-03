@@ -27,6 +27,7 @@ QuestSystem="*res://autoload/quest_system.gd"
 CraftingSystem="*res://autoload/crafting_system.gd"
 SaveSystem="*res://autoload/save_system.gd"
 WorldStateSystem="*res://autoload/world_state_system.gd"
+GameTimeSystem="*res://autoload/game_time_system.gd"
 
 [input]
 

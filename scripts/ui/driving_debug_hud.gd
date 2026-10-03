@@ -13,6 +13,7 @@ var _occupancy: Node
 var _journey: Node
 var _regions: Node
 var _exits: Node
+var _game_time: Node
 
 
 func _ready() -> void:
@@ -20,6 +21,7 @@ func _ready() -> void:
 	_resolve_occupancy()
 	_journey = get_node_or_null("/root/JourneySystem")
 	_regions = get_node_or_null("/root/WorldRegionSystem")
+	_game_time = get_node_or_null("/root/GameTimeSystem")
 	_resolve_exits()
 
 
@@ -37,6 +39,8 @@ func _process(_delta: float) -> void:
 		_journey = get_node_or_null("/root/JourneySystem")
 	if _regions == null:
 		_regions = get_node_or_null("/root/WorldRegionSystem")
+	if _game_time == null:
+		_game_time = get_node_or_null("/root/GameTimeSystem")
 	if _exits == null:
 		_resolve_exits()
 
@@ -80,6 +84,10 @@ func _build_on_foot_lines() -> PackedStringArray:
 		"Vehicle: %s (stays put)" % _format_motion_state(),
 		"Speed: %.1f m/s%s" % [speed, "  RUN" if running else ""],
 		"Pos: (%.1f, %.1f, %.1f)" % [pos.x, pos.y, pos.z],
+		"Time: play %s · travel %s · idle (explore)" % [
+			_format_game_time_play(),
+			_format_game_time_travel(),
+		],
 		"Walk: WASD · Run: Shift · Look: mouse",
 		"%s" % _format_on_foot_e_hint(char_node, can_enter),
 		"Camera: %s (on-foot)" % cam_mode,
@@ -112,6 +120,7 @@ func _build_travel_mode_lines() -> PackedStringArray:
 		"Journey: %s km" % _format_journey_km(current_km),
 		"Remaining: %s km" % _format_journey_km(remaining_km),
 		"Speed: %.0f / %.0f km/h" % [speed_kmh, target_kmh],
+		"Time: play %s · travel %s" % [_format_game_time_play(), _format_game_time_travel()],
 		"Camera: %s (M cine · F / Shift+F)" % _format_camera_mode(),
 		"Cancel: V / T / X / Esc / brake / steer",
 	]
@@ -155,6 +164,11 @@ func _build_full_lines() -> PackedStringArray:
 		"Journey: %s / %s km" % [_format_journey_km(current_km), _format_journey_km(total_km)],
 		"Remaining: %s km (%.4f%%)" % [_format_journey_km(remaining_km), progress * 100.0],
 		"Phys→Journey scale: %.3f" % scale,
+		"Time: play %s · travel %s · %s" % [
+			_format_game_time_play(),
+			_format_game_time_travel(),
+			"TRAVELING" if _format_game_time_traveling() else "idle",
+		],
 		"Speed: %.1f km/h" % speed_kmh,
 		"Cruise: %s" % _format_cruise_state(),
 		"Autopilot: %s" % _format_autopilot_state(),
@@ -298,6 +312,34 @@ func _format_journey_km(km: float) -> String:
 		var sign := "-" if whole < 0 else ""
 		return sign + digits + grouped
 	return "%.3f" % km
+
+
+func _format_game_time_play() -> String:
+	if _game_time == null:
+		return "n/a"
+	if _game_time.has_method("format_duration") and _game_time.has_method("get_total_play_time"):
+		return str(_game_time.call("format_duration", float(_game_time.call("get_total_play_time"))))
+	if _game_time.has_method("get_total_play_time"):
+		return "%.0fs" % float(_game_time.call("get_total_play_time"))
+	return "n/a"
+
+
+func _format_game_time_travel() -> String:
+	if _game_time == null:
+		return "n/a"
+	if _game_time.has_method("format_duration") and _game_time.has_method("get_total_travel_time"):
+		return str(_game_time.call("format_duration", float(_game_time.call("get_total_travel_time"))))
+	if _game_time.has_method("get_total_travel_time"):
+		return "%.0fs" % float(_game_time.call("get_total_travel_time"))
+	return "n/a"
+
+
+func _format_game_time_traveling() -> bool:
+	if _game_time == null:
+		return false
+	if _game_time.has_method("is_traveling"):
+		return bool(_game_time.call("is_traveling"))
+	return false
 
 
 func _resolve_vehicle() -> void:

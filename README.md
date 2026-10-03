@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **persistent world state** — `WorldStateSystem` for terminals/pickups + SaveSystem round-trip.
+Current slice: **game time foundation** — `GameTimeSystem` for play / travel / offline clocks + SaveSystem persistence.
 
 ## Requirements
 
@@ -83,12 +83,27 @@ Versioned JSON at `user://savegame.json`. SaveSystem only coordinates — each s
 | Piece | Role |
 |-------|------|
 | `save_version` / `created_at` / `updated_at` | Header on every file |
-| Providers | `JourneySystem`, `InventorySystem`, `QuestSystem`, `POISystem`, `WorldStateSystem` |
+| Providers | `JourneySystem`, `InventorySystem`, `QuestSystem`, `POISystem`, `WorldStateSystem`, `GameTimeSystem` |
 | API | `save_game`, `load_game`, `has_save`, `delete_save`, `get_save_version` |
 | Backup | `user://savegame.json.bak` before overwrite |
 | Debug | **F5** save · **F9** load · **F6** delete |
 
 Corrupt / unknown-version files are refused and **kept** (never auto-deleted). No autosave, multi-slots, cloud, or encryption.
+
+### Game time (`GameTimeSystem`)
+
+Central real-time foundation — not narrative journey distance, not a day/night cycle.
+
+| Clock | Meaning |
+|-------|---------|
+| Real system time | Wall clock (`Time.get_unix_time_from_system` / datetime string) |
+| Play time | Accumulates whenever a session is running |
+| Travel time | Only while an actual trip is happening |
+| Offline | `now − last_exit_timestamp` between sessions |
+
+Travel detection: in vehicle, not parked, and either Travel Mode **or** `|speed| > 0.35 m/s`. Parked / on-foot POI explore do **not** count.
+
+Persisted via SaveSystem (`systems.game_time`): `current_session_started_at`, `total_play_time_seconds`, `total_travel_time_seconds`, `last_save_timestamp`, `last_exit_timestamp`. Clock uses `Time.get_ticks_msec` (FPS-independent). Dev HUD shows `Time: play · travel · TRAVELING|idle`.
 
 ### World state (`WorldStateSystem`)
 
@@ -326,7 +341,7 @@ godot --path . --headless -s res://scripts/test/drive_smoke.gd
 | `scripts/{core,player,vehicles,road,world,ui,test}` | GDScript by domain |
 | `resources/{vehicles,road,world}` | Shared resources / configs |
 | `assets/{models,materials,textures,audio}` | Art and audio |
-| `autoload/` | Autoload scripts (`JourneySystem`, `WorldRegionSystem`, `POISystem`, `DialogueSystem`, `InventorySystem`, `QuestSystem`, `CraftingSystem`, `SaveSystem`, `WorldStateSystem`) |
+| `autoload/` | Autoload scripts (`JourneySystem`, `WorldRegionSystem`, `POISystem`, `DialogueSystem`, `InventorySystem`, `QuestSystem`, `CraftingSystem`, `SaveSystem`, `WorldStateSystem`, `GameTimeSystem`) |
 | `data/` | Static data files |
 
 Empty directories keep a `.gdkeep` placeholder so Git tracks them.
@@ -342,6 +357,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Inventory: `InventorySystem` + `ItemData` catalog + `InventoryDebugUI` (I to toggle)
 - Crafting: `CraftingSystem` + `RecipeData` + Workbench + `CraftingDebugUI`
 - Save: `SaveSystem` → `user://savegame.json` (F5/F9/F6 debug)
+- Game time: `GameTimeSystem` (play / travel / offline; HUD debug)
 - World state: `WorldStateSystem` (terminal powered / pickup collected)
 - Pickups: `WorldItem` at Sunset Viewpoint (Scrap Metal / Copper Wire) + `PickupFeedbackUI`
 - Quests: `QuestSystem` + `power_the_viewpoint` (Mira → terminal)

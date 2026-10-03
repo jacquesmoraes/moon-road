@@ -888,13 +888,16 @@ func _finish() -> void:
 	if not await _verify_world_state_system():
 		return
 
+	if not await _verify_game_time_system():
+		return
+
 	if not await _verify_enter_exit_vehicle():
 		return
 
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK crafting=OK save=OK world_state=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1515,6 +1518,233 @@ func _clear_world_state() -> void:
 	var ws: Node = root.get_node_or_null("WorldStateSystem")
 	if ws != null and ws.has_method("clear_all"):
 		ws.call("clear_all")
+
+
+func _verify_game_time_system() -> bool:
+	## GameTimeSystem: play accumulates always; travel only while trip; save round-trip; offline gap.
+	var gt: Node = root.get_node_or_null("GameTimeSystem")
+	var save: Node = root.get_node_or_null("SaveSystem")
+	if gt == null or save == null:
+		push_error("drive_smoke: GameTimeSystem/SaveSystem missing")
+		quit(1)
+		return false
+
+	for required in [
+		"get_total_play_time",
+		"get_total_travel_time",
+		"get_current_real_datetime",
+		"get_seconds_since_last_session",
+		"is_traveling",
+		"get_save_data",
+		"load_save_data",
+		"debug_advance",
+		"reset_for_tests",
+	]:
+		if not gt.has_method(required):
+			push_error("drive_smoke: GameTimeSystem missing %s" % required)
+			quit(1)
+			return false
+
+	# Wall-clock / FPS independence: tick via Time.get_ticks_msec, not delta alone.
+	var gt_script: Script = load("res://autoload/game_time_system.gd") as Script
+	if gt_script != null:
+		var src := gt_script.source_code
+		if src.find("Time.get_ticks_msec") < 0:
+			push_error("drive_smoke: GameTimeSystem must use Time.get_ticks_msec")
+			quit(1)
+			return false
+		if src.find("day/night") >= 0 or src.find("day_night") >= 0:
+			push_error("drive_smoke: GameTimeSystem must not include day/night cycle")
+			quit(1)
+			return false
+
+	gt.call("reset_for_tests")
+	if float(gt.call("get_total_play_time")) != 0.0 or float(gt.call("get_total_travel_time")) != 0.0:
+		push_error("drive_smoke: GameTimeSystem reset_for_tests did not clear accumulators")
+		quit(1)
+		return false
+
+	# Play time advances without travel.
+	gt.call("debug_advance", 10.0, false)
+	if not is_equal_approx(float(gt.call("get_total_play_time")), 10.0):
+		push_error(
+			"drive_smoke: play time expected 10 got %.3f" % float(gt.call("get_total_play_time"))
+		)
+		quit(1)
+		return false
+	if not is_equal_approx(float(gt.call("get_total_travel_time")), 0.0):
+		push_error("drive_smoke: travel time should stay 0 when not traveling")
+		quit(1)
+		return false
+
+	# Travel accumulator only when flagged traveling.
+	gt.call("debug_advance", 5.0, true)
+	if not is_equal_approx(float(gt.call("get_total_play_time")), 15.0):
+		push_error("drive_smoke: play time expected 15 after travel advance")
+		quit(1)
+		return false
+	if not is_equal_approx(float(gt.call("get_total_travel_time")), 5.0):
+		push_error(
+			"drive_smoke: travel time expected 5 got %.3f" % float(gt.call("get_total_travel_time"))
+		)
+		quit(1)
+		return false
+
+	# Live is_traveling: park / on foot must not count as travel.
+	_clear_vehicle_input()
+	_mode_controller.call("set_mode", MODE_MANUAL)
+	# Slow to park.
+	for _i in range(240):
+		await physics_frame
+		if absf(float(_vehicle.call("get_signed_speed"))) <= float(_vehicle.get("max_parking_speed")):
+			break
+	if not bool(_vehicle.call("try_park")):
+		push_error("drive_smoke: could not park for game time travel check")
+		quit(1)
+		return false
+	await physics_frame
+	await physics_frame
+	if bool(gt.call("is_traveling")):
+		push_error("drive_smoke: is_traveling true while PARKED")
+		quit(1)
+		return false
+
+	var travel_before_park := float(gt.call("get_total_travel_time"))
+	var play_before_park := float(gt.call("get_total_play_time"))
+	# Let a few wall-clock ticks land while parked.
+	await create_timer(0.35).timeout
+	var travel_after_park := float(gt.call("get_total_travel_time"))
+	var play_after_park := float(gt.call("get_total_play_time"))
+	if travel_after_park > travel_before_park + 0.001:
+		push_error(
+			"drive_smoke: travel time grew while PARKED (%.3f → %.3f)"
+			% [travel_before_park, travel_after_park]
+		)
+		quit(1)
+		return false
+	if play_after_park < play_before_park + 0.05:
+		push_error("drive_smoke: play time did not advance while PARKED")
+		quit(1)
+		return false
+
+	# Travel Mode counts as traveling.
+	_vehicle.call("try_unpark")
+	await physics_frame
+	Input.action_press("vehicle_accelerate")
+	for _i in range(90):
+		await physics_frame
+		if absf(float(_vehicle.call("get_signed_speed"))) > 1.0:
+			break
+	Input.action_release("vehicle_accelerate")
+	_mode_controller.call("set_mode", MODE_TRAVEL)
+	await physics_frame
+	await physics_frame
+	if not bool(gt.call("is_traveling")):
+		push_error("drive_smoke: is_traveling false in TRAVEL_MODE")
+		quit(1)
+		return false
+	var travel_before_tm := float(gt.call("get_total_travel_time"))
+	await create_timer(0.35).timeout
+	var travel_after_tm := float(gt.call("get_total_travel_time"))
+	if travel_after_tm < travel_before_tm + 0.05:
+		push_error("drive_smoke: travel time did not grow in TRAVEL_MODE")
+		quit(1)
+		return false
+
+	# Save / load preserves accumulators; offline gap uses absolute timestamps.
+	_mode_controller.call("set_mode", MODE_MANUAL)
+	_clear_vehicle_input()
+	if save.has_method("delete_save"):
+		save.call("delete_save")
+
+	var play_saved := float(gt.call("get_total_play_time"))
+	var travel_saved := float(gt.call("get_total_travel_time"))
+	# Stamp a known prior exit so offline calc is deterministic after reload.
+	var exit_stamp := float(Time.get_unix_time_from_system()) - 42.0
+	gt.set("last_exit_timestamp", exit_stamp)
+
+	if not bool(save.call("save_game")):
+		push_error("drive_smoke: save_game failed in game time test")
+		quit(1)
+		return false
+
+	# Confirm payload shape in JSON.
+	var path := str(save.call("get_save_path"))
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_error("drive_smoke: game_time save JSON parse failed")
+		quit(1)
+		return false
+	var systems: Dictionary = parsed.get("systems", {})
+	if not systems.has("game_time"):
+		push_error("drive_smoke: systems.game_time missing from save")
+		quit(1)
+		return false
+	var gt_payload: Dictionary = systems["game_time"]
+	for key in [
+		"current_session_started_at",
+		"total_play_time_seconds",
+		"total_travel_time_seconds",
+		"last_save_timestamp",
+		"last_exit_timestamp",
+	]:
+		if not gt_payload.has(key):
+			push_error("drive_smoke: game_time save missing '%s'" % key)
+			quit(1)
+			return false
+
+	# Wipe runtime then reload — accumulators must restore; session start refreshes.
+	gt.call("reset_for_tests")
+	if float(gt.call("get_total_play_time")) != 0.0:
+		push_error("drive_smoke: reset before load failed")
+		quit(1)
+		return false
+	if not bool(save.call("load_game")):
+		push_error("drive_smoke: load_game failed for game_time")
+		quit(1)
+		return false
+	if not is_equal_approx(float(gt.call("get_total_play_time")), play_saved):
+		push_error(
+			"drive_smoke: play time not restored (%.3f vs %.3f)"
+			% [float(gt.call("get_total_play_time")), play_saved]
+		)
+		quit(1)
+		return false
+	if not is_equal_approx(float(gt.call("get_total_travel_time")), travel_saved):
+		push_error(
+			"drive_smoke: travel time not restored (%.3f vs %.3f)"
+			% [float(gt.call("get_total_travel_time")), travel_saved]
+		)
+		quit(1)
+		return false
+
+	var offline := float(gt.call("get_seconds_since_last_session"))
+	# Save stamps last_exit ≈ now, so after immediate reload offline is near 0.
+	# Force a prior exit again and recompute without waiting a full session.
+	gt.set("last_exit_timestamp", float(Time.get_unix_time_from_system()) - 42.0)
+	offline = float(gt.call("get_seconds_since_last_session"))
+	if offline < 35.0 or offline > 55.0:
+		push_error("drive_smoke: offline gap expected ~42s got %.1f" % offline)
+		quit(1)
+		return false
+
+	var dt_str := str(gt.call("get_current_real_datetime"))
+	if dt_str.is_empty() or dt_str.find("T") < 0:
+		push_error("drive_smoke: get_current_real_datetime looks invalid: %s" % dt_str)
+		quit(1)
+		return false
+
+	# Cleanup.
+	save.call("delete_save")
+	gt.call("reset_for_tests")
+	_mode_controller.call("set_mode", MODE_MANUAL)
+	_clear_vehicle_input()
+	if _vehicle.has_method("try_unpark"):
+		_vehicle.call("try_unpark")
+	print(
+		"drive_smoke: game_time OK (play/travel split + park idle + Travel Mode + save + offline)"
+	)
+	return true
 
 
 func _verify_world_state_system() -> bool:
