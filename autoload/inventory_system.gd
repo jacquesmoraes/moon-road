@@ -114,6 +114,32 @@ func clear_inventory() -> void:
 	inventory_cleared.emit()
 
 
+## --- SaveSystem provider API ---
+
+func get_save_data() -> Dictionary:
+	## Persist quantities only — catalog definitions stay in resources.
+	var quantities: Dictionary = {}
+	for key in _quantities.keys():
+		var qty := get_quantity(str(key))
+		if qty > 0:
+			quantities[str(key)] = qty
+	return {"quantities": quantities}
+
+
+func load_save_data(data: Dictionary) -> void:
+	clear_inventory()
+	if data == null or data.is_empty():
+		return
+	var quantities: Variant = data.get("quantities", {})
+	if typeof(quantities) != TYPE_DICTIONARY:
+		return
+	for key in quantities.keys():
+		var item_id := str(key)
+		var amount := int(quantities[key])
+		if amount > 0:
+			add_item(item_id, amount)
+
+
 func reload_catalog() -> void:
 	_by_id.clear()
 	_load_catalog()

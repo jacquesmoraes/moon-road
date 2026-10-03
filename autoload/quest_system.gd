@@ -178,6 +178,55 @@ func reset_all() -> void:
 	_states.clear()
 
 
+## --- SaveSystem provider API ---
+
+func get_save_data() -> Dictionary:
+	var states: Dictionary = {}
+	for key in _states.keys():
+		var quest_id := str(key)
+		var state_name := get_state_name(quest_id)
+		# Skip pure INACTIVE (default) to keep files small; still round-trips correctly.
+		if state_name == "INACTIVE":
+			continue
+		states[quest_id] = state_name
+	return {"states": states}
+
+
+func load_save_data(data: Dictionary) -> void:
+	reset_all()
+	if data == null or data.is_empty():
+		return
+	var states: Variant = data.get("states", {})
+	if typeof(states) != TYPE_DICTIONARY:
+		return
+	_ensure_index()
+	for key in states.keys():
+		var quest_id := str(key)
+		if not has_quest(quest_id):
+			push_warning("QuestSystem: load_save_data unknown quest_id '%s'" % quest_id)
+			continue
+		var raw: Variant = states[key]
+		var state := _parse_state_value(raw)
+		_set_state(quest_id, state)
+
+
+func _parse_state_value(raw: Variant) -> int:
+	if typeof(raw) == TYPE_STRING:
+		match str(raw).to_upper():
+			"ACTIVE":
+				return QuestDataScript.State.ACTIVE
+			"COMPLETED":
+				return QuestDataScript.State.COMPLETED
+			_:
+				return QuestDataScript.State.INACTIVE
+	var as_int := int(raw)
+	match as_int:
+		QuestDataScript.State.ACTIVE, QuestDataScript.State.COMPLETED, QuestDataScript.State.INACTIVE:
+			return as_int
+		_:
+			return QuestDataScript.State.INACTIVE
+
+
 func register_quest(data: Resource) -> void:
 	if data == null:
 		return

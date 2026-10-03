@@ -62,6 +62,29 @@ func clear_discovery_for_tests(poi_id: String = "") -> void:
 		_discovered.erase(poi_id)
 
 
+## --- SaveSystem provider API ---
+
+func get_save_data() -> Dictionary:
+	var ids: PackedStringArray = get_discovered_ids()
+	var discovered: Array = []
+	for id in ids:
+		discovered.append(str(id))
+	return {"discovered": discovered}
+
+
+func load_save_data(data: Dictionary) -> void:
+	## Restore discovery quietly (no discovered_poi spam on load).
+	_discovered.clear()
+	if data == null or data.is_empty():
+		return
+	var discovered: Variant = data.get("discovered", [])
+	if typeof(discovered) == TYPE_ARRAY or typeof(discovered) == TYPE_PACKED_STRING_ARRAY:
+		for entry in discovered:
+			var poi_id := str(entry)
+			if not poi_id.is_empty():
+				_discovered[poi_id] = true
+
+
 func has_active_viewpoint(poi_id: String) -> bool:
 	if not _instances.has(poi_id):
 		return false

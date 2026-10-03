@@ -160,6 +160,7 @@ func _build_full_lines() -> PackedStringArray:
 		"Autopilot: %s" % _format_autopilot_state(),
 		"Pos: (%.1f, %.1f, %.1f)" % [pos.x, pos.y, pos.z],
 		"Controls: A=%.0f  B=%.0f  Steer=%+.0f" % [accel, brake, steer],
+		"Save: F5 save · F9 load · F6 delete",
 	]
 
 	var recenter := get_tree().current_scene.find_child("WorldOriginRecenter", true, false)

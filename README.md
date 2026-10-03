@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **basic crafting** — `CraftingSystem` + Workbench at Sunset Viewpoint (Basic Repair Kit recipe).
+Current slice: **versioned save system** — `SaveSystem` JSON at `user://savegame.json` (journey, inventory, quests, POIs).
 
 ## Requirements
 
@@ -11,7 +11,8 @@ Current slice: **basic crafting** — `CraftingSystem` + Workbench at Sunset Vie
 ## Run
 
 1. Open this folder in the Godot editor (`project.godot`).
-2. Press **F5** (or Play). Dev main scene: `scenes/test/DrivingSandbox.tscn`.
+2. Press **Play** (editor F5). Dev main scene: `scenes/test/DrivingSandbox.tscn`.
+   In-game **F5/F9/F6** are temporary save debug hotkeys (not the editor Play shortcut).
 
 ### Drive controls
 
@@ -34,6 +35,9 @@ Current slice: **basic crafting** — `CraftingSystem` + Workbench at Sunset Vie
 | `player_interact` | E — world interact when focused; else enter vehicle (see Occupancy) |
 | `dialogue_continue` | Space / E / Enter — advance or close active dialogue |
 | `inventory_debug_toggle` | I — show/hide debug inventory panel |
+| `save_debug_save` | F5 — write `user://savegame.json` |
+| `save_debug_load` | F9 — load save (keeps file if corrupt) |
+| `save_debug_delete` | F6 — delete save + backup |
 
 Workbench: walk up at Sunset Viewpoint, **E** opens CraftingDebugUI (↑↓ select, Enter/C craft, Esc or E again to close).
 
@@ -71,6 +75,20 @@ Data-driven linear talk — no choices, branching, VO, or quests yet.
 | `NpcDefinition.dialogue_id` | NPC only points at the first line id |
 
 **Authoring:** create `.tres` lines, chain with `next_dialogue_id`, add them to the catalog, set the NPC's `dialogue_id`. **Mira** (`mira_01`→`mira_02`) and **Rafa** (`rafa_01`→`rafa_02`) at Sunset Viewpoint prove reuse.
+
+### Save (`SaveSystem`)
+
+Versioned JSON at `user://savegame.json`. SaveSystem only coordinates — each system owns its payload via `get_save_data()` / `load_save_data(data)`.
+
+| Piece | Role |
+|-------|------|
+| `save_version` / `created_at` / `updated_at` | Header on every file |
+| Providers | `JourneySystem`, `InventorySystem`, `QuestSystem`, `POISystem` |
+| API | `save_game`, `load_game`, `has_save`, `delete_save`, `get_save_version` |
+| Backup | `user://savegame.json.bak` before overwrite |
+| Debug | **F5** save · **F9** load · **F6** delete |
+
+Corrupt / unknown-version files are refused and **kept** (never auto-deleted). No autosave, multi-slots, cloud, or encryption.
 
 ### Crafting (`CraftingSystem` + `RecipeData`)
 
@@ -297,7 +315,7 @@ godot --path . --headless -s res://scripts/test/drive_smoke.gd
 | `scripts/{core,player,vehicles,road,world,ui,test}` | GDScript by domain |
 | `resources/{vehicles,road,world}` | Shared resources / configs |
 | `assets/{models,materials,textures,audio}` | Art and audio |
-| `autoload/` | Autoload scripts (`JourneySystem`, `WorldRegionSystem`, `POISystem`, `DialogueSystem`, `InventorySystem`, `QuestSystem`, `CraftingSystem`) |
+| `autoload/` | Autoload scripts (`JourneySystem`, `WorldRegionSystem`, `POISystem`, `DialogueSystem`, `InventorySystem`, `QuestSystem`, `CraftingSystem`, `SaveSystem`) |
 | `data/` | Static data files |
 
 Empty directories keep a `.gdkeep` placeholder so Git tracks them.
@@ -312,6 +330,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Dialogue: `DialogueSystem` + `DialogueDefinition` catalog + `DialogueUI` (linear sequences)
 - Inventory: `InventorySystem` + `ItemData` catalog + `InventoryDebugUI` (I to toggle)
 - Crafting: `CraftingSystem` + `RecipeData` + Workbench + `CraftingDebugUI`
+- Save: `SaveSystem` → `user://savegame.json` (F5/F9/F6 debug)
 - Pickups: `WorldItem` at Sunset Viewpoint (Scrap Metal / Copper Wire) + `PickupFeedbackUI`
 - Quests: `QuestSystem` + `power_the_viewpoint` (Mira → terminal)
 - Crafting recipe: Basic Repair Kit at Sunset Viewpoint workbench
@@ -326,4 +345,4 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - World: `WorldOriginRecenter` + `RoadsideScenery` + `RoadsideExitSystem` + `POISystem` / `ViewpointPOI`
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: quest log UI, dialogue choices/branching, NPC routines/pathfinding, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, craft time/quality/tech tree, final art, fuel, damage, upgrades, final UI, save
+- Not implemented yet: quest log UI, dialogue choices/branching, NPC routines/pathfinding, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, craft time/quality/tech tree, autosave/multi-slot, final art, fuel, damage, upgrades, final UI

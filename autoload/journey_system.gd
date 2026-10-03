@@ -83,3 +83,18 @@ func set_current_distance_km(km: float) -> void:
 func reset_journey() -> void:
 	current_distance_km = 0.0
 	distance_changed.emit(current_distance_km, total_distance_km)
+
+
+## --- SaveSystem provider API ---
+
+func get_save_data() -> Dictionary:
+	return {
+		"current_distance_km": current_distance_km,
+	}
+
+
+func load_save_data(data: Dictionary) -> void:
+	if data == null or data.is_empty():
+		return
+	if data.has("current_distance_km"):
+		set_current_distance_km(float(data.get("current_distance_km")))
