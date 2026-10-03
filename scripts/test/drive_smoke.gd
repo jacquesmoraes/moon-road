@@ -153,15 +153,17 @@ func _begin() -> void:
 		push_error("drive_smoke: RoadsideExitSystem missing")
 		quit(1)
 		return
+
+	if not await _verify_sunset_viewpoint_reachable():
+		return
+
+	# Budget snapshot after discovery probe (viewpoint may be unloaded).
 	if _exit_system.has_method("get_total_node_budget"):
 		_initial_exit_nodes = int(_exit_system.call("get_total_node_budget"))
 		_max_exit_nodes = _initial_exit_nodes
 	if _initial_exit_nodes < 4:
 		push_error("drive_smoke: exit/detour pool too small (%d)" % _initial_exit_nodes)
 		quit(1)
-		return
-
-	if not await _verify_sunset_viewpoint_reachable():
 		return
 
 	if _vehicle.has_method("get_cruise_target_speed_ms"):
@@ -303,10 +305,17 @@ func _track_exits() -> void:
 
 
 func _verify_sunset_viewpoint_reachable() -> bool:
-	## Structural reachability: EXIT_RIGHT detour is active, off-lane, and hosts the POI.
-	## Avoids vehicle teleports that disturb physics / journey reporters before the drive.
+	## Structural + discovery API: EXIT_RIGHT detour, ViewpointPOI spawn, persist after unload.
 	if _exit_system == null:
 		return false
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	if poi_sys == null:
+		push_error("drive_smoke: POISystem missing")
+		quit(1)
+		return false
+	if poi_sys.has_method("clear_discovery_for_tests"):
+		poi_sys.call("clear_discovery_for_tests")
+
 	for _i in 10:
 		if bool(_exit_system.call("is_exit_active", "sunset_viewpoint_exit")):
 			break
@@ -320,6 +329,17 @@ func _verify_sunset_viewpoint_reachable() -> bool:
 	var poi_name := str(_exit_system.call("get_active_poi_name"))
 	if poi_name != "Sunset Viewpoint":
 		push_error("drive_smoke: expected Sunset Viewpoint, got '%s'" % poi_name)
+		quit(1)
+		return false
+
+	if not bool(poi_sys.call("has_active_viewpoint", "sunset_viewpoint")):
+		push_error("drive_smoke: ViewpointPOI not spawned for sunset_viewpoint")
+		quit(1)
+		return false
+
+	var vp: Node3D = poi_sys.call("get_active_viewpoint", "sunset_viewpoint")
+	if vp == null:
+		push_error("drive_smoke: active viewpoint instance null")
 		quit(1)
 		return false
 
@@ -341,11 +361,47 @@ func _verify_sunset_viewpoint_reachable() -> bool:
 		quit(1)
 		return false
 
+	# Discover once via viewpoint presence API (no vehicle teleport).
+	var emit_count := {"n": 0}
+	var on_disc := func(_id: String, _name: String) -> void:
+		emit_count["n"] = int(emit_count["n"]) + 1
+	poi_sys.discovered_poi.connect(on_disc)
+	if vp.has_method("notify_presence"):
+		vp.call("notify_presence", _vehicle)
+	else:
+		poi_sys.call("mark_discovered", "sunset_viewpoint", "Sunset Viewpoint")
+	# Second call must not re-emit.
+	if vp.has_method("notify_presence"):
+		vp.call("notify_presence", _vehicle)
+	poi_sys.call("mark_discovered", "sunset_viewpoint", "Sunset Viewpoint")
+
+	if not bool(poi_sys.call("is_discovered", "sunset_viewpoint")):
+		push_error("drive_smoke: sunset_viewpoint not marked discovered")
+		quit(1)
+		return false
+	if int(emit_count["n"]) != 1:
+		push_error("drive_smoke: discovered_poi emits=%d want 1" % int(emit_count["n"]))
+		quit(1)
+		return false
+
+	# Unload viewpoint; discovery must remain in logical POISystem.
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	await physics_frame
+	if bool(poi_sys.call("has_active_viewpoint", "sunset_viewpoint")):
+		push_error("drive_smoke: viewpoint still loaded after despawn")
+		quit(1)
+		return false
+	if not bool(poi_sys.call("is_discovered", "sunset_viewpoint")):
+		push_error("drive_smoke: discovery lost after viewpoint unload")
+		quit(1)
+		return false
+
+	poi_sys.discovered_poi.disconnect(on_disc)
 	_poi_reach_ok = true
 	_saw_exit_active = true
 	print(
-		"drive_smoke: Sunset Viewpoint EXIT_RIGHT detour ready (main_lat=%.1f, nodes=%d)"
-		% [main_lat, int(_exit_system.call("get_total_node_budget"))]
+		"drive_smoke: Sunset Viewpoint discovered + persisted after unload (main_lat=%.1f)"
+		% main_lat
 	)
 	return true
 

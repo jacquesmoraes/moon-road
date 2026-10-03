@@ -144,13 +144,20 @@ func _format_region_progress() -> float:
 func _format_exit_poi() -> String:
 	if _exits == null:
 		return "none"
+	var discovered := ""
+	var poi_sys := get_node_or_null("/root/POISystem")
+	if poi_sys != null and poi_sys.has_method("is_discovered"):
+		if bool(poi_sys.call("is_discovered", "sunset_viewpoint")):
+			discovered = " · discovered"
 	if _exits.has_method("is_exit_active") and bool(_exits.call("is_exit_active")):
 		var name := ""
 		if _exits.has_method("get_active_poi_name"):
 			name = str(_exits.call("get_active_poi_name"))
 		if name.is_empty():
 			name = "exit"
-		return "%s (steer right onto ramp)" % name
+		return "%s (steer right onto ramp)%s" % [name, discovered]
+	if not discovered.is_empty():
+		return "Sunset Viewpoint%s" % discovered
 	return "none nearby"
 
 

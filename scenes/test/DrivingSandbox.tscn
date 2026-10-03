@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3 uid="uid://bterra_drive_sandbox"]
+[gd_scene load_steps=19 format=3 uid="uid://bterra_drive_sandbox"]
 
 [ext_resource type="PackedScene" uid="uid://bterra_player_vehicle" path="res://scenes/vehicles/PlayerVehicle.tscn" id="1_vehicle"]
 [ext_resource type="PackedScene" uid="uid://bterra_driving_debug_hud" path="res://scenes/ui/DrivingDebugHUD.tscn" id="2_hud"]
@@ -8,6 +8,7 @@
 [ext_resource type="Script" path="res://scripts/world/roadside_scenery.gd" id="6_scenery"]
 [ext_resource type="Script" path="res://scripts/road/roadside_exit_system.gd" id="7_exits"]
 [ext_resource type="Resource" path="res://resources/world/exits/sunset_viewpoint_exit.tres" id="8_sunset_exit"]
+[ext_resource type="PackedScene" path="res://scenes/world/ViewpointPOI.tscn" id="9_viewpoint"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.28, 0.48, 0.78, 1)
@@ -91,7 +92,7 @@ road_manager_path = NodePath("../RoadManager")
 segment_scene = ExtResource("3_road")
 target_path = NodePath("../PlayerVehicle")
 definitions = [ExtResource("8_sunset_exit")]
-poi_reach_distance = 8.0
+viewpoint_scene = ExtResource("9_viewpoint")
 
 [node name="WorldOriginRecenter" type="Node" parent="."]
 script = ExtResource("5_recenter")

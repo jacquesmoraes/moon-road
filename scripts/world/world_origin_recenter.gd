@@ -89,6 +89,10 @@ func _apply_shift(offset: Vector3) -> void:
 	elif _exit_system is Node3D:
 		(_exit_system as Node3D).global_position -= offset
 
+	var poi_sys := get_node_or_null("/root/POISystem")
+	if poi_sys != null and poi_sys.has_method("apply_origin_shift"):
+		poi_sys.call("apply_origin_shift", offset)
+
 	var camera := get_tree().current_scene.find_child("VehicleCameraController", true, false) as Node3D
 	if camera != null:
 		camera.global_position -= offset

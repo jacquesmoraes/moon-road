@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **Roadside exits & short POI detours** — peel off the main road to reach placeholders like Sunset Viewpoint. Travel Mode still stays on the highway.
+Current slice: **Sunset Viewpoint POI** — first explorável pull-off with persistent discovery. Placeholders only; Travel Mode stays on the highway.
 
 ## Requirements
 
@@ -120,13 +120,25 @@ Props parent under each segment’s `SceneryAnchor`, so origin recenter moves th
 
 ### Roadside exits & short detours
 
-`RoadsideExitSystem` places lateral exits (`EXIT_LEFT` / `EXIT_RIGHT`) off a main-road host segment into a **fixed-length secondary stretch** (placeholder RoadSegments + ramp). Main `RoadManager` recycling, Travel Mode autopilot, JourneySystem, and origin recenter are unchanged — autopilot keeps sampling the main road only; manual driving can peel onto the ramp.
+`RoadsideExitSystem` places lateral exits (`EXIT_LEFT` / `EXIT_RIGHT`) off a main-road host into a **fixed-length secondary stretch**. At the spur end, autoload **`POISystem`** instantiates reusable `ViewpointPOI` (`scenes/world/ViewpointPOI.tscn`): entrance, car pad, observation point, discover Area3D, placeholder sign/bounds.
 
-Example: **Sunset Viewpoint** (`resources/world/exits/sunset_viewpoint_exit.tres` + `resources/world/pois/sunset_viewpoint.tres`) — `EXIT_RIGHT` on main sequence index 3, three short detour segments, orange POI marker at the end.
+Example: **Sunset Viewpoint** (`resources/world/exits/sunset_viewpoint_exit.tres`).
 
-**How to reach Sunset Viewpoint:** stay in MANUAL, drive forward to the 4th main segment, steer **right** onto the brown ramp, follow the short spur to the orange pillar.
+**How to test**
+1. MANUAL → 4th main segment → steer **right** onto the brown ramp.
+2. Drive onto the flat pad (orange corner posts).
+3. POI discovers once (`POISystem.discovered_poi` / HUD shows discovered).
+4. Return to the main road; when the host recycles the viewpoint unloads — discovery stays in memory.
 
-**Edit exits:** add/change `RoadsideExitDefinition` resources under `resources/world/exits/` and list them on `RoadsideExitSystem.definitions` in the sandbox. Detour node count is fixed per definition (no unbounded growth).
+**Discovery API (`POISystem`)**
+| API | Role |
+|-----|------|
+| `is_discovered(poi_id)` | Logical flag (survives unload) |
+| `mark_discovered(poi_id, name)` | First call only emits |
+| `discovered_poi` | Signal |
+| `spawn_viewpoint` / `despawn_viewpoint` | World presence |
+
+Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later without changing discovery.
 
 ```bash
 godot --path . --headless --quit-after 3
@@ -141,7 +153,7 @@ godot --path . --headless -s res://scripts/test/drive_smoke.gd
 | `scripts/{core,player,vehicles,road,world,ui,test}` | GDScript by domain |
 | `resources/{vehicles,road,world}` | Shared resources / configs |
 | `assets/{models,materials,textures,audio}` | Art and audio |
-| `autoload/` | Autoload scripts (`JourneySystem`, `WorldRegionSystem`) |
+| `autoload/` | Autoload scripts (`JourneySystem`, `WorldRegionSystem`, `POISystem`) |
 | `data/` | Static data files |
 
 Empty directories keep a `.gdkeep` placeholder so Git tracks them.
@@ -155,7 +167,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Journey: `JourneySystem` + distance reporter
 - Regions: `WorldRegionSystem` + `resources/world/world_region_catalog.tres`
 - Road: `RoadSegment` curve × elevation kinds + `RoadManager` pool recycle
-- World: `WorldOriginRecenter` + `RoadsideScenery` + `RoadsideExitSystem` (short POI detours)
+- World: `WorldOriginRecenter` + `RoadsideScenery` + `RoadsideExitSystem` + `POISystem` / `ViewpointPOI`
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: region-driven visuals/audio/scenery, multi-intersections/cities/traffic/GPS, sharper/procedural roads, final art, fuel, damage, upgrades, final UI, inventory, save, quests
+- Not implemented yet: region-driven visuals/audio, multi-intersections/cities/traffic/GPS, NPCs/quests/loot, final art, fuel, damage, upgrades, final UI, inventory, save

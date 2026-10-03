@@ -6,3 +6,5 @@ class_name PointOfInterest
 @export var display_name: String = ""
 @export var poi_type: String = "viewpoint"
 @export var description: String = ""
+## Optional override scene. Empty → POISystem default ViewpointPOI.
+@export var viewpoint_scene: PackedScene

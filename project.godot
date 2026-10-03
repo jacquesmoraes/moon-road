@@ -20,6 +20,7 @@ config/icon="res://icon.svg"
 
 JourneySystem="*res://autoload/journey_system.gd"
 WorldRegionSystem="*res://autoload/world_region_system.gd"
+POISystem="*res://autoload/poi_system.gd"
 
 [input]
 

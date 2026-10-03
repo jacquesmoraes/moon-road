@@ -1,8 +1,8 @@
 extends Node3D
 class_name RoadsideExitSystem
 ## Places short lateral exits + fixed-pool detours off the main RoadManager road.
+## Spawns explorável ViewpointPOI scenes via POISystem at detour ends.
 ## Autopilot / Travel Mode keep using RoadManager.sample_road (main only).
-## Manual driving can peel onto the detour collision. Node count is bounded.
 
 signal exit_activated(exit_id: String, poi_name: String)
 signal exit_deactivated(exit_id: String)
@@ -12,16 +12,15 @@ signal poi_reached(poi_id: String, poi_name: String)
 @export var segment_scene: PackedScene
 @export var target_path: NodePath = NodePath("../PlayerVehicle")
 @export var definitions: Array[RoadsideExitDefinition] = []
-## How close (m) the player must be to the POI marker to count as reached.
-@export var poi_reach_distance: float = 8.0
+@export var viewpoint_scene: PackedScene
 
 var _road_manager: Node
 var _target: Node3D
+var _poi_system: Node
 ## exit_id → fixed runtime slot
 var _slots: Dictionary = {}
 var _bootstrapped: bool = false
 var _last_recycle_seen: int = -1
-var _reached_pois: Dictionary = {}
 
 
 func _ready() -> void:
@@ -34,33 +33,31 @@ func _physics_process(_delta: float) -> void:
 		return
 	_resolve_refs()
 	_sync_exits_to_main_road()
-	_check_poi_reach()
 
 
 func get_active_exit_count() -> int:
 	var n := 0
 	for key in _slots.keys():
-		var slot: Dictionary = _slots[key]
-		if bool(slot.get("active", false)):
+		if bool(_slots[key].get("active", false)):
 			n += 1
 	return n
 
 
 func get_total_node_budget() -> int:
-	## Fixed upper bound: this root + per-slot (ramp + segments + poi).
 	var n := 1
 	for key in _slots.keys():
 		var slot: Dictionary = _slots[key]
-		n += 1  # ramp
+		n += 1
 		n += (slot.get("segments", []) as Array).size()
-		n += 1  # poi marker
+	if _poi_system != null and _poi_system.has_method("get_active_viewpoint_count"):
+		n += int(_poi_system.call("get_active_viewpoint_count"))
 	return n
 
 
 func get_detour_segment_count() -> int:
 	var n := 0
 	for key in _slots.keys():
-		n += ( _slots[key].get("segments", []) as Array).size()
+		n += (_slots[key].get("segments", []) as Array).size()
 	return n
 
 
@@ -92,14 +89,20 @@ func get_poi_global_position(exit_id: String = "") -> Vector3:
 		var slot: Dictionary = _slots[key]
 		if not bool(slot.get("active", false)):
 			continue
-		var poi_node: Node3D = slot.get("poi_node")
-		if poi_node != null and is_instance_valid(poi_node):
-			return poi_node.global_position
+		var def: RoadsideExitDefinition = slot.get("definition")
+		if def != null and def.poi != null and _poi_system != null:
+			var vp: Node3D = _poi_system.call("get_active_viewpoint", def.poi.poi_id)
+			if vp != null:
+				if vp.has_method("get_car_area_global_position"):
+					return vp.call("get_car_area_global_position")
+				return vp.global_position
 	return Vector3.ZERO
 
 
 func was_poi_reached(poi_id: String) -> bool:
-	return bool(_reached_pois.get(poi_id, false))
+	if _poi_system != null and _poi_system.has_method("is_discovered"):
+		return bool(_poi_system.call("is_discovered", poi_id))
+	return false
 
 
 func apply_origin_shift(offset: Vector3) -> void:
@@ -134,8 +137,6 @@ func _create_slot(def: RoadsideExitDefinition) -> Dictionary:
 			seg.set("show_shoulders", true)
 			seg.set("shoulder_width", 1.0)
 		if seg.has_method("set_kind"):
-			# First piece is also straight — the ramp/mouth already provides the peel.
-			# Avoid a curved RoadSegment that can swing collision back onto the main lane.
 			seg.call("set_kind", 0)
 		if seg.has_method("set_elevation"):
 			seg.call("set_elevation", 0)
@@ -145,28 +146,20 @@ func _create_slot(def: RoadsideExitDefinition) -> Dictionary:
 
 	var ramp := _make_ramp_node("%s_Ramp" % def.exit_id)
 	add_child(ramp)
-
-	var poi_node := _make_poi_marker(def)
-	add_child(poi_node)
-
-	_park_slot_nodes(ramp, segments, poi_node)
+	_park_slot_nodes(ramp, segments)
 
 	return {
 		"definition": def,
 		"segments": segments,
 		"ramp": ramp,
-		"poi_node": poi_node,
 		"active": false,
 		"host": null,
 	}
 
 
 func _make_ramp_node(node_name: String) -> Node3D:
-	## Visual-only bridge marker. Collision lives on detour RoadSegments so the
-	## main lane cannot get blocked by a wide ramp box.
 	var root := Node3D.new()
 	root.name = node_name
-
 	var mesh := MeshInstance3D.new()
 	var box := BoxMesh.new()
 	box.size = Vector3(5.5, 0.12, 10.0)
@@ -176,36 +169,6 @@ func _make_ramp_node(node_name: String) -> Node3D:
 	mesh.material_override = mat
 	mesh.position = Vector3(0.0, 0.04, 0.0)
 	root.add_child(mesh)
-
-	return root
-
-
-func _make_poi_marker(def: RoadsideExitDefinition) -> Node3D:
-	var root := Node3D.new()
-	root.name = "%s_POI" % def.exit_id
-
-	var mesh := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.35
-	cyl.bottom_radius = 0.55
-	cyl.height = 3.2
-	mesh.mesh = cyl
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.95, 0.45, 0.15, 1)
-	mesh.material_override = mat
-	mesh.position = Vector3(0.0, 1.6, 0.0)
-	root.add_child(mesh)
-
-	var plaque := MeshInstance3D.new()
-	var board := BoxMesh.new()
-	board.size = Vector3(2.4, 1.0, 0.12)
-	plaque.mesh = board
-	var board_mat := StandardMaterial3D.new()
-	board_mat.albedo_color = Color(0.15, 0.12, 0.1, 1)
-	plaque.material_override = board_mat
-	plaque.position = Vector3(0.0, 2.6, 0.0)
-	root.add_child(plaque)
-
 	return root
 
 
@@ -213,10 +176,8 @@ func _sync_exits_to_main_road() -> void:
 	if _road_manager == null or not _road_manager.has_method("get_active_segments"):
 		return
 
-	var recycle := 0
 	if _road_manager.has_method("get_recycle_count"):
-		recycle = int(_road_manager.call("get_recycle_count"))
-	_last_recycle_seen = recycle
+		_last_recycle_seen = int(_road_manager.call("get_recycle_count"))
 
 	var active_segments: Array = _road_manager.call("get_active_segments")
 	for key in _slots.keys():
@@ -242,9 +203,7 @@ func _sync_exits_to_main_road() -> void:
 
 func _find_host(active_segments: Array, sequence: int) -> Node3D:
 	for seg in active_segments:
-		if seg == null or not is_instance_valid(seg):
-			continue
-		if not (seg is Node3D):
+		if seg == null or not is_instance_valid(seg) or not (seg is Node3D):
 			continue
 		if (seg as Node3D).has_meta("road_sequence_index"):
 			if int((seg as Node3D).get_meta("road_sequence_index")) == sequence:
@@ -259,10 +218,10 @@ func _deactivate_slot(exit_id: String, slot: Dictionary) -> void:
 	slot["active"] = false
 	slot["host"] = null
 	slot["emitted_active"] = false
-	var ramp: Node3D = slot.get("ramp")
-	var segments: Array = slot.get("segments", [])
-	var poi_node: Node3D = slot.get("poi_node")
-	_park_slot_nodes(ramp, segments, poi_node)
+	_park_slot_nodes(slot.get("ramp"), slot.get("segments", []))
+	var def: RoadsideExitDefinition = slot.get("definition")
+	if def != null and def.poi != null and _poi_system != null:
+		_poi_system.call("despawn_viewpoint", def.poi.poi_id)
 	exit_deactivated.emit(exit_id)
 
 
@@ -270,7 +229,6 @@ func _place_detour(slot: Dictionary, host: Node3D) -> void:
 	var def: RoadsideExitDefinition = slot.get("definition")
 	var segments: Array = slot.get("segments", [])
 	var ramp: Node3D = slot.get("ramp")
-	var poi_node: Node3D = slot.get("poi_node")
 	if def == null or segments.is_empty() or host == null:
 		return
 	if not host.has_method("sample_centerline"):
@@ -292,7 +250,6 @@ func _place_detour(slot: Dictionary, host: Node3D) -> void:
 	if host.has_method("get_width"):
 		host_half = float(host.call("get_width")) * 0.5
 
-	# Mouth sits past shoulder so detour collision stays off the travel lane.
 	var mouth := point + right * side_sign * (host_half + 4.0) + forward * 1.0
 	mouth.y = point.y
 
@@ -305,7 +262,6 @@ func _place_detour(slot: Dictionary, host: Node3D) -> void:
 	var mouth_basis := _basis_looking_along(exit_forward)
 	var mouth_xf := Transform3D(mouth_basis, mouth)
 
-	# Visual ramp only — points drivers toward the spur.
 	if ramp != null:
 		ramp.visible = true
 		var ramp_mid := point + right * side_sign * (host_half + 2.0) + forward * 1.0 + exit_forward * 4.0
@@ -315,7 +271,6 @@ func _place_detour(slot: Dictionary, host: Node3D) -> void:
 	var first: Node3D = segments[0]
 	_set_segment_visible(first, true)
 	if first.has_method("place_after_exit"):
-		# place_after_exit expects previous Exit marker transform; synthesize entrance pose.
 		first.call("place_after_exit", mouth_xf)
 	else:
 		first.global_transform = mouth_xf
@@ -327,21 +282,45 @@ func _place_detour(slot: Dictionary, host: Node3D) -> void:
 		if seg.has_method("place_after_exit") and prev.has_method("get_exit_global_transform"):
 			seg.call("place_after_exit", prev.call("get_exit_global_transform"))
 
-	if poi_node != null:
-		poi_node.visible = true
-		var last: Node3D = segments[segments.size() - 1]
-		if last.has_method("sample_centerline"):
-			var end_sample: Dictionary = last.call("sample_centerline", 0.85)
-			var poi_pos: Vector3 = end_sample.get("point", last.global_position)
-			var poi_right: Vector3 = end_sample.get("right", Vector3.RIGHT)
-			poi_pos += poi_right * side_sign * 3.5
-			poi_pos.y = float(end_sample.get("point", last.global_position).y)
-			poi_node.global_position = poi_pos
-		else:
-			poi_node.global_position = last.global_position + Vector3(side_sign * 4.0, 0.0, 0.0)
+	_spawn_viewpoint_at_detour_end(slot, side_sign)
 
 
-func _park_slot_nodes(ramp: Node3D, segments: Array, poi_node: Node3D) -> void:
+func _spawn_viewpoint_at_detour_end(slot: Dictionary, side_sign: float) -> void:
+	var def: RoadsideExitDefinition = slot.get("definition")
+	var segments: Array = slot.get("segments", [])
+	if def == null or def.poi == null or segments.is_empty() or _poi_system == null:
+		return
+	var last: Node3D = segments[segments.size() - 1]
+	var basis := last.global_transform.basis
+	var pos := last.global_position
+	if last.has_method("sample_centerline"):
+		var end_sample: Dictionary = last.call("sample_centerline", 0.92)
+		pos = end_sample.get("point", pos)
+		var fwd: Vector3 = end_sample.get("forward", -last.global_transform.basis.z)
+		fwd.y = 0.0
+		if fwd.length_squared() > 0.0001:
+			basis = _basis_looking_along(fwd.normalized())
+		var end_right: Vector3 = end_sample.get("right", Vector3.RIGHT)
+		pos += end_right * side_sign * 2.0
+	var xf := Transform3D(basis, pos)
+	var scene := viewpoint_scene
+	if scene == null and def.poi.viewpoint_scene != null:
+		scene = def.poi.viewpoint_scene
+	var vp: Node3D = _poi_system.call("spawn_viewpoint", def.poi, xf, self, scene)
+	if vp != null and not vp.has_meta("exit_poi_signal_hooked"):
+		vp.set_meta("exit_poi_signal_hooked", true)
+		# Forward first-time discovery for listeners that still use poi_reached.
+		var sys := _poi_system
+		if sys != null and sys.has_signal("discovered_poi"):
+			if not sys.discovered_poi.is_connected(_on_poi_discovered):
+				sys.discovered_poi.connect(_on_poi_discovered)
+
+
+func _on_poi_discovered(poi_id: String, display_name: String) -> void:
+	poi_reached.emit(poi_id, display_name)
+
+
+func _park_slot_nodes(ramp: Node3D, segments: Array) -> void:
 	var park := Vector3(0.0, -800.0, 0.0)
 	if ramp != null:
 		ramp.visible = false
@@ -354,9 +333,6 @@ func _park_slot_nodes(ramp: Node3D, segments: Array, poi_node: Node3D) -> void:
 		seg.visible = false
 		_disable_collision_tree(seg)
 		seg.global_position = park + Vector3(float(i) * 80.0, -20.0, 0.0)
-	if poi_node != null:
-		poi_node.visible = false
-		poi_node.global_position = park + Vector3(0.0, 0.0, -40.0)
 
 
 func _set_segment_visible(seg: Node3D, on: bool) -> void:
@@ -365,13 +341,6 @@ func _set_segment_visible(seg: Node3D, on: bool) -> void:
 		_enable_collision_tree(seg)
 	else:
 		_disable_collision_tree(seg)
-
-
-func _set_collision_enabled(node: Node, on: bool) -> void:
-	if on:
-		_enable_collision_tree(node)
-	else:
-		_disable_collision_tree(node)
 
 
 func _disable_collision_tree(node: Node) -> void:
@@ -397,7 +366,6 @@ func _basis_looking_along(forward: Vector3) -> Basis:
 		f = Vector3.FORWARD
 	else:
 		f = f.normalized()
-	# Godot: local -Z is forward. Basis columns = X (right), Y (up), Z (-forward).
 	var right := f.cross(Vector3.UP)
 	if right.length_squared() < 0.0001:
 		right = Vector3.RIGHT
@@ -405,28 +373,6 @@ func _basis_looking_along(forward: Vector3) -> Basis:
 		right = right.normalized()
 	var up := right.cross(f).normalized()
 	return Basis(right, up, -f)
-
-
-func _check_poi_reach() -> void:
-	if _target == null or not is_instance_valid(_target):
-		return
-	for key in _slots.keys():
-		var slot: Dictionary = _slots[key]
-		if not bool(slot.get("active", false)):
-			continue
-		var def: RoadsideExitDefinition = slot.get("definition")
-		if def == null or def.poi == null:
-			continue
-		var poi_id := def.poi.poi_id
-		if poi_id.is_empty() or bool(_reached_pois.get(poi_id, false)):
-			continue
-		var poi_node: Node3D = slot.get("poi_node")
-		if poi_node == null:
-			continue
-		var d := _target.global_position.distance_to(poi_node.global_position)
-		if d <= poi_reach_distance:
-			_reached_pois[poi_id] = true
-			poi_reached.emit(poi_id, def.poi.display_name)
 
 
 func _resolve_refs() -> void:
@@ -439,3 +385,5 @@ func _resolve_refs() -> void:
 		_target = get_node_or_null(target_path) as Node3D
 	if _target == null and get_tree() != null and get_tree().current_scene != null:
 		_target = get_tree().current_scene.find_child("PlayerVehicle", true, false) as Node3D
+
+	_poi_system = get_node_or_null("/root/POISystem")
