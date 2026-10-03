@@ -881,7 +881,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK interior=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK interior=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1264,6 +1264,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_viewpoint_terminal(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_npc_foundation(occupancy, character, foot_cam):
+		return false
+
 	if not await _verify_small_interior(occupancy, character, foot_cam):
 		return false
 
@@ -1624,6 +1627,157 @@ func _verify_viewpoint_terminal(occupancy: Node, character: CharacterBody3D, foo
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print("drive_smoke: viewpoint terminal OK (OFF→ON one-shot, persist across enter/exit)")
+	return true
+
+
+func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_cam: Node3D) -> bool:
+	## Placeholder NPC at Sunset Viewpoint via generic Interactable infra (no dialogue tree).
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	if poi_sys == null:
+		push_error("drive_smoke: POISystem missing for NPC test")
+		quit(1)
+		return false
+
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	var def_res: Resource = load("res://resources/npc/mira_viewpoint_keeper.tres")
+	if poi_res == null or vp_scene == null or def_res == null:
+		push_error("drive_smoke: could not load NPC / viewpoint resources")
+		quit(1)
+		return false
+
+	# NPC scripts must not import the POI autoload (no circular dependency).
+	var npc_script: Script = load("res://scripts/npc/npc_character.gd") as Script
+	if npc_script == null:
+		push_error("drive_smoke: npc_character.gd missing")
+		quit(1)
+		return false
+	var npc_src := npc_script.source_code
+	if npc_src.find("/root/POISystem") >= 0 or npc_src.find("poi_system.gd") >= 0:
+		push_error("drive_smoke: NpcCharacter must not reference POI autoload")
+		quit(1)
+		return false
+
+	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(10.0, 0.0, -5.0))
+	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	if vp == null:
+		push_error("drive_smoke: failed to spawn viewpoint for NPC")
+		quit(1)
+		return false
+
+	var npc: Node = vp.find_child("Mira", true, false)
+	if npc == null:
+		npc = vp.find_child("NPC", true, false)
+	if npc == null or not npc.has_method("interact"):
+		push_error("drive_smoke: Mira NPC missing on ViewpointPOI")
+		quit(1)
+		return false
+	if not InteractionDetector.is_interactable_node(npc):
+		push_error("drive_smoke: NPC is not duck-typed interactable")
+		quit(1)
+		return false
+	if str(npc.call("get_npc_id")) != "mira_viewpoint_keeper":
+		push_error("drive_smoke: NPC id mismatch (%s)" % str(npc.call("get_npc_id")))
+		quit(1)
+		return false
+	if str(npc.call("get_display_name")) != "Mira":
+		push_error("drive_smoke: NPC display_name mismatch")
+		quit(1)
+		return false
+	if str(npc.call("get_role")) != "viewpoint_keeper":
+		push_error("drive_smoke: NPC role mismatch")
+		quit(1)
+		return false
+	if not bool(npc.call("is_npc_enabled")):
+		push_error("drive_smoke: NPC should be enabled")
+		quit(1)
+		return false
+	if str(npc.call("get_presence_mode_name")) != "STATIC":
+		push_error("drive_smoke: expected STATIC presence mode for foundation NPC")
+		quit(1)
+		return false
+
+	var line_signals := {"n": 0, "line": ""}
+	var on_line := func(line: String) -> void:
+		line_signals["n"] = int(line_signals["n"]) + 1
+		line_signals["line"] = line
+	if npc.has_signal("line_spoken"):
+		npc.line_spoken.connect(on_line)
+
+	var npc_pos: Vector3 = (npc as Node3D).global_position
+	character.global_position = npc_pos + Vector3(0.0, 0.05, 1.6)
+	var face := npc_pos - character.global_position
+	var yaw := atan2(-face.x, -face.z)
+	character.rotation.y = yaw
+	if foot_cam.has_method("set_look_angles"):
+		foot_cam.call("set_look_angles", yaw, deg_to_rad(-10.0))
+	for _i in range(14):
+		await physics_frame
+
+	var detector: Node = character.get_node_or_null("InteractionDetector")
+	if detector == null:
+		push_error("drive_smoke: InteractionDetector missing for NPC test")
+		quit(1)
+		return false
+
+	var prompt := ""
+	if bool(detector.call("has_focus")):
+		var focus: Node = detector.call("get_focus")
+		if focus == npc:
+			prompt = str(detector.call("get_focus_prompt"))
+		elif character.has_method("get_interaction_prompt"):
+			# Another nearby object may win; still require prompt path + direct interact.
+			prompt = str(npc.call("get_interaction_prompt"))
+	else:
+		prompt = str(npc.call("get_interaction_prompt"))
+	if prompt.find("Mira") < 0 and prompt.find("Falar") < 0:
+		push_error("drive_smoke: bad NPC prompt '%s'" % prompt)
+		quit(1)
+		return false
+
+	if bool(detector.call("has_focus")) and detector.call("get_focus") == npc:
+		if not bool(detector.call("try_interact")):
+			push_error("drive_smoke: detector try_interact failed on NPC")
+			quit(1)
+			return false
+	else:
+		if not bool(npc.call("interact", character)):
+			push_error("drive_smoke: NPC interact failed")
+			quit(1)
+			return false
+
+	await physics_frame
+	if int(npc.get_meta("interact_count", 0)) < 1:
+		push_error("drive_smoke: NPC interact_count not updated")
+		quit(1)
+		return false
+	var spoken := str(npc.call("get_last_spoken_line"))
+	if spoken != "Boa viagem.":
+		push_error("drive_smoke: expected greeting 'Boa viagem.' got '%s'" % spoken)
+		quit(1)
+		return false
+	if int(line_signals["n"]) < 1 or str(line_signals["line"]) != "Boa viagem.":
+		push_error("drive_smoke: line_spoken did not fire with greeting")
+		quit(1)
+		return false
+	if npc.has_method("is_line_visible") and not bool(npc.call("is_line_visible")):
+		push_error("drive_smoke: NPC speech label not visible after interact")
+		quit(1)
+		return false
+
+	# Data lives on NpcDefinition / NPC exports — not PlayerCharacter.
+	if "mira_viewpoint_keeper" in str(character.get_script().source_code if character.get_script() else ""):
+		push_error("drive_smoke: NPC id must not be hardcoded in PlayerCharacter")
+		quit(1)
+		return false
+
+	if npc.has_signal("line_spoken"):
+		npc.line_spoken.disconnect(on_line)
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: NPC foundation OK (prompt → Boa viagem. via Interactable)")
 	return true
 
 

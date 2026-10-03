@@ -1,0 +1,81 @@
+[gd_scene load_steps=8 format=3 uid="uid://bterra_npc"]
+
+[ext_resource type="Script" path="res://scripts/npc/npc_character.gd" id="1_script"]
+
+[sub_resource type="SphereShape3D" id="Shape_interact"]
+radius = 1.15
+
+[sub_resource type="StandardMaterial3D" id="Mat_body"]
+albedo_color = Color(0.22, 0.38, 0.48, 1)
+
+[sub_resource type="CapsuleMesh" id="Mesh_body"]
+radius = 0.35
+height = 1.6
+
+[sub_resource type="StandardMaterial3D" id="Mat_head"]
+albedo_color = Color(0.78, 0.62, 0.48, 1)
+
+[sub_resource type="SphereMesh" id="Mesh_head"]
+radius = 0.28
+height = 0.56
+
+[sub_resource type="StandardMaterial3D" id="Mat_accent"]
+albedo_color = Color(0.85, 0.55, 0.22, 1)
+
+[node name="NPC" type="Area3D"]
+collision_layer = 8
+collision_mask = 0
+monitoring = false
+monitorable = true
+script = ExtResource("1_script")
+npc_id = "npc"
+display_name = "NPC"
+role = "traveler"
+enabled = true
+greeting_line = "Boa viagem."
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0)
+shape = SubResource("Shape_interact")
+
+[node name="Model" type="Node3D" parent="."]
+
+[node name="Body" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+material_override = SubResource("Mat_body")
+mesh = SubResource("Mesh_body")
+
+[node name="Head" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.85, 0)
+material_override = SubResource("Mat_head")
+mesh = SubResource("Mesh_head")
+
+[node name="Shoulder" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.35, 0)
+material_override = SubResource("Mat_accent")
+mesh = SubResource("Mesh_body")
+visible = false
+
+[node name="NameLabel" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.35, 0)
+text = "NPC"
+font_size = 36
+pixel_size = 0.01
+modulate = Color(0.9, 0.88, 0.82, 1)
+outline_modulate = Color(0.05, 0.05, 0.05, 1)
+billboard = 1
+
+[node name="SpeechLabel" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.7, 0)
+visible = false
+text = ""
+font_size = 42
+pixel_size = 0.01
+modulate = Color(1, 0.95, 0.82, 1)
+outline_size = 8
+outline_modulate = Color(0.08, 0.06, 0.04, 1)
+billboard = 1
+
+[node name="SpeechTimer" type="Timer" parent="."]
+one_shot = true
+wait_time = 2.5

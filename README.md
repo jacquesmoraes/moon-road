@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **explorable Observation Booth** — reusable walk-in `SmallInterior` at Sunset Viewpoint (doorway entry, interior interactable, camera collision pull-in).
+Current slice: **NPC foundation** — reusable `NPC.tscn` + `NpcDefinition` at Sunset Viewpoint (Mira); interact shows a temporary “Boa viagem.” line via the generic Interactable system.
 
 ## Requirements
 
@@ -39,7 +39,7 @@ On-foot feel on `PlayerCharacter`: `walk_speed`, `run_speed`, `acceleration`, `d
 
 ### Interaction (`Interactable` + `InteractionDetector`)
 
-Reusable world-object interaction — no inventory / NPC / quest logic yet.
+Reusable world-object interaction — terminals, logs, and NPCs share the same detector.
 
 | Piece | Role |
 |-------|------|
@@ -48,10 +48,23 @@ Reusable world-object interaction — no inventory / NPC / quest logic yet.
 | `InteractionPromptUI` | Bottom-center debug prompt when focused |
 | `TestTerminal` | Sample object — prints a log message on interact |
 | `ViewpointTerminal` | Sunset Viewpoint console — **one-shot OFF→ON** (session state, color + light + label) |
+| `Npc` / `NpcDefinition` | Placeholder person — data Resource + temporary spoken line |
 
 **E key UX:** On foot, a focused interactable wins (`player_interact`). If none, E enters the parked vehicle. In vehicle (parked), E still exits. Prompt only shows while a valid object is in range/front cone.
 
 **ViewpointTerminal choice:** one-shot **ON** (not a toggle). First successful interact powers it; `can_interact` becomes false; state persists while that viewpoint instance stays loaded (survives enter/exit car). No disk save yet.
+
+### NPCs (`Npc` + `NpcDefinition`)
+
+Foundation only — no dialogue tree, pathfinding, routines, quests, or shops.
+
+| Piece | Role |
+|-------|------|
+| `NpcDefinition` | Resource: `npc_id`, `display_name`, `role`, `enabled`, `presence_mode`, `greeting_line` |
+| `NPC.tscn` / `NpcCharacter` | Duck-typed Interactable; shows a temporary Label3D line on interact |
+| `PresenceMode` | `STATIC` now; `ROUTINE` / `TRAVELING` reserved for later |
+
+Sunset Viewpoint places **Mira** (`viewpoint_keeper`) with greeting `"Boa viagem."`. Data lives in `resources/npc/` — not on `PlayerCharacter`. No dependency on `POISystem` (viewpoint scene just instances the NPC).
 
 ### Small interiors (`SmallInterior`)
 
@@ -65,7 +78,7 @@ Reusable single-room building used as the **Observation Booth** on Sunset Viewpo
 
 **Enter/exit:** walk through the open doorway — no teleport, no loading screen. On-foot camera uses shorter follow distance indoors and raycasts against walls to reduce clipping. Parked car is untouched.
 
-Detection: Area3D proximity + forward cone ranking (stable, simple). Future NPCs/doors/benches/shops/items can subclass `Interactable` or duck-type the same methods.
+Detection: Area3D proximity + forward cone ranking (stable, simple). NPCs/doors/benches/shops/items duck-type the same Interactable methods.
 
 ### Occupancy (`PlayerOccupancyController`)
 
@@ -235,6 +248,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Motion: `PlayerVehicle` — DRIVING / PARKED (`vehicle_park`, `parking_state_changed`)
 - Occupancy: `PlayerOccupancyController` — IN_VEHICLE / ON_FOOT + `PlayerCharacter` (walk/run)
 - Interaction: `Interactable` + `InteractionDetector` + `TestTerminal` / `ViewpointTerminal` (stateful OFF→ON)
+- NPCs: `NPC.tscn` + `NpcDefinition` (Mira at Sunset Viewpoint — temporary greeting line)
 - Interiors: `SmallInterior` Observation Booth (walk-in doorway) + `ObservationLog`
 - On-foot camera: `OnFootCameraController` — THIRD_PERSON (FIRST_PERSON-ready)
 - Driving modes: `DrivingModeController` — MANUAL / CRUISE / TRAVEL_MODE
@@ -246,4 +260,4 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - World: `WorldOriginRecenter` + `RoadsideScenery` + `RoadsideExitSystem` + `POISystem` / `ViewpointPOI`
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: region-driven visuals/audio, multi-intersections/cities/traffic/GPS, NPCs/quests/loot, final art, fuel, damage, upgrades, final UI, inventory, save
+- Not implemented yet: dialogue trees, NPC routines/pathfinding, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, quests/loot, final art, fuel, damage, upgrades, final UI, inventory, save
