@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **gameplay conditions + flags** — ConditionSystem evaluates gates; Mira switches dialogue when `power_the_viewpoint` is COMPLETED.
+Current slice: **vertical-slice integration** — mid-flow save/load, offline-once, architecture docs. See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -371,7 +371,10 @@ Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later w
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
+# Expect: … mid_save=OK … conditions=OK … fuel=OK … upgrade=OK … drive_smoke: OK
 ```
+
+Architecture snapshot: [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Layout (`res://`)
 

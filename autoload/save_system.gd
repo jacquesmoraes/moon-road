@@ -15,6 +15,7 @@ const BACKUP_PATH := "user://savegame.json.bak"
 ## system_id → Node (autoload / provider).
 var _providers: Dictionary = {}
 var _created_at: String = ""
+var _rewrite_save_after_offline: bool = false
 
 
 func _ready() -> void:
@@ -81,7 +82,9 @@ func save_game() -> bool:
 			_created_at = now
 
 	var systems: Dictionary = {}
-	for system_id in _providers.keys():
+	for system_id in _provider_order():
+		if not _providers.has(system_id):
+			continue
 		var node: Node = _providers[system_id]
 		if node == null or not is_instance_valid(node):
 			continue
@@ -156,7 +159,10 @@ func load_game() -> bool:
 		push_warning("SaveSystem: load failed (invalid_systems_block) — file kept")
 		return false
 
-	for system_id in _providers.keys():
+	# Deterministic order so dependents (e.g. offline fuel vs journey) stay predictable.
+	for system_id in _provider_order():
+		if not _providers.has(system_id):
+			continue
 		var node: Node = _providers[system_id]
 		if node == null or not is_instance_valid(node):
 			continue
@@ -169,6 +175,10 @@ func load_game() -> bool:
 		node.call("load_save_data", payload)
 
 	_apply_offline_travel_hook()
+	if _rewrite_save_after_offline:
+		_rewrite_save_after_offline = false
+		# Persist post-offline journey/fuel so a second load cannot double-advance.
+		save_game()
 
 	load_completed.emit(SAVE_PATH)
 	print("SaveSystem: loaded ← %s (v%d)" % [SAVE_PATH, version])
@@ -178,6 +188,7 @@ func load_game() -> bool:
 func _apply_offline_travel_hook() -> void:
 	## Minimal offline progress: only if the save said we were traveling.
 	## Caps journey advancement by remaining fuel (OUT_OF_FUEL if emptied).
+	## Clears was_traveling_at_save after apply so a second load cannot double-advance.
 	var vs := get_node_or_null("/root/VehicleStateSystem")
 	var gt := get_node_or_null("/root/GameTimeSystem")
 	if vs == null or gt == null:
@@ -190,8 +201,11 @@ func _apply_offline_travel_hook() -> void:
 	if gt.has_method("get_seconds_since_last_session"):
 		offline = float(gt.call("get_seconds_since_last_session"))
 	if offline <= 0.0:
+		vs.set("was_traveling_at_save", false)
 		return
 	var result: Variant = vs.call("apply_offline_travel", offline)
+	vs.set("was_traveling_at_save", false)
+	_rewrite_save_after_offline = true
 	if typeof(result) == TYPE_DICTIONARY:
 		var reason := str(result.get("stopped_reason", ""))
 		var km := float(result.get("distance_applied_km", 0.0))
@@ -231,6 +245,20 @@ func _register_default_providers() -> void:
 	_try_register("game_time", "/root/GameTimeSystem")
 	_try_register("vehicle_state", "/root/VehicleStateSystem")
 	_try_register("game_flags", "/root/GameFlags")
+
+
+func _provider_order() -> PackedStringArray:
+	## Stable save/load order. Keep vehicle_state after game_time (offline uses both).
+	return PackedStringArray([
+		"journey",
+		"inventory",
+		"quest",
+		"poi",
+		"world_state",
+		"game_time",
+		"vehicle_state",
+		"game_flags",
+	])
 
 
 func _try_register(system_id: String, path: String) -> void:
