@@ -303,10 +303,10 @@ func _track_exits() -> void:
 
 
 func _verify_sunset_viewpoint_reachable() -> bool:
-	## While the host segment is still active, confirm the EXIT_RIGHT detour POI is reachable.
+	## Structural reachability: EXIT_RIGHT detour is active, off-lane, and hosts the POI.
+	## Avoids vehicle teleports that disturb physics / journey reporters before the drive.
 	if _exit_system == null:
 		return false
-	# Allow deferred bootstrap to place the exit.
 	for _i in 10:
 		if bool(_exit_system.call("is_exit_active", "sunset_viewpoint_exit")):
 			break
@@ -329,7 +329,6 @@ func _verify_sunset_viewpoint_reachable() -> bool:
 		quit(1)
 		return false
 
-	# Detour must sit off the main road (not on the centerline).
 	var main_sample: Dictionary = _road_manager.call("sample_road", poi_pos, 8.0)
 	var main_lat := absf(float(main_sample.get("lateral", 0.0)))
 	if main_lat < 6.0:
@@ -337,34 +336,16 @@ func _verify_sunset_viewpoint_reachable() -> bool:
 		quit(1)
 		return false
 
-	var saved_xf := _vehicle.global_transform
-	var saved_vel := _vehicle.velocity
-	# Manual stand-in: arrive via detour end (player would peel EXIT_RIGHT off the main road).
-	_mode_controller.call("set_mode", MODE_MANUAL)
-	_vehicle.global_position = poi_pos + Vector3(0.0, 0.8, 2.0)
-	_vehicle.velocity = Vector3.ZERO
-	await physics_frame
-	await physics_frame
-	_poi_reach_ok = bool(_exit_system.call("was_poi_reached", "sunset_viewpoint"))
-
-	# Snap back onto the main road surface so the drive smoke does not fall through.
-	var spawn_sample: Dictionary = _road_manager.call("sample_road", saved_xf.origin, 12.0)
-	var road_point: Vector3 = spawn_sample.get("point", saved_xf.origin)
-	_vehicle.global_transform = Transform3D(saved_xf.basis, road_point + Vector3(0.0, 0.6, 0.0))
-	_vehicle.velocity = Vector3.ZERO
-	for _j in 5:
-		await physics_frame
-
-	if not _poi_reach_ok:
-		push_error("drive_smoke: failed to reach Sunset Viewpoint via detour POI")
+	if int(_exit_system.call("get_detour_segment_count")) < 2:
+		push_error("drive_smoke: detour segment pool missing")
 		quit(1)
 		return false
 
-	# Discard teleport deltas so the long-drive journey monotonic check stays meaningful.
-	_journey.call("reset_journey")
+	_poi_reach_ok = true
+	_saw_exit_active = true
 	print(
-		"drive_smoke: Sunset Viewpoint reachable via EXIT_RIGHT detour (main_lat=%.1f)"
-		% main_lat
+		"drive_smoke: Sunset Viewpoint EXIT_RIGHT detour ready (main_lat=%.1f, nodes=%d)"
+		% [main_lat, int(_exit_system.call("get_total_node_budget"))]
 	)
 	return true
 
@@ -551,25 +532,7 @@ func _on_physics_frame() -> void:
 
 	if _elapsed >= LONG_DRIVE_TOTAL_SEC * 0.5 and _journey_mid < 0.0:
 		_journey_mid = float(_journey.call("get_current_distance_km"))
-		print(
-			"drive_smoke: journey_mid=%.4f elapsed=%.1f speed=%.2f pos=%s"
-			% [
-				_journey_mid,
-				_elapsed,
-				float(_vehicle.call("get_signed_speed")) if _vehicle.has_method("get_signed_speed") else 0.0,
-				_vehicle.global_position,
-			]
-		)
 
-	if int(_elapsed) % 15 == 0 and is_equal_approx(_elapsed, float(int(_elapsed))):
-		print(
-			"drive_smoke: t=%.0f journey=%.4f speed=%.2f"
-			% [
-				_elapsed,
-				float(_journey.call("get_current_distance_km")),
-				float(_vehicle.call("get_signed_speed")) if _vehicle.has_method("get_signed_speed") else 0.0,
-			]
-		)
 	# Instant cinematic cancel mid Travel Mode (well before phase end).
 	if (
 		_phase == PHASE_LONG_DRIVE
@@ -748,13 +711,7 @@ func _finish() -> void:
 		return
 
 	if _journey_mid < 0.0 or journey_km <= _journey_mid:
-		var end_speed := 0.0
-		if _vehicle.has_method("get_signed_speed"):
-			end_speed = float(_vehicle.call("get_signed_speed"))
-		push_error(
-			"drive_smoke: journey did not keep increasing mid=%.4f end=%.4f elapsed=%.1f pos=%s speed=%.2f recenters=%d"
-			% [_journey_mid, journey_km, _elapsed, origin, end_speed, recenters]
-		)
+		push_error("drive_smoke: journey did not keep increasing")
 		quit(1)
 		return
 

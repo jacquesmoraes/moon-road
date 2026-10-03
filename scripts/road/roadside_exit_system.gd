@@ -162,28 +162,19 @@ func _create_slot(def: RoadsideExitDefinition) -> Dictionary:
 
 
 func _make_ramp_node(node_name: String) -> Node3D:
+	## Visual-only bridge marker. Collision lives on detour RoadSegments so the
+	## main lane cannot get blocked by a wide ramp box.
 	var root := Node3D.new()
 	root.name = node_name
 
-	var body := StaticBody3D.new()
-	body.name = "RampBody"
-	root.add_child(body)
-
-	var col := CollisionShape3D.new()
-	var shape := BoxShape3D.new()
-	shape.size = Vector3(7.0, 0.25, 12.0)
-	col.shape = shape
-	col.position = Vector3(0.0, -0.05, 0.0)
-	body.add_child(col)
-
 	var mesh := MeshInstance3D.new()
 	var box := BoxMesh.new()
-	box.size = Vector3(7.0, 0.18, 12.0)
+	box.size = Vector3(5.5, 0.12, 10.0)
 	mesh.mesh = box
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.55, 0.42, 0.22, 1)
 	mesh.material_override = mat
-	mesh.position = Vector3(0.0, 0.02, 0.0)
+	mesh.position = Vector3(0.0, 0.04, 0.0)
 	root.add_child(mesh)
 
 	return root
@@ -301,8 +292,8 @@ func _place_detour(slot: Dictionary, host: Node3D) -> void:
 	if host.has_method("get_width"):
 		host_half = float(host.call("get_width")) * 0.5
 
-	# Mouth sits past the roadway edge so the spur does not clip the main lane.
-	var mouth := point + right * side_sign * (host_half + 2.5) + forward * 1.0
+	# Mouth sits past shoulder so detour collision stays off the travel lane.
+	var mouth := point + right * side_sign * (host_half + 4.0) + forward * 1.0
 	mouth.y = point.y
 
 	var peel := deg_to_rad(def.peel_angle_degrees) * side_sign
@@ -314,11 +305,10 @@ func _place_detour(slot: Dictionary, host: Node3D) -> void:
 	var mouth_basis := _basis_looking_along(exit_forward)
 	var mouth_xf := Transform3D(mouth_basis, mouth)
 
-	# Ramp bridges main edge → first detour entrance (kept clear of centerline).
+	# Visual ramp only — points drivers toward the spur.
 	if ramp != null:
 		ramp.visible = true
-		_enable_collision_tree(ramp)
-		var ramp_mid := mouth + exit_forward * 6.0
+		var ramp_mid := point + right * side_sign * (host_half + 2.0) + forward * 1.0 + exit_forward * 4.0
 		ramp_mid.y = mouth.y
 		ramp.global_transform = Transform3D(mouth_basis, ramp_mid)
 
