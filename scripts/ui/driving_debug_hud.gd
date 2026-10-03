@@ -124,6 +124,7 @@ func _build_travel_mode_lines() -> PackedStringArray:
 		"Journey: %s km" % _format_journey_km(current_km),
 		"Remaining: %s km" % _format_journey_km(remaining_km),
 		"Speed: %.0f / %.0f km/h" % [speed_kmh, target_kmh],
+		"Fuel: %s" % _format_fuel_short(),
 		"Time: play %s · travel %s" % [_format_game_time_play(), _format_game_time_travel()],
 		"Camera: %s (M cine · F / Shift+F)" % _format_camera_mode(),
 		"Cancel: V / T / X / Esc / brake / steer",
@@ -353,15 +354,21 @@ func _format_vehicle_state() -> String:
 	var vid := ""
 	var fuel := 0.0
 	var fuel_max := 0.0
+	var ratio := 0.0
 	var cond := 0.0
 	var cond_max := 0.0
 	var upgrades := 0
+	var empty := false
 	if _vehicle_state.has_method("get_vehicle_id"):
 		vid = str(_vehicle_state.call("get_vehicle_id"))
 	if _vehicle_state.has_method("get_fuel_current"):
 		fuel = float(_vehicle_state.call("get_fuel_current"))
 	if _vehicle_state.has_method("get_fuel_capacity"):
 		fuel_max = float(_vehicle_state.call("get_fuel_capacity"))
+	if _vehicle_state.has_method("get_fuel_ratio"):
+		ratio = float(_vehicle_state.call("get_fuel_ratio"))
+	if _vehicle_state.has_method("is_out_of_fuel"):
+		empty = bool(_vehicle_state.call("is_out_of_fuel"))
 	if _vehicle_state.has_method("get_condition_current"):
 		cond = float(_vehicle_state.call("get_condition_current"))
 	if _vehicle_state.has_method("get_condition_max"):
@@ -370,7 +377,10 @@ func _format_vehicle_state() -> String:
 		upgrades = int((_vehicle_state.call("get_installed_upgrades") as PackedStringArray).size())
 	if vid.is_empty():
 		vid = "?"
-	return "%s  fuel %.0f/%.0f  cond %.0f/%.0f  upg %d" % [vid, fuel, fuel_max, cond, cond_max, upgrades]
+	var fuel_label := "EMPTY" if empty else "%.0f%%" % (ratio * 100.0)
+	return "%s  fuel %.1f/%.0f (%s)  cond %.0f/%.0f  upg %d" % [
+		vid, fuel, fuel_max, fuel_label, cond, cond_max, upgrades
+	]
 
 
 func _format_vehicle_max_kmh() -> float:
@@ -379,6 +389,23 @@ func _format_vehicle_max_kmh() -> float:
 	if _vehicle_state != null and _vehicle_state.has_method("get_effective_max_speed"):
 		return float(_vehicle_state.call("get_effective_max_speed"))
 	return 0.0
+
+
+func _format_fuel_short() -> String:
+	if _vehicle_state == null:
+		return "n/a"
+	var fuel := 0.0
+	var fuel_max := 0.0
+	var ratio := 0.0
+	if _vehicle_state.has_method("get_fuel_current"):
+		fuel = float(_vehicle_state.call("get_fuel_current"))
+	if _vehicle_state.has_method("get_fuel_capacity"):
+		fuel_max = float(_vehicle_state.call("get_fuel_capacity"))
+	if _vehicle_state.has_method("get_fuel_ratio"):
+		ratio = float(_vehicle_state.call("get_fuel_ratio"))
+	if _vehicle_state.has_method("is_out_of_fuel") and bool(_vehicle_state.call("is_out_of_fuel")):
+		return "EMPTY"
+	return "%.1f/%.0f L (%.0f%%)" % [fuel, fuel_max, ratio * 100.0]
 
 
 func _resolve_vehicle() -> void:

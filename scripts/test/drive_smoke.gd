@@ -894,13 +894,16 @@ func _finish() -> void:
 	if not _verify_vehicle_state_system():
 		return
 
+	if not await _verify_vehicle_fuel_system():
+		return
+
 	if not await _verify_enter_exit_vehicle():
 		return
 
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1937,6 +1940,215 @@ func _verify_vehicle_state_system() -> bool:
 	vs.call("reset_for_tests")
 	print(
 		"drive_smoke: vehicle_state OK (attrs + upgrades + effective max + save round-trip)"
+	)
+	return true
+
+
+func _verify_vehicle_fuel_system() -> bool:
+	## Fuel: distance burn, idle no burn, speed factor, empty cancels assist, offline cap, save.
+	var vs: Node = root.get_node_or_null("VehicleStateSystem")
+	var save: Node = root.get_node_or_null("SaveSystem")
+	var journey: Node = root.get_node_or_null("JourneySystem")
+	if vs == null or save == null or journey == null or _vehicle == null:
+		push_error("drive_smoke: VehicleState/Save/Journey/Vehicle missing for fuel test")
+		quit(1)
+		return false
+
+	for required in [
+		"add_fuel",
+		"consume_fuel",
+		"get_fuel_ratio",
+		"estimate_consumption_liters",
+		"consume_for_distance_km",
+		"apply_distance_with_fuel",
+		"apply_offline_travel",
+		"is_out_of_fuel",
+	]:
+		if not vs.has_method(required):
+			push_error("drive_smoke: VehicleStateSystem missing fuel API %s" % required)
+			quit(1)
+			return false
+
+	vs.call("reset_for_tests")
+	journey.call("reset_journey")
+
+	# Speed factor: high speed burns more than low for same distance.
+	var low := float(vs.call("estimate_consumption_liters", 10.0, 40.0))
+	var high := float(vs.call("estimate_consumption_liters", 10.0, 120.0))
+	if high <= low:
+		push_error("drive_smoke: high speed should burn more fuel than low (%.4f vs %.4f)" % [high, low])
+		quit(1)
+		return false
+
+	# Efficiency modifier reduces burn.
+	vs.call("set_efficiency_modifier", 2.0)
+	var efficient := float(vs.call("estimate_consumption_liters", 10.0, 60.0))
+	vs.call("set_efficiency_modifier", 1.0)
+	var base_burn := float(vs.call("estimate_consumption_liters", 10.0, 60.0))
+	if efficient >= base_burn:
+		push_error("drive_smoke: efficiency_modifier should reduce fuel burn")
+		quit(1)
+		return false
+
+	# Driving consumes; parked does not.
+	vs.call("set_liters_per_100km", 50.0)
+	vs.call("set_fuel_current", 50.0)
+	_clear_vehicle_input()
+	_mode_controller.call("set_mode", MODE_MANUAL)
+	if _vehicle.has_method("try_unpark"):
+		_vehicle.call("try_unpark")
+
+	Input.action_press("vehicle_accelerate")
+	for _i in range(90):
+		await physics_frame
+		if absf(float(_vehicle.call("get_signed_speed"))) > 5.0:
+			break
+	var fuel_while_moving := float(vs.call("get_fuel_current"))
+	for _i in range(120):
+		await physics_frame
+	Input.action_release("vehicle_accelerate")
+	var fuel_after_drive := float(vs.call("get_fuel_current"))
+	if fuel_after_drive >= fuel_while_moving - 0.0001:
+		# Allow that first sample was already mid-burn; ensure drop from full start.
+		if fuel_after_drive >= 49.999:
+			push_error("drive_smoke: driving did not consume fuel")
+			quit(1)
+			return false
+	if fuel_after_drive >= 50.0:
+		push_error("drive_smoke: driving did not consume fuel from full tank")
+		quit(1)
+		return false
+
+	# Stop / park — fuel must not keep draining.
+	for _i in range(240):
+		await physics_frame
+		if absf(float(_vehicle.call("get_signed_speed"))) <= float(_vehicle.get("max_parking_speed")):
+			break
+	if not bool(_vehicle.call("try_park")):
+		push_error("drive_smoke: could not park for fuel idle check")
+		quit(1)
+		return false
+	var fuel_parked := float(vs.call("get_fuel_current"))
+	await create_timer(0.4).timeout
+	var fuel_still := float(vs.call("get_fuel_current"))
+	if absf(fuel_still - fuel_parked) > 0.001:
+		push_error(
+			"drive_smoke: fuel changed while PARKED (%.4f → %.4f)" % [fuel_parked, fuel_still]
+		)
+		quit(1)
+		return false
+
+	# Empty fuel: cancel assist, no accel progress.
+	_vehicle.call("try_unpark")
+	await physics_frame
+	vs.call("set_fuel_current", 0.0)
+	if not bool(vs.call("is_out_of_fuel")):
+		push_error("drive_smoke: is_out_of_fuel false at 0 fuel")
+		quit(1)
+		return false
+	_mode_controller.call("set_mode", MODE_TRAVEL)
+	await physics_frame
+	await physics_frame
+	if str(_mode_controller.call("get_mode_name")) == "TRAVEL_MODE":
+		push_error("drive_smoke: Travel Mode should cancel / refuse when out of fuel")
+		quit(1)
+		return false
+
+	Input.action_press("vehicle_accelerate")
+	var speed_before := absf(float(_vehicle.call("get_signed_speed")))
+	for _i in range(60):
+		await physics_frame
+	Input.action_release("vehicle_accelerate")
+	var speed_after := absf(float(_vehicle.call("get_signed_speed")))
+	if speed_after > speed_before + 1.0:
+		push_error("drive_smoke: empty fuel should not accelerate (%.2f → %.2f)" % [speed_before, speed_after])
+		quit(1)
+		return false
+
+	# Offline progress respects fuel — stop before/at zero with OUT_OF_FUEL.
+	vs.call("reset_for_tests")
+	journey.call("reset_journey")
+	vs.call("set_liters_per_100km", 8.0)
+	vs.call("set_fuel_current", 1.0)  # 12.5 km range at 60 km/h base rate
+	vs.set("offline_cruise_speed_kmh", 60.0)
+	var offline := vs.call("apply_offline_travel", 3600.0) as Dictionary  # 60 km desired
+	var applied := float(offline.get("distance_applied_km", -1.0))
+	var reason := str(offline.get("stopped_reason", ""))
+	if reason != "OUT_OF_FUEL":
+		push_error("drive_smoke: offline empty should set OUT_OF_FUEL (got '%s')" % reason)
+		quit(1)
+		return false
+	if applied <= 0.0 or applied > 12.6:
+		push_error("drive_smoke: offline distance should be fuel-capped (~12.5), got %.3f" % applied)
+		quit(1)
+		return false
+	if float(vs.call("get_fuel_current")) > 0.001:
+		push_error("drive_smoke: fuel should be ~0 after offline OUT_OF_FUEL")
+		quit(1)
+		return false
+	if not is_equal_approx(float(journey.call("get_current_distance_km")), applied):
+		push_error("drive_smoke: journey not advanced by offline fuel-capped distance")
+		quit(1)
+		return false
+
+	# Within-fuel offline: full desired distance, no stop reason.
+	vs.call("reset_for_tests")
+	journey.call("reset_journey")
+	vs.call("set_fuel_current", 50.0)
+	var ok_offline := vs.call("apply_offline_travel", 600.0, 60.0) as Dictionary  # 10 km
+	if str(ok_offline.get("stopped_reason", "x")) != "":
+		push_error("drive_smoke: offline within fuel should have empty stopped_reason")
+		quit(1)
+		return false
+	if not is_equal_approx(float(ok_offline.get("distance_applied_km", 0.0)), 10.0):
+		push_error("drive_smoke: offline within fuel should apply full 10 km")
+		quit(1)
+		return false
+
+	# Save / load preserves fuel + stopped_reason.
+	vs.call("set_fuel_current", 33.3)
+	vs.set("stopped_reason", "OUT_OF_FUEL")
+	if save.has_method("delete_save"):
+		save.call("delete_save")
+	if not bool(save.call("save_game")):
+		push_error("drive_smoke: save_game failed in fuel test")
+		quit(1)
+		return false
+	vs.call("reset_for_tests")
+	if not bool(save.call("load_game")):
+		push_error("drive_smoke: load_game failed in fuel test")
+		quit(1)
+		return false
+	if not is_equal_approx(float(vs.call("get_fuel_current")), 33.3):
+		push_error("drive_smoke: fuel_current not restored after save/load")
+		quit(1)
+		return false
+	if str(vs.call("get_stopped_reason")) != "OUT_OF_FUEL":
+		push_error("drive_smoke: stopped_reason not restored")
+		quit(1)
+		return false
+
+	# add_fuel restores and clears OUT_OF_FUEL reason.
+	var added := float(vs.call("add_fuel", 10.0))
+	if added <= 0.0:
+		push_error("drive_smoke: add_fuel failed")
+		quit(1)
+		return false
+	if str(vs.call("get_stopped_reason")) == "OUT_OF_FUEL":
+		push_error("drive_smoke: add_fuel should clear OUT_OF_FUEL")
+		quit(1)
+		return false
+
+	# Cleanup.
+	save.call("delete_save")
+	vs.call("reset_for_tests")
+	journey.call("reset_journey")
+	_mode_controller.call("set_mode", MODE_MANUAL)
+	_clear_vehicle_input()
+	if _vehicle.has_method("try_unpark"):
+		_vehicle.call("try_unpark")
+	print(
+		"drive_smoke: fuel OK (drive burn + park idle + speed factor + empty + offline + save)"
 	)
 	return true
 

@@ -168,9 +168,37 @@ func load_game() -> bool:
 			payload = {}
 		node.call("load_save_data", payload)
 
+	_apply_offline_travel_hook()
+
 	load_completed.emit(SAVE_PATH)
 	print("SaveSystem: loaded ← %s (v%d)" % [SAVE_PATH, version])
 	return true
+
+
+func _apply_offline_travel_hook() -> void:
+	## Minimal offline progress: only if the save said we were traveling.
+	## Caps journey advancement by remaining fuel (OUT_OF_FUEL if emptied).
+	var vs := get_node_or_null("/root/VehicleStateSystem")
+	var gt := get_node_or_null("/root/GameTimeSystem")
+	if vs == null or gt == null:
+		return
+	if not bool(vs.get("was_traveling_at_save")):
+		return
+	if not vs.has_method("apply_offline_travel"):
+		return
+	var offline := 0.0
+	if gt.has_method("get_seconds_since_last_session"):
+		offline = float(gt.call("get_seconds_since_last_session"))
+	if offline <= 0.0:
+		return
+	var result: Variant = vs.call("apply_offline_travel", offline)
+	if typeof(result) == TYPE_DICTIONARY:
+		var reason := str(result.get("stopped_reason", ""))
+		var km := float(result.get("distance_applied_km", 0.0))
+		print(
+			"SaveSystem: offline travel +%.3f km (offline=%.1fs reason=%s)"
+			% [km, offline, reason if not reason.is_empty() else "ok"]
+		)
 
 
 func delete_save() -> bool:

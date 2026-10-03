@@ -43,6 +43,10 @@ func _physics_process(_delta: float) -> void:
 			set_mode(Mode.MANUAL)
 		return
 
+	if _mode != Mode.MANUAL and _vehicle_is_out_of_fuel():
+		set_mode(Mode.MANUAL)
+		return
+
 	# One combined toggle so dual-bound actions cannot flip twice in one frame.
 	# vehicle_autopilot_toggle remains a Travel Mode shortcut when this controller is present.
 	if (
@@ -120,6 +124,9 @@ func set_mode(mode: Mode) -> void:
 		and bool(_vehicle.call("is_parked"))
 	):
 		mode = Mode.MANUAL
+	# Empty tank: cannot engage Cruise or Travel Mode.
+	if mode != Mode.MANUAL and _vehicle_is_out_of_fuel():
+		mode = Mode.MANUAL
 	if mode == _mode:
 		_apply_mode_effects()
 		return
@@ -172,3 +179,12 @@ func _resolve_refs() -> void:
 		_autopilot = get_node_or_null(autopilot_path)
 	if _autopilot == null and _vehicle != null:
 		_autopilot = _vehicle.get_node_or_null("RoadFollowAutopilot")
+
+
+func _vehicle_is_out_of_fuel() -> bool:
+	if _vehicle != null and _vehicle.has_method("is_out_of_fuel"):
+		return bool(_vehicle.call("is_out_of_fuel"))
+	var vs := get_node_or_null("/root/VehicleStateSystem")
+	if vs != null and vs.has_method("is_out_of_fuel"):
+		return bool(vs.call("is_out_of_fuel"))
+	return false

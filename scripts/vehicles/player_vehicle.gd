@@ -95,6 +95,11 @@ func _physics_process(delta: float) -> void:
 		else Input.get_axis("vehicle_left", "vehicle_right")
 	)
 
+	# Empty tank: no throttle / cruise / travel — coast and brake still work.
+	if _is_out_of_fuel():
+		_cancel_assisted_modes_for_fuel()
+		accel_input = 0.0
+
 	_apply_longitudinal(accel_input, brake_input, delta)
 	_apply_steering(steer_input, delta)
 
@@ -146,6 +151,9 @@ func _physics_process(delta: float) -> void:
 		_cruise_active = false
 		if _mode_controller != null and _mode_controller.has_method("set_mode"):
 			_mode_controller.call("set_mode", 0)  # MANUAL
+		return
+
+	_consume_fuel_for_motion(delta)
 
 
 func _update_parked(_delta: float) -> void:
@@ -292,6 +300,17 @@ func _apply_longitudinal(accel_input: float, brake_input: float, delta: float) -
 		_clamp_speed()
 		return
 
+	# No fuel: coast / decelerate only — no cruise hold, no throttle.
+	if _is_out_of_fuel():
+		_cruise_active = false
+		var drag_step := drag * delta
+		if absf(_speed) <= drag_step:
+			_speed = 0.0
+		else:
+			_speed -= signf(_speed) * drag_step
+		_clamp_speed()
+		return
+
 	if _wants_speed_hold() and accel_input <= 0.0:
 		_apply_cruise_hold(delta)
 		_clamp_speed()
@@ -351,6 +370,43 @@ func _resolve_vehicle_state() -> void:
 		_vehicle_state = get_tree().root.get_node_or_null("VehicleStateSystem")
 
 
+func _is_out_of_fuel() -> bool:
+	_resolve_vehicle_state()
+	if _vehicle_state == null:
+		return false
+	if _vehicle_state.has_method("is_out_of_fuel"):
+		return bool(_vehicle_state.call("is_out_of_fuel"))
+	if _vehicle_state.has_method("has_fuel"):
+		return not bool(_vehicle_state.call("has_fuel"))
+	return false
+
+
+func _cancel_assisted_modes_for_fuel() -> void:
+	_cruise_active = false
+	if _mode_controller != null and _mode_controller.has_method("set_mode"):
+		# Force MANUAL — cancels Travel Mode + Cruise.
+		if _mode_controller.has_method("is_manual") and bool(_mode_controller.call("is_manual")):
+			return
+		_mode_controller.call("set_mode", 0)
+
+
+func _consume_fuel_for_motion(delta: float) -> void:
+	## Burn fuel from physical distance this frame. Stopped / parked → no burn.
+	if delta <= 0.0:
+		return
+	var speed_ms := absf(_speed)
+	if speed_ms <= 0.05:
+		return
+	_resolve_vehicle_state()
+	if _vehicle_state == null or not _vehicle_state.has_method("consume_for_distance_km"):
+		return
+	var distance_km := (speed_ms * delta) / 1000.0
+	var speed_kmh := speed_ms * MS_TO_KMH
+	_vehicle_state.call("consume_for_distance_km", distance_km, speed_kmh)
+	if _is_out_of_fuel():
+		_cancel_assisted_modes_for_fuel()
+
+
 func _apply_steering(steer_input: float, delta: float) -> void:
 	if is_zero_approx(steer_input) or is_zero_approx(_speed):
 		return
@@ -388,8 +444,15 @@ func get_effective_max_speed_ms() -> float:
 	return _get_max_speed_ms()
 
 
+func is_out_of_fuel() -> bool:
+	return _is_out_of_fuel()
+
+
 func set_cruise_control_active(active: bool) -> void:
 	if _motion_state == MotionState.PARKED:
+		_cruise_active = false
+		return
+	if active and _is_out_of_fuel():
 		_cruise_active = false
 		return
 	if active:

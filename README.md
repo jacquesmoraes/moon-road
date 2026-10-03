@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **persistent vehicle state** — `VehicleStateSystem` for starter_car attrs / upgrades + SaveSystem.
+Current slice: **vehicle fuel** — distance-based burn, empty-tank coast, offline progress capped by fuel.
 
 ## Requirements
 
@@ -112,13 +112,14 @@ Persistent car attributes / progression — separate from `PlayerVehicle` physic
 | Field | Role |
 |-------|------|
 | `vehicle_id` / `display_name` | Active vehicle identity (default `starter_car`) |
-| `fuel_*` / `condition_*` | Capacity + current (effects later) |
+| `fuel_*` / `condition_*` | Capacity + current — fuel burns with travel |
 | `storage_capacity` | Cargo slots (effects later) |
 | `installed_upgrades` | Upgrade **ids** only (never Nodes) |
 | `base_max_speed_kmh` | Authoritative speed cap |
-| `cruise_speed_modifier` / `efficiency_modifier` | Reserved multipliers |
+| `cruise_speed_modifier` / `efficiency_modifier` | Speed / economy multipliers |
+| `liters_per_100km` | Base burn rate (game-feel, not a real sim) |
 
-API: `install_upgrade` / `has_upgrade` / `remove_upgrade` / `get_effective_max_speed()` (km/h). `PlayerVehicle` clamps motion via `get_effective_max_speed_ms()` from VehicleState — local `max_speed` export is fallback only. Not included: multi-vehicle, garage, swap, visual damage, full upgrade effect tables.
+API: `install_upgrade` / `has_upgrade` / `remove_upgrade` / `get_effective_max_speed()` (km/h); fuel: `add_fuel` / `consume_fuel` / `get_fuel_ratio` / `apply_offline_travel`. `PlayerVehicle` clamps motion via VehicleState and burns fuel from distance×speed. Empty tank: coast only, Cruise/Travel cancelled. Offline load hook caps journey by remaining fuel (`stopped_reason=OUT_OF_FUEL`). Not included: multi-vehicle, garage, swap, visual damage, gas stations, full upgrade effect tables.
 
 ### World state (`WorldStateSystem`)
 
@@ -373,7 +374,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Crafting: `CraftingSystem` + `RecipeData` + Workbench + `CraftingDebugUI`
 - Save: `SaveSystem` → `user://savegame.json` (F5/F9/F6 debug)
 - Game time: `GameTimeSystem` (play / travel / offline; HUD debug)
-- Vehicle state: `VehicleStateSystem` (`starter_car` attrs / upgrades; drives max speed)
+- Vehicle state: `VehicleStateSystem` (`starter_car` attrs / upgrades / fuel; drives max speed)
 - World state: `WorldStateSystem` (terminal powered / pickup collected)
 - Pickups: `WorldItem` at Sunset Viewpoint (Scrap Metal / Copper Wire) + `PickupFeedbackUI`
 - Quests: `QuestSystem` + `power_the_viewpoint` (Mira → terminal)
@@ -389,4 +390,4 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - World: `WorldOriginRecenter` + `RoadsideScenery` + `RoadsideExitSystem` + `POISystem` / `ViewpointPOI`
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: quest log UI, dialogue choices/branching, NPC routines/pathfinding, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, craft time/quality/tech tree, autosave/multi-slot, final art, fuel drain, damage visuals, full upgrade effects, garage/multi-vehicle, final UI
+- Not implemented yet: quest log UI, dialogue choices/branching, NPC routines/pathfinding, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, craft time/quality/tech tree, autosave/multi-slot, final art, gas stations, damage visuals, full upgrade effects, garage/multi-vehicle, full offline sim caps, final UI
