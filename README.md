@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **vertical-slice integration** — mid-flow save/load, offline-once, architecture docs. See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **branching dialogue choices** — DialogueChoice + Mira moon-ask sample. See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -33,7 +33,7 @@ Current slice: **vertical-slice integration** — mid-flow save/load, offline-on
 | `player_move_forward` / `backward` / `left` / `right` | WASD / arrows — camera-relative walk |
 | `player_run` | Shift — run while on foot |
 | `player_interact` | E — world interact when focused; else enter vehicle (see Occupancy) |
-| `dialogue_continue` | Space / E / Enter — advance or close active dialogue |
+| `dialogue_continue` | Space / E / Enter — advance line, confirm choice, or close dialogue |
 | `inventory_debug_toggle` | I — show/hide debug inventory panel |
 | `save_debug_save` | F5 — write `user://savegame.json` |
 | `save_debug_load` | F9 — load save (keeps file if corrupt) |
@@ -58,25 +58,29 @@ Reusable world-object interaction — terminals, logs, and NPCs share the same d
 | `ViewpointTerminal` | Sunset Viewpoint console — **one-shot OFF→ON** (session state, color + light + label) |
 | `Npc` / `NpcDefinition` | Placeholder person — data Resource + temporary spoken line |
 
-**E key UX:** On foot, a focused interactable wins (`player_interact`). If none, E enters the parked vehicle. In vehicle (parked), E still exits. Prompt only shows while a valid object is in range/front cone. During dialogue, movement is locked and `dialogue_continue` advances lines.
+**E key UX:** On foot, a focused interactable wins (`player_interact`). If none, E enters the parked vehicle. In vehicle (parked), E still exits. Prompt only shows while a valid object is in range/front cone. During dialogue, movement is locked; `dialogue_continue` advances linear lines or confirms the selected choice (↑/↓ to change selection).
 
 **ViewpointTerminal choice:** one-shot **ON** (not a toggle). First successful interact powers it; `can_interact` becomes false; `powered` persists in `WorldStateSystem` across unload/save.
 
 ### NPCs + Dialogue (`DialogueSystem`)
 
-Data-driven linear talk — no choices, branching, VO, or quests yet.
+Data-driven talk with optional player choices. No VO, relationship effects, or timed choices yet.
 
 | Piece | Role |
 |-------|------|
-| `DialogueDefinition` | `id`, `speaker_name`, `text`, `next_dialogue_id` (+ reserved flags/choices) |
+| `DialogueDefinition` | `id`, `speaker_name`, `text`, `next_dialogue_id`, `choices[]` |
+| `DialogueChoice` | `id`, `text`, `next_dialogue_id`, `enabled`, optional `conditions` |
 | `DialogueCatalog` | Flat registry (`resources/dialogue/default_catalog.tres`) |
-| `DialogueSystem` | Autoload — start / advance / end; locks on-foot control; `resolve_dialogue_id` for condition gates |
-| `DialogueUI` | Placeholder bottom dialogue box |
+| `DialogueSystem` | Autoload — start / advance / confirm choice; locks on-foot control; `resolve_dialogue_id` for condition gates |
+| `DialogueUI` | Bottom box + selectable choice list (↑/↓, Enter/E) |
 | `ConditionalDialogue` | `condition` + `dialogue_id` — first match wins |
 | `NpcDefinition.dialogue_id` | Fallback / offer line id |
 | `NpcDefinition.conditional_dialogues` | ConditionSystem-gated overrides |
 
-**Authoring:** create `.tres` lines, chain with `next_dialogue_id`, add them to the catalog, set the NPC's `dialogue_id`. **Mira** uses a `QUEST_STATE` gate: when `power_the_viewpoint` is `COMPLETED`, she opens `mira_quest_done_01` via ConditionSystem (before the quest helper). **Rafa** stays linear (`rafa_01`→`rafa_02`).
+**Linear:** empty `choices` → `dialogue_continue` follows `next_dialogue_id` (empty ends).  
+**Branching:** available choices shown; ↑/↓ select; Enter/E/`dialogue_continue` confirms and follows that choice’s `next_dialogue_id` (empty ends). Disabled / failed-condition choices are hidden. DialogueSystem has no NPC-specific branches.
+
+**Authoring:** create `.tres` lines, chain with `next_dialogue_id` or attach `DialogueChoice`s, add them to the catalog, set the NPC's `dialogue_id`. **Mira** quest offer stays linear (`mira_quest_offer_01`→`02`). After quest **COMPLETED**, `mira_quest_done_01` continues into branching sample `mira_moon_ask` (“Você está indo até a Lua?” / three replies). **Rafa** stays linear (`rafa_01`→`rafa_02`).
 
 ### Conditions + flags (`ConditionSystem` / `GameFlags`)
 
@@ -371,7 +375,7 @@ Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later w
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
-# Expect: … mid_save=OK … conditions=OK … fuel=OK … upgrade=OK … drive_smoke: OK
+# Expect: … choices=OK … mid_save=OK … conditions=OK … drive_smoke: OK
 ```
 
 Architecture snapshot: [`docs/architecture-status.md`](docs/architecture-status.md).

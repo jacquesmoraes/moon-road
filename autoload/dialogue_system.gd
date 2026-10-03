@@ -1,10 +1,12 @@
 extends Node
-## Data-driven linear dialogue runner. Autoload — no NPC-specific logic.
-## Looks up DialogueDefinition by id; advances on dialogue_continue.
-## Future: conditions, choices, flags, quests can hook start/advance without rewriting NPCs.
+## Data-driven dialogue runner. Autoload — no NPC-specific logic.
+## Linear: advance on dialogue_continue via next_dialogue_id.
+## Branching: when a line has available choices, ↑/↓ select and continue confirms.
 
 signal dialogue_started(dialogue_id: String)
 signal line_changed(def: Resource)
+signal choice_selection_changed(index: int)
+signal choice_confirmed(choice_id: String, next_dialogue_id: String)
 signal dialogue_finished(dialogue_id: String)
 signal dialogue_cancelled
 
@@ -20,6 +22,7 @@ var _start_id: String = ""
 var _actor: Node
 var _restore_control: bool = false
 var _lines_shown: int = 0
+var _choice_index: int = 0
 
 
 func _ready() -> void:
@@ -30,6 +33,15 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not _active:
 		return
+	if not get_available_choices().is_empty():
+		if event.is_action_pressed("ui_up"):
+			select_previous_choice()
+			get_viewport().set_input_as_handled()
+			return
+		if event.is_action_pressed("ui_down"):
+			select_next_choice()
+			get_viewport().set_input_as_handled()
+			return
 	if event.is_action_pressed("dialogue_continue"):
 		advance()
 		get_viewport().set_input_as_handled()
@@ -65,6 +77,10 @@ func get_lines_shown() -> int:
 	return _lines_shown
 
 
+func get_choice_index() -> int:
+	return _choice_index
+
+
 func has_dialogue(dialogue_id: String) -> bool:
 	_ensure_index()
 	return _by_id.has(dialogue_id)
@@ -73,6 +89,83 @@ func has_dialogue(dialogue_id: String) -> bool:
 func get_dialogue(dialogue_id: String) -> Resource:
 	_ensure_index()
 	return _by_id.get(dialogue_id, null)
+
+
+## Enabled choices whose conditions pass (or have no conditions).
+func get_available_choices() -> Array:
+	if _current == null:
+		return []
+	var raw: Variant = _current.get("choices")
+	if typeof(raw) != TYPE_ARRAY:
+		return []
+	var cond_sys := get_node_or_null("/root/ConditionSystem")
+	var out: Array = []
+	for entry in raw:
+		if entry == null:
+			continue
+		if "enabled" in entry and not bool(entry.get("enabled")):
+			continue
+		var conditions: Variant = entry.get("conditions") if "conditions" in entry else []
+		if typeof(conditions) == TYPE_ARRAY and not conditions.is_empty():
+			if cond_sys == null or not cond_sys.has_method("evaluate_all"):
+				continue
+			if not bool(cond_sys.call("evaluate_all", conditions)):
+				continue
+		out.append(entry)
+	return out
+
+
+func has_available_choices() -> bool:
+	return not get_available_choices().is_empty()
+
+
+func select_next_choice() -> void:
+	var choices := get_available_choices()
+	if choices.is_empty():
+		return
+	_choice_index = (_choice_index + 1) % choices.size()
+	choice_selection_changed.emit(_choice_index)
+
+
+func select_previous_choice() -> void:
+	var choices := get_available_choices()
+	if choices.is_empty():
+		return
+	_choice_index = (_choice_index - 1 + choices.size()) % choices.size()
+	choice_selection_changed.emit(_choice_index)
+
+
+func set_choice_index(index: int) -> void:
+	var choices := get_available_choices()
+	if choices.is_empty():
+		_choice_index = 0
+		return
+	_choice_index = clampi(index, 0, choices.size() - 1)
+	choice_selection_changed.emit(_choice_index)
+
+
+## Confirms the highlighted choice and follows its next_dialogue_id.
+func confirm_choice() -> void:
+	if not _active or _current == null:
+		return
+	var choices := get_available_choices()
+	if choices.is_empty():
+		return
+	_choice_index = clampi(_choice_index, 0, choices.size() - 1)
+	var choice: Variant = choices[_choice_index]
+	var choice_id := str(choice.get("id"))
+	var next_id := str(choice.get("next_dialogue_id"))
+	choice_confirmed.emit(choice_id, next_id)
+	if next_id.is_empty():
+		end_dialogue(true)
+		return
+	_ensure_index()
+	var nxt: Resource = _by_id.get(next_id, null)
+	if nxt == null:
+		push_warning("DialogueSystem: missing choice next_dialogue_id '%s'" % next_id)
+		end_dialogue(true)
+		return
+	_show_line(nxt)
 
 
 ## Extension point: first entry whose ConditionData passes (null condition = always).
@@ -129,6 +222,7 @@ func start_dialogue(dialogue_id: String, actor: Node = null) -> bool:
 	_actor = actor
 	_start_id = dialogue_id
 	_lines_shown = 0
+	_choice_index = 0
 	_active = true
 	_lock_actor(true)
 	_show_line(def)
@@ -146,6 +240,10 @@ func start_from_definition(def: Resource, actor: Node = null) -> bool:
 
 func advance() -> void:
 	if not _active or _current == null:
+		return
+	# Branching lines: continue confirms the selection (does not skip via next_dialogue_id).
+	if has_available_choices():
+		confirm_choice()
 		return
 	var next_id := str(_current.get("next_dialogue_id"))
 	if next_id.is_empty():
@@ -166,6 +264,7 @@ func end_dialogue(completed: bool = true) -> void:
 	var finished_id := _start_id
 	_active = false
 	_current = null
+	_choice_index = 0
 	_lock_actor(false)
 	_actor = null
 	_start_id = ""
@@ -183,8 +282,10 @@ func reload_catalog() -> void:
 func _show_line(def: Resource) -> void:
 	_current = def
 	_lines_shown += 1
-	# Reserved hooks: required_flags / set_flags_on_show / choice_ids — unused for now.
+	_choice_index = 0
 	line_changed.emit(def)
+	if has_available_choices():
+		choice_selection_changed.emit(_choice_index)
 
 
 func _lock_actor(lock: bool) -> void:

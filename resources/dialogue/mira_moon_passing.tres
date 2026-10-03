@@ -4,7 +4,7 @@
 
 [resource]
 script = ExtResource("1_script")
-id = "mira_quest_done_01"
+id = "mira_moon_passing"
 speaker_name = "Mira"
-text = "Boa — o mirante voltou. Boa viagem."
-next_dialogue_id = "mira_moon_ask"
+text = "Tudo bem. Boa parada no mirante, então."
+next_dialogue_id = ""

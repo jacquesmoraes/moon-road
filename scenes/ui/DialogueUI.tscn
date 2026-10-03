@@ -23,7 +23,7 @@ anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
 offset_left = 48.0
-offset_top = -210.0
+offset_top = -320.0
 offset_right = -48.0
 offset_bottom = -36.0
 grow_horizontal = 2
@@ -52,6 +52,11 @@ theme_override_colors/font_color = Color(0.92, 0.93, 0.9, 1)
 theme_override_font_sizes/font_size = 20
 autowrap_mode = 3
 text = "Dialogue text"
+
+[node name="ChoicesBox" type="VBoxContainer" parent="Root/Panel/Margin/VBox"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 4
 
 [node name="HintLabel" type="Label" parent="Root/Panel/Margin/VBox"]
 layout_mode = 2

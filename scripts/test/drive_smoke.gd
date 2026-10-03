@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -3203,6 +3203,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_npc_foundation(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_dialogue_choices(occupancy, character, foot_cam):
+		return false
+
 	if not await _verify_small_interior(occupancy, character, foot_cam):
 		return false
 
@@ -3705,6 +3708,230 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print("drive_smoke: dialogue OK (Mira sequence + Rafa reuse, control locked/restored)")
+	return true
+
+
+func _verify_dialogue_choices(_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D) -> bool:
+	## Branching DialogueChoice: Mira moon ask — navigate, confirm branch, keep linear intact.
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	if dlg == null:
+		push_error("drive_smoke: DialogueSystem missing for choices test")
+		quit(1)
+		return false
+
+	# DialogueSystem must stay NPC-agnostic (no Mira/Lua branching in the runner).
+	var dlg_script: Script = load("res://autoload/dialogue_system.gd") as Script
+	if dlg_script != null:
+		var src := dlg_script.source_code
+		for banned in ["Mira", "mira_moon", "Lua", "viewpoint_keeper"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: DialogueSystem must not hardcode '%s'" % banned)
+				quit(1)
+				return false
+
+	if not bool(dlg.call("has_dialogue", "mira_moon_ask")):
+		push_error("drive_smoke: catalog missing mira_moon_ask")
+		quit(1)
+		return false
+	for reply_id in ["mira_moon_yes", "mira_moon_unsure", "mira_moon_passing"]:
+		if not bool(dlg.call("has_dialogue", reply_id)):
+			push_error("drive_smoke: catalog missing %s" % reply_id)
+			quit(1)
+			return false
+
+	# Linear still works (mira_01 → mira_02 → end).
+	if not bool(dlg.call("start_dialogue", "mira_01", character)):
+		push_error("drive_smoke: linear mira_01 failed to start")
+		quit(1)
+		return false
+	await physics_frame
+	if bool(dlg.call("has_available_choices")):
+		push_error("drive_smoke: linear mira_01 should have no choices")
+		quit(1)
+		return false
+	dlg.call("advance")
+	await physics_frame
+	if str(dlg.call("get_current_id")) != "mira_02":
+		push_error("drive_smoke: linear advance should reach mira_02")
+		quit(1)
+		return false
+	dlg.call("advance")
+	await physics_frame
+	if bool(dlg.call("is_active")):
+		push_error("drive_smoke: linear mira dialogue should end")
+		quit(1)
+		return false
+
+	# --- Mira branching sample ---
+	var finished := {"id": ""}
+	var on_finished := func(id: String) -> void:
+		finished["id"] = str(id)
+	dlg.dialogue_finished.connect(on_finished)
+
+	if not bool(character.call("is_control_enabled")):
+		character.call("set_control_enabled", true)
+	if not bool(dlg.call("start_dialogue", "mira_moon_ask", character)):
+		push_error("drive_smoke: mira_moon_ask failed to start")
+		quit(1)
+		return false
+	await physics_frame
+
+	if not bool(dlg.call("is_active")):
+		push_error("drive_smoke: mira_moon_ask not active")
+		quit(1)
+		return false
+	if bool(character.call("is_control_enabled")):
+		push_error("drive_smoke: movement should be locked during choice dialogue")
+		quit(1)
+		return false
+	if str(dlg.call("get_current_text")).find("Lua") < 0:
+		push_error("drive_smoke: expected moon question text")
+		quit(1)
+		return false
+	if not bool(dlg.call("has_available_choices")):
+		push_error("drive_smoke: mira_moon_ask should expose choices")
+		quit(1)
+		return false
+	var choices: Array = dlg.call("get_available_choices")
+	if choices.size() != 3:
+		push_error("drive_smoke: expected 3 Mira choices, got %d" % choices.size())
+		quit(1)
+		return false
+
+	# Linear next_dialogue_id must not skip choices (advance confirms selection).
+	if int(dlg.call("get_choice_index")) != 0:
+		push_error("drive_smoke: choice index should start at 0")
+		quit(1)
+		return false
+	dlg.call("select_next_choice")
+	await physics_frame
+	if int(dlg.call("get_choice_index")) != 1:
+		push_error("drive_smoke: select_next_choice should move to index 1")
+		quit(1)
+		return false
+	dlg.call("select_next_choice")
+	await physics_frame
+	if int(dlg.call("get_choice_index")) != 2:
+		push_error("drive_smoke: select_next_choice should wrap/move to index 2")
+		quit(1)
+		return false
+	dlg.call("select_previous_choice")
+	await physics_frame
+	if int(dlg.call("get_choice_index")) != 1:
+		push_error("drive_smoke: select_previous_choice should return to index 1")
+		quit(1)
+		return false
+
+	# Player still blocked while highlighting.
+	var locked_pos := character.global_position
+	Input.action_press("player_move_forward")
+	for _m in range(8):
+		await physics_frame
+	Input.action_release("player_move_forward")
+	if locked_pos.distance_to(character.global_position) > 0.05:
+		push_error("drive_smoke: character moved during choice dialogue")
+		quit(1)
+		return false
+
+	# Confirm middle choice → mira_moon_unsure.
+	var confirmed := {"id": "", "next": ""}
+	var on_choice := func(choice_id: String, next_id: String) -> void:
+		confirmed["id"] = str(choice_id)
+		confirmed["next"] = str(next_id)
+	dlg.choice_confirmed.connect(on_choice)
+	dlg.call("advance")
+	await physics_frame
+	if str(confirmed["id"]) != "moon_unsure" or str(confirmed["next"]) != "mira_moon_unsure":
+		push_error(
+			"drive_smoke: expected moon_unsure → mira_moon_unsure (got %s → %s)"
+			% [confirmed["id"], confirmed["next"]]
+		)
+		quit(1)
+		return false
+	if str(dlg.call("get_current_id")) != "mira_moon_unsure":
+		push_error("drive_smoke: branch should open mira_moon_unsure")
+		quit(1)
+		return false
+	if bool(dlg.call("has_available_choices")):
+		push_error("drive_smoke: reply line should be linear (no choices)")
+		quit(1)
+		return false
+	if str(dlg.call("get_current_text")).find("estrada") < 0:
+		push_error("drive_smoke: unexpected unsure reply text")
+		quit(1)
+		return false
+
+	dlg.call("advance")
+	await physics_frame
+	if bool(dlg.call("is_active")):
+		push_error("drive_smoke: choice reply should end dialogue")
+		quit(1)
+		return false
+	if not bool(character.call("is_control_enabled")):
+		push_error("drive_smoke: control not restored after choice dialogue")
+		quit(1)
+		return false
+	if str(finished["id"]) != "mira_moon_ask":
+		push_error("drive_smoke: dialogue_finished should report start id mira_moon_ask")
+		quit(1)
+		return false
+
+	# Empty next_dialogue_id on a choice ends immediately.
+	var ChoiceScript: Script = load("res://scripts/dialogue/dialogue_choice.gd") as Script
+	var DefScript: Script = load("res://scripts/dialogue/dialogue_definition.gd") as Script
+	var end_choice: Resource = ChoiceScript.new()
+	end_choice.set("id", "end_now")
+	end_choice.set("text", "Encerrar.")
+	end_choice.set("next_dialogue_id", "")
+	end_choice.set("enabled", true)
+	var ask_end: Resource = DefScript.new()
+	ask_end.set("id", "choice_end_test")
+	ask_end.set("speaker_name", "Test")
+	ask_end.set("text", "Sair?")
+	ask_end.set("choices", [end_choice])
+	if not bool(dlg.call("start_from_definition", ask_end, character)):
+		push_error("drive_smoke: choice_end_test failed to start")
+		quit(1)
+		return false
+	await physics_frame
+	dlg.call("confirm_choice")
+	await physics_frame
+	if bool(dlg.call("is_active")):
+		push_error("drive_smoke: empty choice next should end dialogue")
+		quit(1)
+		return false
+
+	# Disabled / failed-condition choices are hidden.
+	var gated: Resource = ChoiceScript.new()
+	gated.set("id", "gated")
+	gated.set("text", "Hidden")
+	gated.set("next_dialogue_id", "")
+	gated.set("enabled", false)
+	var open: Resource = ChoiceScript.new()
+	open.set("id", "open")
+	open.set("text", "Visible")
+	open.set("next_dialogue_id", "")
+	open.set("enabled", true)
+	var gate_def: Resource = DefScript.new()
+	gate_def.set("id", "choice_gate_test")
+	gate_def.set("speaker_name", "Test")
+	gate_def.set("text", "Pick")
+	gate_def.set("choices", [gated, open])
+	dlg.call("start_from_definition", gate_def, character)
+	await physics_frame
+	var avail: Array = dlg.call("get_available_choices")
+	if avail.size() != 1 or str(avail[0].get("id")) != "open":
+		push_error("drive_smoke: disabled choices must be filtered")
+		quit(1)
+		return false
+	dlg.call("end_dialogue", false)
+	await physics_frame
+
+	dlg.choice_confirmed.disconnect(on_choice)
+	dlg.dialogue_finished.disconnect(on_finished)
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: choices OK (Mira moon ask navigate/confirm + linear still works)")
 	return true
 
 

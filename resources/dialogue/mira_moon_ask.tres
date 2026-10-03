@@ -1,0 +1,33 @@
+[gd_resource type="Resource" script_class="DialogueDefinition" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/dialogue/dialogue_definition.gd" id="1_script"]
+[ext_resource type="Script" path="res://scripts/dialogue/dialogue_choice.gd" id="2_choice"]
+
+[sub_resource type="Resource" id="choice_yes"]
+script = ExtResource("2_choice")
+id = "moon_yes"
+text = "Sim, até a Lua."
+next_dialogue_id = "mira_moon_yes"
+enabled = true
+
+[sub_resource type="Resource" id="choice_unsure"]
+script = ExtResource("2_choice")
+id = "moon_unsure"
+text = "Ainda não sei."
+next_dialogue_id = "mira_moon_unsure"
+enabled = true
+
+[sub_resource type="Resource" id="choice_passing"]
+script = ExtResource("2_choice")
+id = "moon_passing"
+text = "Só estou passando."
+next_dialogue_id = "mira_moon_passing"
+enabled = true
+
+[resource]
+script = ExtResource("1_script")
+id = "mira_moon_ask"
+speaker_name = "Mira"
+text = "Você está indo até a Lua?"
+next_dialogue_id = ""
+choices = [SubResource("choice_yes"), SubResource("choice_unsure"), SubResource("choice_passing")]

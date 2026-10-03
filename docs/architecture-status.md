@@ -1,7 +1,7 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** vertical-slice integration commit (`test: integrate and validate core vertical slice`)  
+**As of:** branching dialogue choices (`feat: add branching dialogue choices`)  
 **Engine:** Godot 4.7 Forward Plus
 
 This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.
@@ -15,7 +15,7 @@ This document describes the **current implemented foundation**, not the full des
 | `JourneySystem` | Logical Earth→Moon distance (km), physical→journey scale | Vehicle physics, road mesh |
 | `WorldRegionSystem` | Region band from journey distance | Visuals/audio of regions |
 | `POISystem` | Discovery flags + spawn/despawn of viewpoint scenes | Quest/terminal logic |
-| `DialogueSystem` | Linear dialogue runner + `resolve_dialogue_id` gates | NPC placement, quest start rules |
+| `DialogueSystem` | Linear + choice dialogue runner; `resolve_dialogue_id` gates | NPC placement, quest start rules |
 | `InventorySystem` | Item quantities by id + catalog | World pickups, UI layout |
 | `QuestSystem` | Quest state by id; dialogue_finished → start; turn-in API | Condition evaluation, UI log |
 | `CraftingSystem` | Recipes; consume→output via Inventory | Workbench UX beyond debug UI |
@@ -42,7 +42,7 @@ InventorySystem ← CraftingSystem, QuestSystem, VehicleStateSystem (install con
 POISystem / WorldStateSystem / VehicleStateSystem / GameFlags / JourneySystem / WorldRegionSystem
     ↑ queried by ConditionSystem (no reverse writes)
 
-DialogueSystem → ConditionSystem (resolve_dialogue_id)
+DialogueSystem → ConditionSystem (resolve_dialogue_id + choice conditions)
 NpcCharacter → DialogueSystem / QuestSystem / ConditionSystem (via resolve)
 
 QuestSystem → DialogueSystem (signal dialogue_finished)
@@ -87,7 +87,8 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 | WorldState pickup | `poi.<poi_id>.pickup.<name>` → `collected` |
 | Quest | `power_the_viewpoint` |
 | Items / upgrades / recipes | `cruise_module_mk1`, `scrap_metal`, … |
-| Dialogue | `mira_quest_offer_01`, `mira_quest_done_01`, … |
+| Dialogue | `mira_quest_offer_01`, `mira_moon_ask`, `mira_quest_done_01`, … |
+| DialogueChoice | `moon_yes`, `moon_unsure`, `moon_passing`, … |
 | Regions | `CLOUDLINE`, `ENDLESS_SUMMER`, … |
 | Flags | free-form strings (`slice_mid_marker`, …) |
 
@@ -98,7 +99,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 - `JourneySystem.distance_changed`
 - `WorldRegionSystem.region_changed`
 - `POISystem.discovered_poi`
-- `DialogueSystem.dialogue_started` / `line_changed` / `dialogue_finished`
+- `DialogueSystem.dialogue_started` / `line_changed` / `choice_selection_changed` / `choice_confirmed` / `dialogue_finished`
 - `QuestSystem.quest_started` / `quest_completed` / `quest_state_changed`
 - `InventorySystem.inventory_changed`
 - `CraftingSystem.craft_succeeded` / `craft_failed`
@@ -124,10 +125,10 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 
 ## 7. Vertical slice (what works today)
 
-Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time without duplication → limited offline progress respects fuel.
+Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time without duplication → limited offline progress respects fuel.
 
 Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `mid_save=OK` and the full `drive_smoke: OK …` line.
+Look for `choices=OK`, `mid_save=OK`, and the full `drive_smoke: OK …` line.
 
 ---
 
@@ -146,7 +147,7 @@ Look for `mid_save=OK` and the full `drive_smoke: OK …` line.
 
 1. **Gas / service stop POI** — refuel interaction (fuel is already functional).
 2. **Offline policy UI** — expose capped offline window from GAME_DESIGN §8.
-3. **Quest log + ConditionSystem gates** on more NPCs/lines (choices still later).
+3. **Quest log + more ConditionSystem gates** on NPCs/lines (choice effects / flags still later).
 4. **Vehicle condition / wear** — fields exist; no drain yet.
 5. **Region-driven atmosphere** — WorldRegionSystem already tracks bands.
 6. **Persist occupancy or last parking snapshot** if seamless reopen becomes required.
