@@ -3879,21 +3879,26 @@ func _verify_dialogue_choices(_occupancy: Node, character: CharacterBody3D, _foo
 	# Empty next_dialogue_id on a choice ends immediately.
 	var ChoiceScript: Script = load("res://scripts/dialogue/dialogue_choice.gd") as Script
 	var DefScript: Script = load("res://scripts/dialogue/dialogue_definition.gd") as Script
-	var end_choice: Resource = ChoiceScript.new()
-	end_choice.set("id", "end_now")
-	end_choice.set("text", "Encerrar.")
-	end_choice.set("next_dialogue_id", "")
-	end_choice.set("enabled", true)
-	var ask_end: Resource = DefScript.new()
-	ask_end.set("id", "choice_end_test")
-	ask_end.set("speaker_name", "Test")
-	ask_end.set("text", "Sair?")
-	ask_end.set("choices", [end_choice])
+	var end_choice: DialogueChoice = ChoiceScript.new() as DialogueChoice
+	end_choice.id = "end_now"
+	end_choice.text = "Encerrar."
+	end_choice.next_dialogue_id = ""
+	end_choice.enabled = true
+	var ask_end: DialogueDefinition = DefScript.new() as DialogueDefinition
+	ask_end.id = "choice_end_test"
+	ask_end.speaker_name = "Test"
+	ask_end.text = "Sair?"
+	var end_choices: Array[DialogueChoice] = [end_choice]
+	ask_end.choices = end_choices
 	if not bool(dlg.call("start_from_definition", ask_end, character)):
 		push_error("drive_smoke: choice_end_test failed to start")
 		quit(1)
 		return false
 	await physics_frame
+	if not bool(dlg.call("has_available_choices")):
+		push_error("drive_smoke: choice_end_test should expose one choice")
+		quit(1)
+		return false
 	dlg.call("confirm_choice")
 	await physics_frame
 	if bool(dlg.call("is_active")):
@@ -3902,21 +3907,22 @@ func _verify_dialogue_choices(_occupancy: Node, character: CharacterBody3D, _foo
 		return false
 
 	# Disabled / failed-condition choices are hidden.
-	var gated: Resource = ChoiceScript.new()
-	gated.set("id", "gated")
-	gated.set("text", "Hidden")
-	gated.set("next_dialogue_id", "")
-	gated.set("enabled", false)
-	var open: Resource = ChoiceScript.new()
-	open.set("id", "open")
-	open.set("text", "Visible")
-	open.set("next_dialogue_id", "")
-	open.set("enabled", true)
-	var gate_def: Resource = DefScript.new()
-	gate_def.set("id", "choice_gate_test")
-	gate_def.set("speaker_name", "Test")
-	gate_def.set("text", "Pick")
-	gate_def.set("choices", [gated, open])
+	var gated: DialogueChoice = ChoiceScript.new() as DialogueChoice
+	gated.id = "gated"
+	gated.text = "Hidden"
+	gated.next_dialogue_id = ""
+	gated.enabled = false
+	var open: DialogueChoice = ChoiceScript.new() as DialogueChoice
+	open.id = "open"
+	open.text = "Visible"
+	open.next_dialogue_id = ""
+	open.enabled = true
+	var gate_def: DialogueDefinition = DefScript.new() as DialogueDefinition
+	gate_def.id = "choice_gate_test"
+	gate_def.speaker_name = "Test"
+	gate_def.text = "Pick"
+	var gate_choices: Array[DialogueChoice] = [gated, open]
+	gate_def.choices = gate_choices
 	dlg.call("start_from_definition", gate_def, character)
 	await physics_frame
 	var avail: Array = dlg.call("get_available_choices")
