@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/viewpoint_poi.gd" id="1_viewpoint"]
+[ext_resource type="PackedScene" uid="uid://bterra_viewpoint_terminal" path="res://scenes/interaction/ViewpointTerminal.tscn" id="2_terminal"]
 
 [node name="ViewpointPOI" type="Node3D"]
 script = ExtResource("1_viewpoint")
@@ -26,3 +27,6 @@ monitorable = false
 
 [node name="Sign" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.5, 0, -3)
+
+[node name="ViewpointTerminal" parent="." instance=ExtResource("2_terminal")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.2, 0.0, -3.5)

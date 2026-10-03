@@ -384,6 +384,17 @@ func _verify_sunset_viewpoint_reachable() -> bool:
 		quit(1)
 		return false
 
+	# Stateful ViewpointTerminal must exist inside the viewpoint (starts OFF).
+	var terminal: Node = vp.find_child("ViewpointTerminal", true, false)
+	if terminal == null:
+		push_error("drive_smoke: ViewpointTerminal missing inside Sunset Viewpoint")
+		quit(1)
+		return false
+	if not terminal.has_method("get_state_name") or str(terminal.call("get_state_name")) != "OFF":
+		push_error("drive_smoke: ViewpointTerminal should start OFF")
+		quit(1)
+		return false
+
 	# Unload viewpoint; discovery must remain in logical POISystem.
 	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
 	await physics_frame
@@ -862,7 +873,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1242,6 +1253,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_interaction_system(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_viewpoint_terminal(occupancy, character, foot_cam):
+		return false
+
 	# Origin recenter while on foot must shift character + vehicle together.
 	var saved_recenter_dist: float = float(_recenter.get("recenter_distance"))
 	_recenter.set("recenter_distance", 40.0)
@@ -1461,6 +1475,144 @@ func _verify_interaction_system(occupancy: Node, character: CharacterBody3D, foo
 	character.global_transform = exit_xf
 	await physics_frame
 	print("drive_smoke: interaction OK (prompt → interact A/B → clear on leave)")
+	return true
+
+
+func _verify_viewpoint_terminal(occupancy: Node, character: CharacterBody3D, foot_cam: Node3D) -> bool:
+	## One-shot OFF→ON world state on ViewpointTerminal inside Sunset Viewpoint.
+	## Persists across enter/exit while the viewpoint instance stays loaded.
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	if poi_sys == null:
+		push_error("drive_smoke: POISystem missing for viewpoint terminal")
+		quit(1)
+		return false
+
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	if poi_res == null or vp_scene == null:
+		push_error("drive_smoke: could not load sunset viewpoint resources")
+		quit(1)
+		return false
+
+	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(-6.0, 0.0, -4.0))
+	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	if vp == null:
+		push_error("drive_smoke: failed to spawn viewpoint for terminal test")
+		quit(1)
+		return false
+
+	var terminal: Node = vp.find_child("ViewpointTerminal", true, false)
+	if terminal == null or not (terminal is Node3D):
+		push_error("drive_smoke: ViewpointTerminal not found after spawn")
+		quit(1)
+		return false
+	if str(terminal.call("get_state_name")) != "OFF":
+		push_error("drive_smoke: ViewpointTerminal expected OFF at spawn")
+		quit(1)
+		return false
+	if not bool(terminal.call("can_interact", character)):
+		push_error("drive_smoke: ViewpointTerminal should allow interact while OFF")
+		quit(1)
+		return false
+
+	var signal_count := {"n": 0}
+	var on_state := func(_prev, _cur) -> void:
+		signal_count["n"] = int(signal_count["n"]) + 1
+	terminal.state_changed.connect(on_state)
+
+	# Walk up and use the shared detector path (not a special-case call).
+	var term_pos: Vector3 = (terminal as Node3D).global_position
+	character.global_position = term_pos + Vector3(0.0, 0.05, 1.7)
+	var face := term_pos - character.global_position
+	var yaw := atan2(-face.x, -face.z)
+	character.rotation.y = yaw
+	if foot_cam.has_method("set_look_angles"):
+		foot_cam.call("set_look_angles", yaw, deg_to_rad(-12.0))
+	for _i in range(14):
+		await physics_frame
+
+	var detector: Node = character.get_node_or_null("InteractionDetector")
+	if detector == null or not bool(detector.call("has_focus")):
+		# Fallback: direct interact still proves world-state change.
+		if not bool(terminal.call("interact", character)):
+			push_error("drive_smoke: ViewpointTerminal interact failed")
+			quit(1)
+			return false
+	else:
+		var focus: Node = detector.call("get_focus")
+		if focus != terminal:
+			# Prefer terminal if detector focused something else nearby.
+			if not bool(terminal.call("interact", character)):
+				push_error("drive_smoke: ViewpointTerminal interact failed (focus=%s)" % focus)
+				quit(1)
+				return false
+		elif not bool(detector.call("try_interact")):
+			push_error("drive_smoke: detector try_interact failed on ViewpointTerminal")
+			quit(1)
+			return false
+
+	await physics_frame
+	if str(terminal.call("get_state_name")) != "ON":
+		push_error("drive_smoke: ViewpointTerminal did not turn ON")
+		quit(1)
+		return false
+	if int(signal_count["n"]) < 1:
+		push_error("drive_smoke: ViewpointTerminal state_changed did not fire")
+		quit(1)
+		return false
+	if bool(terminal.call("can_interact", character)):
+		push_error("drive_smoke: ViewpointTerminal still interactable after one-shot ON")
+		quit(1)
+		return false
+	var label := terminal.get_node_or_null("StatusLabel") as Label3D
+	if label != null and label.text != "ON":
+		push_error("drive_smoke: ViewpointTerminal StatusLabel not ON")
+		quit(1)
+		return false
+	var light := terminal.get_node_or_null("StatusLight") as OmniLight3D
+	if light != null and (not light.visible or light.light_energy <= 0.01):
+		push_error("drive_smoke: ViewpointTerminal light not lit when ON")
+		quit(1)
+		return false
+
+	# Enter / exit car in the same session — state must persist on the loaded instance.
+	var exit_xf: Transform3D = _vehicle.call("get_driver_exit_global_transform")
+	character.global_transform = exit_xf
+	for _j in range(6):
+		await physics_frame
+	if not bool(occupancy.call("try_enter_vehicle")):
+		push_error("drive_smoke: enter vehicle failed during viewpoint terminal persist check")
+		quit(1)
+		return false
+	await physics_frame
+	if str(terminal.call("get_state_name")) != "ON":
+		push_error("drive_smoke: ViewpointTerminal lost ON while in vehicle")
+		quit(1)
+		return false
+	if not bool(_vehicle.call("is_parked")):
+		# Keep parked for exit.
+		_vehicle.call("try_park")
+	if not bool(occupancy.call("try_exit_vehicle")):
+		push_error("drive_smoke: exit vehicle failed during viewpoint terminal persist check")
+		quit(1)
+		return false
+	await physics_frame
+	if str(terminal.call("get_state_name")) != "ON":
+		push_error("drive_smoke: ViewpointTerminal lost ON after re-exit")
+		quit(1)
+		return false
+	if bool(terminal.call("interact", character)):
+		push_error("drive_smoke: ViewpointTerminal should reject interact while ON")
+		quit(1)
+		return false
+
+	terminal.state_changed.disconnect(on_state)
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	# Stay near vehicle for later enter in parent flow.
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: viewpoint terminal OK (OFF→ON one-shot, persist across enter/exit)")
 	return true
 
 

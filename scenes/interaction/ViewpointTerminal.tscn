@@ -1,0 +1,71 @@
+[gd_scene load_steps=9 format=3 uid="uid://bterra_viewpoint_terminal"]
+
+[ext_resource type="Script" path="res://scripts/interaction/viewpoint_terminal.gd" id="1_script"]
+
+[sub_resource type="SphereShape3D" id="Shape_interact"]
+radius = 1.15
+
+[sub_resource type="StandardMaterial3D" id="Mat_body"]
+albedo_color = Color(0.22, 0.24, 0.28, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_body"]
+size = Vector3(0.75, 1.35, 0.5)
+
+[sub_resource type="StandardMaterial3D" id="Mat_screen"]
+albedo_color = Color(0.12, 0.14, 0.16, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_screen"]
+size = Vector3(0.55, 0.4, 0.06)
+
+[sub_resource type="StandardMaterial3D" id="Mat_base"]
+albedo_color = Color(0.15, 0.15, 0.16, 1)
+
+[sub_resource type="CylinderMesh" id="Mesh_base"]
+top_radius = 0.45
+bottom_radius = 0.5
+height = 0.12
+
+[node name="ViewpointTerminal" type="Area3D"]
+collision_layer = 8
+collision_mask = 0
+monitoring = false
+monitorable = true
+script = ExtResource("1_script")
+interaction_name = "Viewpoint Terminal"
+interaction_priority = 1
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0)
+shape = SubResource("Shape_interact")
+
+[node name="Model" type="Node3D" parent="."]
+
+[node name="Base" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.06, 0)
+material_override = SubResource("Mat_base")
+mesh = SubResource("Mesh_base")
+
+[node name="Body" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.75, 0)
+material_override = SubResource("Mat_body")
+mesh = SubResource("Mesh_body")
+
+[node name="Screen" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.15, -0.28)
+material_override = SubResource("Mat_screen")
+mesh = SubResource("Mesh_screen")
+
+[node name="StatusLight" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, -0.2)
+light_color = Color(1, 0.45, 0.12, 1)
+light_energy = 0.0
+omni_range = 4.5
+visible = false
+
+[node name="StatusLabel" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.05, 0)
+pixel_size = 0.012
+text = "OFF"
+font_size = 48
+outline_size = 8
+modulate = Color(0.65, 0.68, 0.72, 1)

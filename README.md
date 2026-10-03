@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **generic interaction system** — duck-typed Interactable + Area3D detector, debug prompt, TestTerminal. E prioritizes world interact over enter-vehicle.
+Current slice: **stateful ViewpointTerminal** — one-shot OFF→ON console inside Sunset Viewpoint; proves interaction can change world state (session lifetime, no disk save).
 
 ## Requirements
 
@@ -47,8 +47,11 @@ Reusable world-object interaction — no inventory / NPC / quest logic yet.
 | `InteractionDetector` | Child Area3D on the character; duck-types targets (no concrete-class dependency) |
 | `InteractionPromptUI` | Bottom-center debug prompt when focused |
 | `TestTerminal` | Sample object — prints a log message on interact |
+| `ViewpointTerminal` | Sunset Viewpoint console — **one-shot OFF→ON** (session state, color + light + label) |
 
 **E key UX:** On foot, a focused interactable wins (`player_interact`). If none, E enters the parked vehicle. In vehicle (parked), E still exits. Prompt only shows while a valid object is in range/front cone.
+
+**ViewpointTerminal choice:** one-shot **ON** (not a toggle). First successful interact powers it; `can_interact` becomes false; state persists while that viewpoint instance stays loaded (survives enter/exit car). No disk save yet.
 
 Detection: Area3D proximity + forward cone ranking (stable, simple). Future NPCs/doors/benches/shops/items can subclass `Interactable` or duck-type the same methods.
 
@@ -219,7 +222,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Dev main: `scenes/test/DrivingSandbox.tscn` — road pool, recenter, `PlayerVehicle`, `DrivingDebugHUD`
 - Motion: `PlayerVehicle` — DRIVING / PARKED (`vehicle_park`, `parking_state_changed`)
 - Occupancy: `PlayerOccupancyController` — IN_VEHICLE / ON_FOOT + `PlayerCharacter` (walk/run)
-- Interaction: `Interactable` + `InteractionDetector` + `TestTerminal` (E priority over enter)
+- Interaction: `Interactable` + `InteractionDetector` + `TestTerminal` / `ViewpointTerminal` (stateful OFF→ON)
 - On-foot camera: `OnFootCameraController` — THIRD_PERSON (FIRST_PERSON-ready)
 - Driving modes: `DrivingModeController` — MANUAL / CRUISE / TRAVEL_MODE
 - Vehicle: cruise speed hold + `RoadFollowAutopilot` (steering under Travel Mode)
