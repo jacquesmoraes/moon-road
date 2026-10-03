@@ -23,6 +23,7 @@ signal control_enabled_changed(enabled: bool)
 var _control_enabled: bool = false
 var _camera: Node3D
 var _active_collision_layer: int = 4
+var _interaction_detector: Node
 
 
 func _ready() -> void:
@@ -30,6 +31,7 @@ func _ready() -> void:
 	floor_snap_length = 0.2
 	floor_max_angle = deg_to_rad(50.0)
 	floor_constant_speed = true
+	_interaction_detector = get_node_or_null("InteractionDetector")
 	_resolve_camera()
 	if not _control_enabled:
 		_apply_active_state(false)
@@ -130,6 +132,26 @@ func get_look_yaw() -> float:
 	return rotation.y
 
 
+func get_interaction_detector() -> Node:
+	if _interaction_detector == null:
+		_interaction_detector = get_node_or_null("InteractionDetector")
+	return _interaction_detector
+
+
+func has_interaction_focus() -> bool:
+	var det := get_interaction_detector()
+	if det != null and det.has_method("has_focus"):
+		return bool(det.call("has_focus"))
+	return false
+
+
+func get_interaction_prompt() -> String:
+	var det := get_interaction_detector()
+	if det != null and det.has_method("get_focus_prompt"):
+		return str(det.call("get_focus_prompt"))
+	return ""
+
+
 func _apply_active_state(active: bool) -> void:
 	set_physics_process(active)
 	if active:
@@ -140,6 +162,8 @@ func _apply_active_state(active: bool) -> void:
 		collision_layer = 0
 		collision_mask = 0
 		velocity = Vector3.ZERO
+	if _interaction_detector != null and _interaction_detector.has_method("set_detector_active"):
+		_interaction_detector.call("set_detector_active", active)
 
 
 func _read_camera_relative_wish() -> Vector3:

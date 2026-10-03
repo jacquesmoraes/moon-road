@@ -1,4 +1,4 @@
-[gd_scene load_steps=22 format=3 uid="uid://bterra_drive_sandbox"]
+[gd_scene load_steps=24 format=3 uid="uid://bterra_drive_sandbox"]
 
 [ext_resource type="PackedScene" uid="uid://bterra_player_vehicle" path="res://scenes/vehicles/PlayerVehicle.tscn" id="1_vehicle"]
 [ext_resource type="PackedScene" uid="uid://bterra_driving_debug_hud" path="res://scenes/ui/DrivingDebugHUD.tscn" id="2_hud"]
@@ -12,6 +12,8 @@
 [ext_resource type="PackedScene" uid="uid://bterra_player_character" path="res://scenes/player/PlayerCharacter.tscn" id="10_character"]
 [ext_resource type="Script" path="res://scripts/player/player_occupancy_controller.gd" id="11_occupancy"]
 [ext_resource type="PackedScene" uid="uid://bterra_on_foot_camera" path="res://scenes/player/OnFootCameraController.tscn" id="12_foot_cam"]
+[ext_resource type="PackedScene" uid="uid://bterra_test_terminal" path="res://scenes/interaction/TestTerminal.tscn" id="13_terminal"]
+[ext_resource type="PackedScene" uid="uid://bterra_interaction_prompt" path="res://scenes/interaction/InteractionPromptUI.tscn" id="14_prompt"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.28, 0.48, 0.78, 1)
@@ -144,6 +146,19 @@ vehicle_camera_path = NodePath("../VehicleCameraController")
 on_foot_camera_path = NodePath("../OnFootCameraController")
 recenter_path = NodePath("../WorldOriginRecenter")
 enter_distance = 3.5
+
+[node name="TestTerminal" parent="." instance=ExtResource("13_terminal")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 0.0, 14.5)
+
+[node name="TestTerminalB" parent="." instance=ExtResource("13_terminal")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.5, 0.0, 16.5)
+interaction_name = "Beacon"
+interaction_prompt = "E — Interagir: Beacon"
+log_message = "TestTerminal B (Beacon): interaction OK"
+
+[node name="InteractionPromptUI" parent="." instance=ExtResource("14_prompt")]
+detector_path = NodePath("../PlayerCharacter/InteractionDetector")
+occupancy_path = NodePath("../PlayerOccupancyController")
 
 [node name="DrivingDebugHUD" parent="." instance=ExtResource("2_hud")]
 vehicle_path = NodePath("../PlayerVehicle")

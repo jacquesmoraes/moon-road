@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **basic on-foot movement** — camera-relative walk/run, dedicated on-foot camera (third person, first-person-ready), re-enter still works.
+Current slice: **generic interaction system** — duck-typed Interactable + Area3D detector, debug prompt, TestTerminal. E prioritizes world interact over enter-vehicle.
 
 ## Requirements
 

@@ -862,7 +862,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1239,6 +1239,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	character.global_position = before_push
 	await physics_frame
 
+	if not await _verify_interaction_system(occupancy, character, foot_cam):
+		return
+
 	# Origin recenter while on foot must shift character + vehicle together.
 	var saved_recenter_dist: float = float(_recenter.get("recenter_distance"))
 	_recenter.set("recenter_distance", 40.0)
@@ -1328,7 +1331,136 @@ func _verify_enter_exit_vehicle() -> bool:
 	_clear_vehicle_input()
 	# Release mouse capture if smoke left it on.
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	print("drive_smoke: enter/exit OK (reject@move → exit ON_FOOT → on-foot cam/move → recenter OK → enter IN_VEHICLE)")
+	print("drive_smoke: enter/exit OK (reject@move → exit ON_FOOT → on-foot cam/move → interact OK → recenter OK → enter IN_VEHICLE)")
+	return true
+
+
+func _verify_interaction_system(occupancy: Node, character: CharacterBody3D, foot_cam: Node3D) -> bool:
+	## Generic interactables: prompt on focus, interact key, clear when leaving, shared infra.
+	var terminal: Node = root.find_child("TestTerminal", true, false)
+	var terminal_b: Node = root.find_child("TestTerminalB", true, false)
+	if terminal == null or terminal_b == null:
+		push_error("drive_smoke: TestTerminal(s) missing")
+		quit(1)
+		return false
+	if not InteractionDetector.is_interactable_node(terminal):
+		push_error("drive_smoke: TestTerminal is not duck-typed interactable")
+		quit(1)
+		return false
+	if not InteractionDetector.is_interactable_node(terminal_b):
+		push_error("drive_smoke: TestTerminalB is not duck-typed interactable")
+		quit(1)
+		return false
+
+	var detector: Node = character.get_node_or_null("InteractionDetector")
+	if detector == null:
+		push_error("drive_smoke: InteractionDetector missing on character")
+		quit(1)
+		return false
+
+	# Ensure no focus far from terminals.
+	character.global_position = _vehicle.global_position + Vector3(3.0, 0.05, 0.0)
+	character.rotation.y = 0.0
+	if foot_cam.has_method("set_look_angles"):
+		foot_cam.call("set_look_angles", 0.0, deg_to_rad(-12.0))
+	for _wait in range(8):
+		await physics_frame
+	if bool(detector.call("has_focus")):
+		push_error("drive_smoke: interaction focus present when far from objects")
+		quit(1)
+		return false
+	if character.has_method("get_interaction_prompt"):
+		if not str(character.call("get_interaction_prompt")).is_empty():
+			push_error("drive_smoke: interaction prompt shown without focus")
+			quit(1)
+			return false
+
+	# Approach terminal A and face it.
+	var term_pos: Vector3 = (terminal as Node3D).global_position
+	character.global_position = term_pos + Vector3(0.0, 0.05, 1.6)
+	var face := term_pos - character.global_position
+	var yaw := atan2(-face.x, -face.z)
+	character.rotation.y = yaw
+	if foot_cam.has_method("set_look_angles"):
+		foot_cam.call("set_look_angles", yaw, deg_to_rad(-12.0))
+	for _a in range(12):
+		await physics_frame
+
+	if not bool(detector.call("has_focus")):
+		push_error("drive_smoke: no interaction focus near TestTerminal")
+		quit(1)
+		return false
+	var prompt := str(detector.call("get_focus_prompt"))
+	if prompt.is_empty() or not prompt.contains("Interagir"):
+		push_error("drive_smoke: bad interaction prompt '%s'" % prompt)
+		quit(1)
+		return false
+	var focus: Node = detector.call("get_focus")
+	if focus != terminal:
+		# Either terminal is fine if both in range; prefer A when closer.
+		if focus != terminal and focus != terminal_b:
+			push_error("drive_smoke: focus is not a known test interactable")
+			quit(1)
+			return false
+
+	var before_count := int(focus.get_meta("interact_count", 0))
+	if not bool(detector.call("try_interact")):
+		push_error("drive_smoke: try_interact failed on focused object")
+		quit(1)
+		return false
+	var after_count := int(focus.get_meta("interact_count", 0))
+	if after_count != before_count + 1:
+		push_error("drive_smoke: interact did not increment count")
+		quit(1)
+		return false
+	var msg := str(focus.get_meta("last_interact_message", ""))
+	if msg.is_empty():
+		push_error("drive_smoke: interact left no message meta")
+		quit(1)
+		return false
+
+	# Second object shares the same infrastructure.
+	var term_b_pos: Vector3 = (terminal_b as Node3D).global_position
+	character.global_position = term_b_pos + Vector3(0.0, 0.05, 1.6)
+	face = term_b_pos - character.global_position
+	yaw = atan2(-face.x, -face.z)
+	character.rotation.y = yaw
+	if foot_cam.has_method("set_look_angles"):
+		foot_cam.call("set_look_angles", yaw, deg_to_rad(-12.0))
+	for _b in range(12):
+		await physics_frame
+	if not bool(detector.call("has_focus")):
+		push_error("drive_smoke: no focus on second interactable")
+		quit(1)
+		return false
+	var focus_b: Node = detector.call("get_focus")
+	if focus_b != terminal_b:
+		push_error("drive_smoke: expected focus on TestTerminalB, got %s" % focus_b)
+		quit(1)
+		return false
+	if not bool(detector.call("try_interact")):
+		push_error("drive_smoke: second interactable try_interact failed")
+		quit(1)
+		return false
+	if int(terminal_b.get_meta("interact_count", 0)) < 1:
+		push_error("drive_smoke: second interactable count not updated")
+		quit(1)
+		return false
+
+	# Leave range → prompt/focus clears.
+	character.global_position = _vehicle.global_position + Vector3(6.0, 0.05, 0.0)
+	for _c in range(12):
+		await physics_frame
+	if bool(detector.call("has_focus")):
+		push_error("drive_smoke: interaction focus remained after leaving range")
+		quit(1)
+		return false
+
+	# Keep character near vehicle for subsequent enter test.
+	var exit_xf: Transform3D = _vehicle.call("get_driver_exit_global_transform")
+	character.global_transform = exit_xf
+	await physics_frame
+	print("drive_smoke: interaction OK (prompt → interact A/B → clear on leave)")
 	return true
 
 
@@ -1353,3 +1485,4 @@ func _clear_vehicle_input() -> void:
 	Input.action_release("player_move_left")
 	Input.action_release("player_move_right")
 	Input.action_release("player_run")
+	Input.action_release("player_interact")

@@ -35,7 +35,9 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	# Exit / enter share E by default; gate on occupancy so only one path runs.
+	# Exit / enter share E with player_interact. Priority on foot:
+	# 1) focused interactable → InteractionDetector handles player_interact
+	# 2) else near vehicle → enter
 	if (
 		_state == OccupancyState.IN_VEHICLE
 		and event.is_action_pressed("player_exit_vehicle")
@@ -45,10 +47,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if (
 		_state == OccupancyState.ON_FOOT
-		and event.is_action_pressed("player_enter_vehicle")
+		and (
+			event.is_action_pressed("player_enter_vehicle")
+			or event.is_action_pressed("player_interact")
+		)
 	):
-		try_enter_vehicle()
-		get_viewport().set_input_as_handled()
+		_resolve_refs()
+		# Yield to world interactables when one is focused.
+		if _character != null and _character.has_method("has_interaction_focus"):
+			if bool(_character.call("has_interaction_focus")):
+				return
+		if event.is_action_pressed("player_enter_vehicle") or event.is_action_pressed("player_interact"):
+			if try_enter_vehicle():
+				get_viewport().set_input_as_handled()
 		return
 
 

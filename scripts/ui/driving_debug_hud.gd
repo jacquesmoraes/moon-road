@@ -81,7 +81,7 @@ func _build_on_foot_lines() -> PackedStringArray:
 		"Speed: %.1f m/s%s" % [speed, "  RUN" if running else ""],
 		"Pos: (%.1f, %.1f, %.1f)" % [pos.x, pos.y, pos.z],
 		"Walk: WASD · Run: Shift · Look: mouse",
-		"Enter: E%s" % (" (in range)" if can_enter else " (near vehicle)"),
+		"%s" % _format_on_foot_e_hint(char_node, can_enter),
 		"Camera: %s (on-foot)" % cam_mode,
 	]
 	if show_fps:
@@ -170,6 +170,21 @@ func _build_full_lines() -> PackedStringArray:
 		lines.append("FPS: %d" % Engine.get_frames_per_second())
 
 	return lines
+
+
+func _format_on_foot_e_hint(char_node: Node3D, can_enter: bool) -> String:
+	## E is shared: interactables win when focused; else enter vehicle.
+	if char_node != null and char_node.has_method("has_interaction_focus"):
+		if bool(char_node.call("has_interaction_focus")):
+			var prompt := ""
+			if char_node.has_method("get_interaction_prompt"):
+				prompt = str(char_node.call("get_interaction_prompt"))
+			if prompt.is_empty():
+				prompt = "E — Interagir"
+			return "Interact: %s" % prompt
+	if can_enter:
+		return "Enter: E (in range) · Interact when facing objects"
+	return "Enter: E (near vehicle) · Interact: E on objects"
 
 
 func _format_occupancy() -> String:
