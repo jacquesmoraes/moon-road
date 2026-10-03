@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="PointOfInterest" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/point_of_interest.gd" id="1_poi"]
+
+[resource]
+script = ExtResource("1_poi")
+poi_id = "sunset_viewpoint"
+display_name = "Sunset Viewpoint"
+poi_type = "viewpoint"
+description = "A short pull-off overlooking the endless summer horizon."

@@ -10,12 +10,14 @@ extends CanvasLayer
 var _vehicle: Node3D
 var _journey: Node
 var _regions: Node
+var _exits: Node
 
 
 func _ready() -> void:
 	_resolve_vehicle()
 	_journey = get_node_or_null("/root/JourneySystem")
 	_regions = get_node_or_null("/root/WorldRegionSystem")
+	_resolve_exits()
 
 
 func _process(_delta: float) -> void:
@@ -29,6 +31,8 @@ func _process(_delta: float) -> void:
 		_journey = get_node_or_null("/root/JourneySystem")
 	if _regions == null:
 		_regions = get_node_or_null("/root/WorldRegionSystem")
+	if _exits == null:
+		_resolve_exits()
 
 	var travel_mode := false
 	if _vehicle.has_method("is_travel_mode"):
@@ -93,6 +97,7 @@ func _build_full_lines() -> PackedStringArray:
 		"DEV HUD",
 		"Mode: %s" % _format_driving_mode(),
 		"Region: %s (%.0f%%)" % [_format_region_name(), _format_region_progress() * 100.0],
+		"Exit/POI: %s" % _format_exit_poi(),
 		"Camera: %s (M cine · F / Shift+F)" % _format_camera_mode(),
 		"Journey: %s / %s km" % [_format_journey_km(current_km), _format_journey_km(total_km)],
 		"Remaining: %s km (%.4f%%)" % [_format_journey_km(remaining_km), progress * 100.0],
@@ -134,6 +139,19 @@ func _format_region_progress() -> float:
 	if _regions != null and _regions.has_method("get_region_progress"):
 		return float(_regions.call("get_region_progress"))
 	return 0.0
+
+
+func _format_exit_poi() -> String:
+	if _exits == null:
+		return "none"
+	if _exits.has_method("is_exit_active") and bool(_exits.call("is_exit_active")):
+		var name := ""
+		if _exits.has_method("get_active_poi_name"):
+			name = str(_exits.call("get_active_poi_name"))
+		if name.is_empty():
+			name = "exit"
+		return "%s (steer right onto ramp)" % name
+	return "none nearby"
 
 
 func _format_camera_mode() -> String:
@@ -193,3 +211,9 @@ func _resolve_vehicle() -> void:
 		_vehicle = get_node_or_null(vehicle_path) as Node3D
 	if _vehicle == null:
 		_vehicle = get_tree().current_scene.find_child("PlayerVehicle", true, false) as Node3D
+
+
+func _resolve_exits() -> void:
+	if get_tree() == null or get_tree().current_scene == null:
+		return
+	_exits = get_tree().current_scene.find_child("RoadsideExitSystem", true, false)

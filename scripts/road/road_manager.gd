@@ -288,6 +288,8 @@ func _configure_segment(segment: Node3D, sequence_index: int) -> void:
 	if segment.has_method("ensure_built"):
 		segment.call("ensure_built")
 
+	segment.set_meta("road_sequence_index", sequence_index)
+
 
 func _pick_random_kind() -> int:
 	var w_s := maxf(weight_straight, 0.0)

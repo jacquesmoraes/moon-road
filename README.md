@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **Travel Mode cinematic camera** — automatic contemplative camera cycling while the car drives itself. Sandbox still has no fuel or final UI.
+Current slice: **Roadside exits & short POI detours** — peel off the main road to reach placeholders like Sunset Viewpoint. Travel Mode still stays on the highway.
 
 ## Requirements
 
@@ -118,6 +118,16 @@ Knobs: `active_segment_count`, `segment_length`, `recycle_behind_distance`, `cur
 
 Props parent under each segment’s `SceneryAnchor`, so origin recenter moves them with the road. Node count stays bounded to the pool size.
 
+### Roadside exits & short detours
+
+`RoadsideExitSystem` places lateral exits (`EXIT_LEFT` / `EXIT_RIGHT`) off a main-road host segment into a **fixed-length secondary stretch** (placeholder RoadSegments + ramp). Main `RoadManager` recycling, Travel Mode autopilot, JourneySystem, and origin recenter are unchanged — autopilot keeps sampling the main road only; manual driving can peel onto the ramp.
+
+Example: **Sunset Viewpoint** (`resources/world/exits/sunset_viewpoint_exit.tres` + `resources/world/pois/sunset_viewpoint.tres`) — `EXIT_RIGHT` on main sequence index 3, three short detour segments, orange POI marker at the end.
+
+**How to reach Sunset Viewpoint:** stay in MANUAL, drive forward to the 4th main segment, steer **right** onto the brown ramp, follow the short spur to the orange pillar.
+
+**Edit exits:** add/change `RoadsideExitDefinition` resources under `resources/world/exits/` and list them on `RoadsideExitSystem.definitions` in the sandbox. Detour node count is fixed per definition (no unbounded growth).
+
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
@@ -145,7 +155,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Journey: `JourneySystem` + distance reporter
 - Regions: `WorldRegionSystem` + `resources/world/world_region_catalog.tres`
 - Road: `RoadSegment` curve × elevation kinds + `RoadManager` pool recycle
-- World: `WorldOriginRecenter` + `RoadsideScenery` (pooled procedural props)
+- World: `WorldOriginRecenter` + `RoadsideScenery` + `RoadsideExitSystem` (short POI detours)
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: region-driven visuals/audio/scenery, sharper/procedural roads, final art, fuel, damage, upgrades, final UI, inventory, save, quests
+- Not implemented yet: region-driven visuals/audio/scenery, multi-intersections/cities/traffic/GPS, sharper/procedural roads, final art, fuel, damage, upgrades, final UI, inventory, save, quests

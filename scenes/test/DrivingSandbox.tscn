@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3 uid="uid://bterra_drive_sandbox"]
+[gd_scene load_steps=18 format=3 uid="uid://bterra_drive_sandbox"]
 
 [ext_resource type="PackedScene" uid="uid://bterra_player_vehicle" path="res://scenes/vehicles/PlayerVehicle.tscn" id="1_vehicle"]
 [ext_resource type="PackedScene" uid="uid://bterra_driving_debug_hud" path="res://scenes/ui/DrivingDebugHUD.tscn" id="2_hud"]
@@ -6,6 +6,8 @@
 [ext_resource type="Script" path="res://scripts/road/road_manager.gd" id="4_road_manager"]
 [ext_resource type="Script" path="res://scripts/world/world_origin_recenter.gd" id="5_recenter"]
 [ext_resource type="Script" path="res://scripts/world/roadside_scenery.gd" id="6_scenery"]
+[ext_resource type="Script" path="res://scripts/road/roadside_exit_system.gd" id="7_exits"]
+[ext_resource type="Resource" path="res://resources/world/exits/sunset_viewpoint_exit.tres" id="8_sunset_exit"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.28, 0.48, 0.78, 1)
@@ -83,10 +85,19 @@ near_lateral_max = 22.0
 mountain_lateral_min = 45.0
 mountain_lateral_max = 110.0
 
+[node name="RoadsideExitSystem" type="Node3D" parent="."]
+script = ExtResource("7_exits")
+road_manager_path = NodePath("../RoadManager")
+segment_scene = ExtResource("3_road")
+target_path = NodePath("../PlayerVehicle")
+definitions = [ExtResource("8_sunset_exit")]
+poi_reach_distance = 8.0
+
 [node name="WorldOriginRecenter" type="Node" parent="."]
 script = ExtResource("5_recenter")
 target_path = NodePath("../PlayerVehicle")
 road_manager_path = NodePath("../RoadManager")
+exit_system_path = NodePath("../RoadsideExitSystem")
 recenter_distance = 500.0
 enabled = true
 shift_scale_refs = true

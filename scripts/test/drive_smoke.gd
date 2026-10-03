@@ -68,6 +68,12 @@ var _cinematic_last_mode: String = ""
 var _cinematic_started: bool = false
 var _cinematic_cancel_checked: bool = false
 var _autopilot_ok_during_cine: bool = true
+var _exit_system: Node
+var _initial_exit_nodes: int = 0
+var _max_exit_nodes: int = 0
+var _saw_exit_active: bool = false
+var _exit_active_during_travel: bool = false
+var _poi_reach_ok: bool = false
 
 
 func _initialize() -> void:
@@ -141,6 +147,22 @@ func _begin() -> void:
 
 	# Restore clean journey start after region API probes.
 	_journey.call("reset_journey")
+
+	_exit_system = root.find_child("RoadsideExitSystem", true, false)
+	if _exit_system == null:
+		push_error("drive_smoke: RoadsideExitSystem missing")
+		quit(1)
+		return
+	if _exit_system.has_method("get_total_node_budget"):
+		_initial_exit_nodes = int(_exit_system.call("get_total_node_budget"))
+		_max_exit_nodes = _initial_exit_nodes
+	if _initial_exit_nodes < 4:
+		push_error("drive_smoke: exit/detour pool too small (%d)" % _initial_exit_nodes)
+		quit(1)
+		return
+
+	if not await _verify_sunset_viewpoint_reachable():
+		return
 
 	if _vehicle.has_method("get_cruise_target_speed_ms"):
 		_cruise_target_ms = float(_vehicle.call("get_cruise_target_speed_ms"))
@@ -267,6 +289,63 @@ func _track_cinematic() -> void:
 			_cinematic_last_mode = name
 			if name not in _cinematic_modes_seen:
 				_cinematic_modes_seen.append(name)
+
+
+func _track_exits() -> void:
+	if _exit_system == null:
+		return
+	if _exit_system.has_method("get_total_node_budget"):
+		_max_exit_nodes = maxi(_max_exit_nodes, int(_exit_system.call("get_total_node_budget")))
+	if _exit_system.has_method("is_exit_active") and bool(_exit_system.call("is_exit_active")):
+		_saw_exit_active = true
+		if _phase == PHASE_HOLD_SAMPLE or _phase == PHASE_LONG_DRIVE:
+			_exit_active_during_travel = true
+
+
+func _verify_sunset_viewpoint_reachable() -> bool:
+	## While the host segment is still active, confirm the EXIT_RIGHT detour POI is reachable.
+	if _exit_system == null:
+		return false
+	# Allow deferred bootstrap to place the exit.
+	for _i in 10:
+		if bool(_exit_system.call("is_exit_active", "sunset_viewpoint_exit")):
+			break
+		await physics_frame
+
+	if not bool(_exit_system.call("is_exit_active", "sunset_viewpoint_exit")):
+		push_error("drive_smoke: sunset exit not active at start")
+		quit(1)
+		return false
+
+	var poi_name := str(_exit_system.call("get_active_poi_name"))
+	if poi_name != "Sunset Viewpoint":
+		push_error("drive_smoke: expected Sunset Viewpoint, got '%s'" % poi_name)
+		quit(1)
+		return false
+
+	var poi_pos: Vector3 = _exit_system.call("get_poi_global_position", "sunset_viewpoint_exit")
+	if poi_pos == Vector3.ZERO:
+		push_error("drive_smoke: Sunset Viewpoint POI position missing")
+		quit(1)
+		return false
+
+	var saved_xf := _vehicle.global_transform
+	var saved_vel := _vehicle.velocity
+	# Manual stand-in: arrive via detour end (player would peel EXIT_RIGHT off the main road).
+	_mode_controller.call("set_mode", MODE_MANUAL)
+	_vehicle.global_position = poi_pos + Vector3(0.0, 0.6, 2.0)
+	_vehicle.velocity = Vector3.ZERO
+	await physics_frame
+	await physics_frame
+	_poi_reach_ok = bool(_exit_system.call("was_poi_reached", "sunset_viewpoint"))
+	_vehicle.global_transform = saved_xf
+	_vehicle.velocity = saved_vel
+	if not _poi_reach_ok:
+		push_error("drive_smoke: failed to reach Sunset Viewpoint via detour POI")
+		quit(1)
+		return false
+	print("drive_smoke: Sunset Viewpoint reachable via EXIT_RIGHT detour")
+	return true
 
 
 func _cancel_cinematic_and_verify() -> void:
@@ -447,6 +526,7 @@ func _on_physics_frame() -> void:
 	_track_road_sample()
 	_track_scenery_clearance()
 	_track_cinematic()
+	_track_exits()
 
 	if _elapsed >= LONG_DRIVE_TOTAL_SEC * 0.5 and _journey_mid < 0.0:
 		_journey_mid = float(_journey.call("get_current_distance_km"))
@@ -679,10 +759,45 @@ func _finish() -> void:
 			quit(1)
 			return
 
+	if not _saw_exit_active:
+		push_error("drive_smoke: Sunset Viewpoint exit never activated")
+		quit(1)
+		return
+
+	if _max_exit_nodes > _initial_exit_nodes:
+		push_error(
+			"drive_smoke: exit/detour nodes grew (%d → %d)"
+			% [_initial_exit_nodes, _max_exit_nodes]
+		)
+		quit(1)
+		return
+
+	var exit_nodes_final := int(_exit_system.call("get_total_node_budget"))
+	if exit_nodes_final != _initial_exit_nodes:
+		push_error(
+			"drive_smoke: exit node budget changed (%d → %d)"
+			% [_initial_exit_nodes, exit_nodes_final]
+		)
+		quit(1)
+		return
+
+	# Travel Mode stayed on main road (low lateral) even while an exit existed nearby.
+	if _exit_active_during_travel and _max_abs_lateral > 3.5:
+		push_error(
+			"drive_smoke: Travel Mode drifted toward exit (max|lat|=%.2f)" % _max_abs_lateral
+		)
+		quit(1)
+		return
+
+	if not _poi_reach_ok:
+		push_error("drive_smoke: Sunset Viewpoint reach was not confirmed")
+		quit(1)
+		return
+
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s cine_cancel=OK cancel=MANUAL"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL"
 		% [
 			_elapsed,
 			mean_speed,
@@ -700,6 +815,8 @@ func _finish() -> void:
 			",".join(_camera_mode_names),
 			_cinematic_swap_count,
 			",".join(_cinematic_modes_seen),
+			exit_nodes_final,
+			str(_saw_exit_active),
 		]
 	)
 	quit(0)

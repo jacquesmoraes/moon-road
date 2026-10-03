@@ -7,6 +7,7 @@ signal recentered(offset: Vector3, count: int)
 
 @export var target_path: NodePath = NodePath("../PlayerVehicle")
 @export var road_manager_path: NodePath = NodePath("../RoadManager")
+@export var exit_system_path: NodePath = NodePath("../RoadsideExitSystem")
 ## Recenter when planar distance from origin exceeds this (meters / world units).
 @export var recenter_distance: float = 1000.0
 @export var enabled: bool = true
@@ -14,6 +15,7 @@ signal recentered(offset: Vector3, count: int)
 
 var _target: Node3D
 var _road_manager: Node
+var _exit_system: Node
 var _recenter_count: int = 0
 
 
@@ -55,6 +57,11 @@ func _resolve_nodes() -> void:
 	if _road_manager == null and get_tree().current_scene != null:
 		_road_manager = get_tree().current_scene.find_child("RoadManager", true, false)
 
+	if exit_system_path != NodePath():
+		_exit_system = get_node_or_null(exit_system_path)
+	if _exit_system == null and get_tree().current_scene != null:
+		_exit_system = get_tree().current_scene.find_child("RoadsideExitSystem", true, false)
+
 
 func _apply_shift(offset: Vector3) -> void:
 	if offset.length_squared() < 0.0001:
@@ -76,6 +83,11 @@ func _apply_shift(offset: Vector3) -> void:
 		for child in _road_manager.get_children():
 			if child is Node3D:
 				(child as Node3D).global_position -= offset
+
+	if _exit_system != null and _exit_system.has_method("apply_origin_shift"):
+		_exit_system.call("apply_origin_shift", offset)
+	elif _exit_system is Node3D:
+		(_exit_system as Node3D).global_position -= offset
 
 	var camera := get_tree().current_scene.find_child("VehicleCameraController", true, false) as Node3D
 	if camera != null:
