@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/viewpoint_poi.gd" id="1_viewpoint"]
 [ext_resource type="PackedScene" uid="uid://bterra_viewpoint_terminal" path="res://scenes/interaction/ViewpointTerminal.tscn" id="2_terminal"]
@@ -7,6 +7,7 @@
 [ext_resource type="Resource" path="res://resources/npc/mira_viewpoint_keeper.tres" id="5_mira"]
 [ext_resource type="Resource" path="res://resources/npc/rafa_road_traveler.tres" id="6_rafa"]
 [ext_resource type="PackedScene" uid="uid://bterra_world_item" path="res://scenes/interaction/WorldItem.tscn" id="7_pickup"]
+[ext_resource type="PackedScene" uid="uid://bterra_workbench" path="res://scenes/crafting/Workbench.tscn" id="8_bench"]
 
 [node name="ViewpointPOI" type="Node3D"]
 script = ExtResource("1_viewpoint")
@@ -69,3 +70,7 @@ pickup_id = "sunset_copper_wire"
 item_id = "copper_wire"
 quantity = 1
 interaction_name_override = "Copper Wire"
+
+[node name="Workbench" parent="." instance=ExtResource("8_bench")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.8, 0.0, -1.2)
+

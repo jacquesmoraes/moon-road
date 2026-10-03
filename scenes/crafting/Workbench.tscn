@@ -1,0 +1,68 @@
+[gd_scene load_steps=6 format=3 uid="uid://bterra_workbench"]
+
+[ext_resource type="Script" path="res://scripts/crafting/workbench.gd" id="1_script"]
+
+[sub_resource type="BoxShape3D" id="Shape_interact"]
+size = Vector3(1.6, 1.2, 1.0)
+
+[sub_resource type="StandardMaterial3D" id="Mat_top"]
+albedo_color = Color(0.42, 0.38, 0.32, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_top"]
+size = Vector3(1.4, 0.12, 0.8)
+
+[sub_resource type="StandardMaterial3D" id="Mat_leg"]
+albedo_color = Color(0.28, 0.26, 0.22, 1)
+
+[sub_resource type="CylinderMesh" id="Mesh_leg"]
+top_radius = 0.06
+bottom_radius = 0.07
+height = 0.7
+
+[node name="Workbench" type="Area3D"]
+collision_layer = 8
+collision_mask = 0
+monitoring = false
+monitorable = true
+script = ExtResource("1_script")
+interaction_name = "Workbench"
+interaction_prompt = "E — Usar: Workbench"
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.55, 0)
+shape = SubResource("Shape_interact")
+
+[node name="Model" type="Node3D" parent="."]
+
+[node name="Top" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.76, 0)
+material_override = SubResource("Mat_top")
+mesh = SubResource("Mesh_top")
+
+[node name="LegFL" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.55, 0.35, -0.28)
+material_override = SubResource("Mat_leg")
+mesh = SubResource("Mesh_leg")
+
+[node name="LegFR" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.55, 0.35, -0.28)
+material_override = SubResource("Mat_leg")
+mesh = SubResource("Mesh_leg")
+
+[node name="LegBL" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.55, 0.35, 0.28)
+material_override = SubResource("Mat_leg")
+mesh = SubResource("Mesh_leg")
+
+[node name="LegBR" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.55, 0.35, 0.28)
+material_override = SubResource("Mat_leg")
+mesh = SubResource("Mesh_leg")
+
+[node name="NameLabel" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.15, 0)
+text = "Workbench"
+font_size = 28
+pixel_size = 0.01
+modulate = Color(0.75, 0.88, 0.95, 1)
+billboard = 1

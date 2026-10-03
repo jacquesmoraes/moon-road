@@ -24,6 +24,7 @@ POISystem="*res://autoload/poi_system.gd"
 DialogueSystem="*res://autoload/dialogue_system.gd"
 InventorySystem="*res://autoload/inventory_system.gd"
 QuestSystem="*res://autoload/quest_system.gd"
+CraftingSystem="*res://autoload/crafting_system.gd"
 
 [input]
 

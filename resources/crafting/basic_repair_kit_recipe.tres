@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="RecipeData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/crafting/recipe_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = "basic_repair_kit"
+display_name = "Basic Repair Kit"
+ingredient_item_ids = PackedStringArray("scrap_metal", "copper_wire")
+ingredient_amounts = PackedInt32Array(2, 1)
+output_item_id = "basic_repair_kit"
+output_quantity = 1

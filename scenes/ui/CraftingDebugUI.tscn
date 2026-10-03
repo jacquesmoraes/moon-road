@@ -1,0 +1,65 @@
+[gd_scene load_steps=2 format=3 uid="uid://bterra_crafting_debug"]
+
+[ext_resource type="Script" path="res://scripts/crafting/crafting_debug_ui.gd" id="1_script"]
+
+[node name="CraftingDebugUI" type="CanvasLayer"]
+layer = 93
+script = ExtResource("1_script")
+
+[node name="Root" type="Control" parent="."]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Panel" type="PanelContainer" parent="Root"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -360.0
+offset_top = 340.0
+offset_right = -24.0
+offset_bottom = 560.0
+grow_horizontal = 0
+
+[node name="Margin" type="MarginContainer" parent="Root/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 12
+
+[node name="VBox" type="VBoxContainer" parent="Root/Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TitleLabel" type="Label" parent="Root/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.82, 0.95, 1)
+theme_override_font_sizes/font_size = 18
+text = "Crafting (debug)"
+
+[node name="ListLabel" type="Label" parent="Root/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.92, 0.88, 1)
+theme_override_font_sizes/font_size = 14
+autowrap_mode = 3
+text = "(no recipes)"
+
+[node name="StatusLabel" type="Label" parent="Root/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.78, 0.55, 1)
+theme_override_font_sizes/font_size = 13
+autowrap_mode = 3
+text = ""
+
+[node name="HintLabel" type="Label" parent="Root/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.64, 0.58, 1)
+theme_override_font_sizes/font_size = 12
+text = "↑↓ select · Enter/C craft · Esc close"

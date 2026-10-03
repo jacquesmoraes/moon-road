@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **first side quest** — `QuestSystem` + “Power the Viewpoint” (Mira → gather scrap/wire → power terminal).
+Current slice: **basic crafting** — `CraftingSystem` + Workbench at Sunset Viewpoint (Basic Repair Kit recipe).
 
 ## Requirements
 
@@ -34,6 +34,8 @@ Current slice: **first side quest** — `QuestSystem` + “Power the Viewpoint�
 | `player_interact` | E — world interact when focused; else enter vehicle (see Occupancy) |
 | `dialogue_continue` | Space / E / Enter — advance or close active dialogue |
 | `inventory_debug_toggle` | I — show/hide debug inventory panel |
+
+Workbench: walk up at Sunset Viewpoint, **E** opens CraftingDebugUI (↑↓ select, Enter/C craft, Esc or E again to close).
 
 Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`, plus cruise `cruise_target_speed_kmh`, `cruise_speed_deadzone`, `cruise_control_gain`, and parking `max_parking_speed`, `require_valid_surface`.
 
@@ -70,6 +72,20 @@ Data-driven linear talk — no choices, branching, VO, or quests yet.
 
 **Authoring:** create `.tres` lines, chain with `next_dialogue_id`, add them to the catalog, set the NPC's `dialogue_id`. **Mira** (`mira_01`→`mira_02`) and **Rafa** (`rafa_01`→`rafa_02`) at Sunset Viewpoint prove reuse.
 
+### Crafting (`CraftingSystem` + `RecipeData`)
+
+Data-driven recipes over `InventorySystem`. No tech tree, craft time, quality, or auto-craft.
+
+| Piece | Role |
+|-------|------|
+| `RecipeData` | `id`, `display_name`, ingredient ids/amounts, `output_item_id`, `output_quantity` |
+| `RecipeCatalog` | Registers recipes (`resources/crafting/default_recipe_catalog.tres`) |
+| `CraftingSystem` | Autoload: `can_craft`, `craft` (atomic consume → add) |
+| `Workbench` | Interactable placeholder; opens debug craft UI |
+| `CraftingDebugUI` | Select recipe (↑↓), craft (Enter/C), Esc to close |
+
+Test recipe **Basic Repair Kit**: 2 Scrap Metal + 1 Copper Wire → 1 Basic Repair Kit (`TOOL`). Workbench sits at Sunset Viewpoint. Crafting does not couple to NPCs or quests — add recipes via `.tres` / `register_recipe`.
+
 ### Quests (`QuestSystem`)
 
 Lightweight foundation — states `INACTIVE` / `ACTIVE` / `COMPLETED` by `quest_id`.
@@ -96,7 +112,7 @@ Sunset Viewpoint: **Scrap Metal** inside the Observation Booth, **Copper Wire** 
 
 ### Inventory (`InventorySystem` + `ItemData`)
 
-Decoupled bag of item ids — no weight, equipment, drag-drop, or crafting hooks.
+Decoupled bag of item ids — no weight, equipment, or drag-drop UI.
 
 | Piece | Role |
 |-------|------|
@@ -106,7 +122,7 @@ Decoupled bag of item ids — no weight, equipment, drag-drop, or crafting hooks
 | `InventorySystem` | Autoload: `add_item`, `remove_item`, `has_item`, `get_quantity` |
 | `InventoryDebugUI` | Dev panel listing contents (**I** to toggle) |
 
-Test items: `scrap_metal`, `copper_wire`, `circuit_board`. Inventory stores quantities by id only — reusable by loot/crafting later. Does not depend on NPC, dialogue, quest, or the debug UI.
+Test items: `scrap_metal`, `copper_wire`, `circuit_board`, `basic_repair_kit`. Inventory stores quantities by id only — used by pickups, quests, and crafting. Does not depend on NPC, dialogue, quest, or the debug UI.
 
 ### Small interiors (`SmallInterior`)
 
@@ -279,7 +295,7 @@ godot --path . --headless -s res://scripts/test/drive_smoke.gd
 | `scripts/{core,player,vehicles,road,world,ui,test}` | GDScript by domain |
 | `resources/{vehicles,road,world}` | Shared resources / configs |
 | `assets/{models,materials,textures,audio}` | Art and audio |
-| `autoload/` | Autoload scripts (`JourneySystem`, `WorldRegionSystem`, `POISystem`) |
+| `autoload/` | Autoload scripts (`JourneySystem`, `WorldRegionSystem`, `POISystem`, `DialogueSystem`, `InventorySystem`, `QuestSystem`, `CraftingSystem`) |
 | `data/` | Static data files |
 
 Empty directories keep a `.gdkeep` placeholder so Git tracks them.
@@ -293,8 +309,10 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - NPCs: `NPC.tscn` + `NpcDefinition` (Mira / Rafa at Sunset Viewpoint)
 - Dialogue: `DialogueSystem` + `DialogueDefinition` catalog + `DialogueUI` (linear sequences)
 - Inventory: `InventorySystem` + `ItemData` catalog + `InventoryDebugUI` (I to toggle)
+- Crafting: `CraftingSystem` + `RecipeData` + Workbench + `CraftingDebugUI`
 - Pickups: `WorldItem` at Sunset Viewpoint (Scrap Metal / Copper Wire) + `PickupFeedbackUI`
 - Quests: `QuestSystem` + `power_the_viewpoint` (Mira → terminal)
+- Crafting recipe: Basic Repair Kit at Sunset Viewpoint workbench
 - Interiors: `SmallInterior` Observation Booth (walk-in doorway) + `ObservationLog`
 - On-foot camera: `OnFootCameraController` — THIRD_PERSON (FIRST_PERSON-ready)
 - Driving modes: `DrivingModeController` — MANUAL / CRUISE / TRAVEL_MODE
@@ -306,4 +324,4 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - World: `WorldOriginRecenter` + `RoadsideScenery` + `RoadsideExitSystem` + `POISystem` / `ViewpointPOI`
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: quest log UI, dialogue choices/branching, NPC routines/pathfinding, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, crafting, final art, fuel, damage, upgrades, final UI, save
+- Not implemented yet: quest log UI, dialogue choices/branching, NPC routines/pathfinding, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, craft time/quality/tech tree, final art, fuel, damage, upgrades, final UI, save

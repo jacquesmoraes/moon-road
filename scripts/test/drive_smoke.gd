@@ -878,13 +878,16 @@ func _finish() -> void:
 	if not _verify_inventory_system():
 		return
 
+	if not _verify_crafting_system():
+		return
+
 	if not await _verify_enter_exit_vehicle():
 		return
 
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK crafting=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1201,6 +1204,127 @@ func _verify_inventory_system() -> bool:
 	return true
 
 
+func _verify_crafting_system() -> bool:
+	## CraftingSystem: recipe catalog, safe fail, atomic consume + output. No NPC coupling.
+	var craft: Node = root.get_node_or_null("CraftingSystem")
+	if craft == null:
+		push_error("drive_smoke: CraftingSystem autoload missing")
+		quit(1)
+		return false
+	var inv: Node = root.get_node_or_null("InventorySystem")
+	if inv == null:
+		push_error("drive_smoke: InventorySystem missing for crafting check")
+		quit(1)
+		return false
+
+	var craft_script: Script = load("res://autoload/crafting_system.gd") as Script
+	if craft_script != null:
+		var src := craft_script.source_code
+		for banned in ["/root/DialogueSystem", "NpcCharacter", "QuestSystem", "poi_system.gd"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: CraftingSystem must not reference %s" % banned)
+				quit(1)
+				return false
+
+	if not bool(inv.call("has_item_data", "basic_repair_kit")):
+		push_error("drive_smoke: missing ItemData basic_repair_kit")
+		quit(1)
+		return false
+	if not bool(craft.call("has_recipe", "basic_repair_kit")):
+		push_error("drive_smoke: missing recipe basic_repair_kit")
+		quit(1)
+		return false
+	var recipe: Resource = craft.call("get_recipe", "basic_repair_kit")
+	if recipe == null or str(recipe.get("display_name")) != "Basic Repair Kit":
+		push_error("drive_smoke: Basic Repair Kit recipe display_name mismatch")
+		quit(1)
+		return false
+	if str(recipe.get("output_item_id")) != "basic_repair_kit" or int(recipe.get("output_quantity")) != 1:
+		push_error("drive_smoke: Basic Repair Kit output mismatch")
+		quit(1)
+		return false
+
+	inv.call("clear_inventory")
+	if bool(craft.call("can_craft", "basic_repair_kit")):
+		push_error("drive_smoke: can_craft should be false without ingredients")
+		quit(1)
+		return false
+	if bool(craft.call("craft", "basic_repair_kit")):
+		push_error("drive_smoke: craft should fail safely without ingredients")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "basic_repair_kit")) != 0:
+		push_error("drive_smoke: failed craft must not add output")
+		quit(1)
+		return false
+
+	# Partial ingredients: still fail, consume nothing.
+	inv.call("add_item", "scrap_metal", 2)
+	if bool(craft.call("craft", "basic_repair_kit")):
+		push_error("drive_smoke: craft should fail with only scrap_metal")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "scrap_metal")) != 2:
+		push_error("drive_smoke: failed craft must not consume partial ingredients")
+		quit(1)
+		return false
+
+	inv.call("add_item", "copper_wire", 1)
+	if not bool(craft.call("can_craft", "basic_repair_kit")):
+		push_error("drive_smoke: can_craft should be true with 2 scrap + 1 wire")
+		quit(1)
+		return false
+	if not bool(craft.call("craft", "basic_repair_kit")):
+		push_error("drive_smoke: craft Basic Repair Kit failed with ingredients")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "scrap_metal")) != 0:
+		push_error("drive_smoke: scrap_metal not consumed after craft")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "copper_wire")) != 0:
+		push_error("drive_smoke: copper_wire not consumed after craft")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "basic_repair_kit")) != 1:
+		push_error("drive_smoke: basic_repair_kit not in inventory after craft")
+		quit(1)
+		return false
+
+	# New recipes via register_recipe without changing core logic.
+	var RecipeDataScr: Script = load("res://scripts/crafting/recipe_data.gd") as Script
+	if RecipeDataScr != null:
+		var extra: Resource = RecipeDataScr.new()
+		extra.set("id", "smoke_extra_kit")
+		extra.set("display_name", "Smoke Extra Kit")
+		extra.set("ingredient_item_ids", PackedStringArray(["basic_repair_kit"]))
+		extra.set("ingredient_amounts", PackedInt32Array([1]))
+		extra.set("output_item_id", "circuit_board")
+		extra.set("output_quantity", 1)
+		craft.call("register_recipe", extra)
+		if not bool(craft.call("has_recipe", "smoke_extra_kit")):
+			push_error("drive_smoke: register_recipe did not add smoke_extra_kit")
+			quit(1)
+			return false
+		if not bool(craft.call("craft", "smoke_extra_kit")):
+			push_error("drive_smoke: craft via registered recipe failed")
+			quit(1)
+			return false
+		if int(inv.call("get_quantity", "basic_repair_kit")) != 0:
+			push_error("drive_smoke: registered recipe did not consume kit")
+			quit(1)
+			return false
+		if int(inv.call("get_quantity", "circuit_board")) != 1:
+			push_error("drive_smoke: registered recipe did not add circuit_board")
+			quit(1)
+			return false
+
+	inv.call("clear_inventory")
+	craft.call("reload_catalog")
+	print("drive_smoke: crafting OK (fail-safe, consume, output, data-driven recipe)")
+	return true
+
+
 func _verify_enter_exit_vehicle() -> bool:
 	## Park → exit on foot → vehicle stays → camera follows character → enter → control back.
 	var occupancy: Node = root.find_child("PlayerOccupancyController", true, false)
@@ -1395,6 +1519,9 @@ func _verify_enter_exit_vehicle() -> bool:
 		return false
 
 	if not await _verify_side_quest(occupancy, character, foot_cam):
+		return false
+
+	if not await _verify_workbench(occupancy, character, foot_cam):
 		return false
 
 	# Origin recenter while on foot must shift character + vehicle together.
@@ -2308,6 +2435,105 @@ func _verify_side_quest(occupancy: Node, character: CharacterBody3D, foot_cam: N
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print("drive_smoke: side quest OK (offer → gather → turn-in → COMPLETED once)")
+	return true
+
+
+func _verify_workbench(_occupancy: Node, character: CharacterBody3D, foot_cam: Node3D) -> bool:
+	## Workbench at Sunset Viewpoint opens CraftingDebugUI; craft via UI selection.
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	var craft: Node = root.get_node_or_null("CraftingSystem")
+	var inv: Node = root.get_node_or_null("InventorySystem")
+	if poi_sys == null or craft == null or inv == null:
+		push_error("drive_smoke: systems missing for workbench check")
+		quit(1)
+		return false
+
+	inv.call("clear_inventory")
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(10.0, 0.0, -4.0))
+	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	if vp == null:
+		push_error("drive_smoke: viewpoint spawn failed for workbench")
+		quit(1)
+		return false
+
+	var bench: Node = vp.find_child("Workbench", true, false)
+	if bench == null:
+		push_error("drive_smoke: Workbench missing at Sunset Viewpoint")
+		quit(1)
+		return false
+	if not InteractionDetector.is_interactable_node(bench):
+		push_error("drive_smoke: Workbench is not duck-typed interactable")
+		quit(1)
+		return false
+
+	var ui: Node = root.find_child("CraftingDebugUI", true, false)
+	if ui == null:
+		push_error("drive_smoke: CraftingDebugUI missing from sandbox")
+		quit(1)
+		return false
+
+	var bench_pos: Vector3 = (bench as Node3D).global_position
+	character.global_position = bench_pos + Vector3(0.0, 0.05, 1.5)
+	var face := bench_pos - character.global_position
+	var yaw := atan2(-face.x, -face.z)
+	character.rotation.y = yaw
+	if foot_cam.has_method("set_look_angles"):
+		foot_cam.call("set_look_angles", yaw, deg_to_rad(-10.0))
+	for _i in range(10):
+		await physics_frame
+
+	if not bool(bench.call("can_interact", character)):
+		push_error("drive_smoke: Workbench can_interact false")
+		quit(1)
+		return false
+	if not bool(bench.call("interact", character)):
+		push_error("drive_smoke: Workbench interact failed")
+		quit(1)
+		return false
+	await physics_frame
+	if not bool(ui.call("is_panel_visible")):
+		push_error("drive_smoke: CraftingDebugUI did not open from Workbench")
+		quit(1)
+		return false
+
+	# Recipe appears in catalog list used by UI.
+	var ids: PackedStringArray = craft.call("get_recipe_ids")
+	if not ("basic_repair_kit" in ids):
+		push_error("drive_smoke: basic_repair_kit missing from recipe ids for UI")
+		quit(1)
+		return false
+
+	# Craft with resources while UI open.
+	inv.call("add_item", "scrap_metal", 2)
+	inv.call("add_item", "copper_wire", 1)
+	if not bool(craft.call("craft", "basic_repair_kit")):
+		push_error("drive_smoke: craft via workbench flow failed")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "basic_repair_kit")) != 1:
+		push_error("drive_smoke: workbench craft did not yield kit")
+		quit(1)
+		return false
+
+	# Close UI via second interact.
+	if not bool(bench.call("interact", character)):
+		push_error("drive_smoke: Workbench close interact failed")
+		quit(1)
+		return false
+	await physics_frame
+	if bool(ui.call("is_panel_visible")):
+		push_error("drive_smoke: CraftingDebugUI still open after close")
+		quit(1)
+		return false
+
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	inv.call("clear_inventory")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: workbench OK (interact → UI → craft → close)")
 	return true
 
 

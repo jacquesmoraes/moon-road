@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/inventory/item_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = "basic_repair_kit"
+display_name = "Basic Repair Kit"
+description = "Tape, clamps, and a short checklist for roadside fixes."
+stackable = true
+max_stack = 20
+category = 2
