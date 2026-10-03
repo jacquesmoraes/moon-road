@@ -884,7 +884,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK interior=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK interior=OK pickups=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1389,6 +1389,9 @@ func _verify_enter_exit_vehicle() -> bool:
 		return false
 
 	if not await _verify_small_interior(occupancy, character, foot_cam):
+		return false
+
+	if not await _verify_world_items(occupancy, character, foot_cam):
 		return false
 
 	# Origin recenter while on foot must shift character + vehicle together.
@@ -2070,6 +2073,141 @@ func _verify_small_interior(occupancy: Node, character: CharacterBody3D, foot_ca
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print("drive_smoke: small interior OK (walk-in → interact → walk-out, car stayed)")
+	return true
+
+
+func _verify_world_items(_occupancy: Node, character: CharacterBody3D, foot_cam: Node3D) -> bool:
+	## Collect Scrap Metal (inside booth) + Copper Wire (outside) via Interactable → Inventory.
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	var inv: Node = root.get_node_or_null("InventorySystem")
+	if poi_sys == null or inv == null:
+		push_error("drive_smoke: POISystem/InventorySystem missing for pickups")
+		quit(1)
+		return false
+
+	if inv.has_method("clear_inventory"):
+		inv.call("clear_inventory")
+
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	if poi_res == null or vp_scene == null:
+		push_error("drive_smoke: could not load viewpoint for pickups")
+		quit(1)
+		return false
+
+	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(12.0, 0.0, -4.0))
+	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	if vp == null:
+		push_error("drive_smoke: failed to spawn viewpoint for pickups")
+		quit(1)
+		return false
+
+	var scrap: Node = vp.find_child("ScrapMetalPickup", true, false)
+	var wire: Node = vp.find_child("CopperWirePickup", true, false)
+	if scrap == null or wire == null:
+		push_error("drive_smoke: ScrapMetalPickup / CopperWirePickup missing on ViewpointPOI")
+		quit(1)
+		return false
+	if not InteractionDetector.is_interactable_node(scrap) or not InteractionDetector.is_interactable_node(wire):
+		push_error("drive_smoke: pickups must duck-type Interactable")
+		quit(1)
+		return false
+	if str(scrap.call("get_item_id")) != "scrap_metal" or str(wire.call("get_item_id")) != "copper_wire":
+		push_error("drive_smoke: pickup item_id mismatch")
+		quit(1)
+		return false
+	if bool(scrap.call("is_collected")) or bool(wire.call("is_collected")):
+		push_error("drive_smoke: pickups should start uncollected")
+		quit(1)
+		return false
+
+	# Collect scrap inside booth.
+	var scrap_pos: Vector3 = (scrap as Node3D).global_position
+	character.global_position = scrap_pos + Vector3(0.0, 0.05, 1.2)
+	var face := scrap_pos - character.global_position
+	var yaw := atan2(-face.x, -face.z)
+	character.rotation.y = yaw
+	if foot_cam.has_method("set_look_angles"):
+		foot_cam.call("set_look_angles", yaw, deg_to_rad(-12.0))
+	for _i in range(12):
+		await physics_frame
+
+	var before_scrap := int(inv.call("get_quantity", "scrap_metal"))
+	if not bool(scrap.call("interact", character)):
+		push_error("drive_smoke: Scrap Metal collect failed")
+		quit(1)
+		return false
+	await physics_frame
+	if int(inv.call("get_quantity", "scrap_metal")) != before_scrap + 1:
+		push_error("drive_smoke: scrap_metal quantity not updated in inventory")
+		quit(1)
+		return false
+	if not bool(scrap.call("is_collected")):
+		push_error("drive_smoke: scrap pickup not marked collected")
+		quit(1)
+		return false
+	if (scrap as Node3D).visible:
+		push_error("drive_smoke: scrap pickup still visible after collect")
+		quit(1)
+		return false
+	var scrap_msg := str(scrap.get_meta("last_interact_message", ""))
+	if scrap_msg.find("+1") < 0 or scrap_msg.find("Scrap") < 0:
+		push_error("drive_smoke: bad scrap feedback '%s'" % scrap_msg)
+		quit(1)
+		return false
+	# Cannot collect twice.
+	if bool(scrap.call("can_interact", character)):
+		push_error("drive_smoke: scrap still interactable after collect")
+		quit(1)
+		return false
+	if bool(scrap.call("interact", character)):
+		push_error("drive_smoke: scrap collected twice in same session")
+		quit(1)
+		return false
+	var state: Dictionary = scrap.call("get_collected_state")
+	if not bool(state.get("collected", false)) or str(state.get("pickup_id", "")) != "sunset_scrap_metal":
+		push_error("drive_smoke: scrap collected state snapshot invalid")
+		quit(1)
+		return false
+
+	# Copper wire outside (quantity 2).
+	var wire_pos: Vector3 = (wire as Node3D).global_position
+	character.global_position = wire_pos + Vector3(0.0, 0.05, 1.2)
+	face = wire_pos - character.global_position
+	yaw = atan2(-face.x, -face.z)
+	character.rotation.y = yaw
+	if foot_cam.has_method("set_look_angles"):
+		foot_cam.call("set_look_angles", yaw, deg_to_rad(-12.0))
+	for _j in range(12):
+		await physics_frame
+
+	var before_wire := int(inv.call("get_quantity", "copper_wire"))
+	if not bool(wire.call("interact", character)):
+		push_error("drive_smoke: Copper Wire collect failed")
+		quit(1)
+		return false
+	await physics_frame
+	if int(inv.call("get_quantity", "copper_wire")) != before_wire + 2:
+		push_error("drive_smoke: copper_wire quantity expected +2")
+		quit(1)
+		return false
+	if not bool(wire.call("is_collected")) or bool(wire.call("interact", character)):
+		push_error("drive_smoke: copper wire reusable after collect")
+		quit(1)
+		return false
+	var wire_msg := str(wire.get_meta("last_interact_message", ""))
+	if wire_msg.find("+2") < 0:
+		push_error("drive_smoke: bad copper feedback '%s'" % wire_msg)
+		quit(1)
+		return false
+
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	if inv.has_method("clear_inventory"):
+		inv.call("clear_inventory")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: world items OK (scrap + copper → inventory, no double-collect)")
 	return true
 
 

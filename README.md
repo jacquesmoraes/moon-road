@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **basic inventory** — `InventorySystem` + `ItemData` (id quantities, stacking); debug panel toggled with **I**.
+Current slice: **collectible world items** — `WorldItem` pickups (Scrap Metal / Copper Wire) at Sunset Viewpoint feed `InventorySystem` on interact.
 
 ## Requirements
 
@@ -69,6 +69,18 @@ Data-driven linear talk — no choices, branching, VO, or quests yet.
 | `NpcDefinition.dialogue_id` | NPC only points at the first line id |
 
 **Authoring:** create `.tres` lines, chain with `next_dialogue_id`, add them to the catalog, set the NPC's `dialogue_id`. **Mira** (`mira_01`→`mira_02`) and **Rafa** (`rafa_01`→`rafa_02`) at Sunset Viewpoint prove reuse.
+
+### World pickups (`WorldItem`)
+
+Physical collectibles using the shared Interactable detector + InventorySystem.
+
+| Piece | Role |
+|-------|------|
+| `WorldItem` | `item_id` + `quantity`; collect → add to inventory → deactivate |
+| `pickup_id` / `get_collected_state()` | Clear collected flag for future persistence |
+| `PickupFeedbackUI` | Debug toast e.g. `+1 Scrap Metal` |
+
+Sunset Viewpoint: **Scrap Metal** inside the Observation Booth, **Copper Wire** (x2) just outside. No loot tables, respawn, or animation.
 
 ### Inventory (`InventorySystem` + `ItemData`)
 
@@ -269,6 +281,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - NPCs: `NPC.tscn` + `NpcDefinition` (Mira / Rafa at Sunset Viewpoint)
 - Dialogue: `DialogueSystem` + `DialogueDefinition` catalog + `DialogueUI` (linear sequences)
 - Inventory: `InventorySystem` + `ItemData` catalog + `InventoryDebugUI` (I to toggle)
+- Pickups: `WorldItem` at Sunset Viewpoint (Scrap Metal / Copper Wire) + `PickupFeedbackUI`
 - Interiors: `SmallInterior` Observation Booth (walk-in doorway) + `ObservationLog`
 - On-foot camera: `OnFootCameraController` — THIRD_PERSON (FIRST_PERSON-ready)
 - Driving modes: `DrivingModeController` — MANUAL / CRUISE / TRAVEL_MODE

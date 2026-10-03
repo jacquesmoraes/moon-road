@@ -1,0 +1,48 @@
+[gd_scene load_steps=6 format=3 uid="uid://bterra_world_item"]
+
+[ext_resource type="Script" path="res://scripts/interaction/world_item.gd" id="1_script"]
+
+[sub_resource type="SphereShape3D" id="Shape_interact"]
+radius = 0.85
+
+[sub_resource type="StandardMaterial3D" id="Mat_body"]
+albedo_color = Color(0.55, 0.52, 0.48, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_body"]
+size = Vector3(0.45, 0.2, 0.35)
+
+[sub_resource type="StandardMaterial3D" id="Mat_accent"]
+albedo_color = Color(0.75, 0.55, 0.25, 1)
+
+[node name="WorldItem" type="Area3D"]
+collision_layer = 8
+collision_mask = 0
+monitoring = false
+monitorable = true
+script = ExtResource("1_script")
+item_id = "scrap_metal"
+quantity = 1
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.35, 0)
+shape = SubResource("Shape_interact")
+
+[node name="Model" type="Node3D" parent="."]
+
+[node name="Body" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 0)
+material_override = SubResource("Mat_body")
+mesh = SubResource("Mesh_body")
+
+[node name="Accent" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(0.7, 0, 0, 0, 0.7, 0, 0, 0, 0.7, 0.05, 0.32, 0.02)
+material_override = SubResource("Mat_accent")
+mesh = SubResource("Mesh_body")
+
+[node name="NameLabel" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.85, 0)
+text = "Item"
+font_size = 28
+pixel_size = 0.01
+modulate = Color(0.92, 0.9, 0.82, 1)
+billboard = 1
