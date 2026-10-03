@@ -450,6 +450,7 @@ func _set_phase(phase: int) -> void:
 	Input.action_release("vehicle_travel_mode_toggle")
 	Input.action_release("vehicle_travel_mode_cancel")
 	Input.action_release("vehicle_camera_cinematic_toggle")
+	Input.action_release("vehicle_park")
 	_phase = phase
 	_phase_time = 0.0
 
@@ -852,10 +853,13 @@ func _finish() -> void:
 		quit(1)
 		return
 
+	if not await _verify_parking_state():
+		return
+
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -878,3 +882,191 @@ func _finish() -> void:
 		]
 	)
 	quit(0)
+
+
+func _verify_parking_state() -> bool:
+	## Explicit MotionState: reject park at speed; park cancels cruise/travel; stay still; unpark.
+	if not _vehicle.has_method("try_park") or not _vehicle.has_method("try_unpark"):
+		push_error("drive_smoke: parking API missing on PlayerVehicle")
+		quit(1)
+		return false
+
+	_clear_vehicle_input()
+	_mode_controller.call("set_mode", MODE_MANUAL)
+	if _vehicle.has_method("try_unpark"):
+		_vehicle.call("try_unpark")
+
+	# --- Reject park while moving too fast ---
+	Input.action_press("vehicle_accelerate")
+	var sped_up := false
+	for _i in range(180):
+		await physics_frame
+		var spd: float = absf(float(_vehicle.call("get_signed_speed")))
+		if spd > float(_vehicle.get("max_parking_speed")) + 0.5:
+			sped_up = true
+			break
+	Input.action_release("vehicle_accelerate")
+	if not sped_up:
+		push_error("drive_smoke: could not reach above max_parking_speed")
+		quit(1)
+		return false
+
+	var high_speed: float = absf(float(_vehicle.call("get_signed_speed")))
+	if bool(_vehicle.call("try_park")):
+		push_error(
+			"drive_smoke: park allowed at high speed (%.2f m/s)" % high_speed
+		)
+		quit(1)
+		return false
+	if str(_vehicle.call("get_motion_state_name")) != "DRIVING":
+		push_error("drive_smoke: expected DRIVING after rejected park")
+		quit(1)
+		return false
+
+	# --- Slow to a stop on valid surface ---
+	Input.action_press("vehicle_brake")
+	for _j in range(240):
+		await physics_frame
+		if absf(float(_vehicle.call("get_signed_speed"))) <= 0.05 and _vehicle.is_on_floor():
+			break
+	Input.action_release("vehicle_brake")
+	_clear_vehicle_input()
+
+	# Coast a few frames so brake cancel does not fight us.
+	for _k in range(10):
+		await physics_frame
+
+	if absf(float(_vehicle.call("get_signed_speed"))) > float(_vehicle.get("max_parking_speed")):
+		push_error("drive_smoke: could not slow below max_parking_speed before park")
+		quit(1)
+		return false
+	if not _vehicle.is_on_floor():
+		push_error("drive_smoke: not on valid surface before park")
+		quit(1)
+		return false
+
+	# --- Engage Travel Mode then park: assisted modes must cancel ---
+	_mode_controller.call("set_mode", MODE_TRAVEL)
+	await physics_frame
+	if str(_mode_controller.call("get_mode_name")) != "TRAVEL_MODE":
+		push_error("drive_smoke: failed to engage TRAVEL_MODE before park")
+		quit(1)
+		return false
+
+	var park_signals := {"n": 0}
+	var on_park := func(_prev, _cur) -> void:
+		park_signals["n"] = int(park_signals["n"]) + 1
+	_vehicle.parking_state_changed.connect(on_park)
+
+	if not bool(_vehicle.call("try_park")):
+		push_error("drive_smoke: try_park failed while slow on floor")
+		quit(1)
+		return false
+
+	await physics_frame
+	if str(_vehicle.call("get_motion_state_name")) != "PARKED":
+		push_error("drive_smoke: motion state not PARKED after park")
+		quit(1)
+		return false
+	if not bool(_vehicle.call("is_parked")):
+		push_error("drive_smoke: is_parked false after park")
+		quit(1)
+		return false
+	if absf(float(_vehicle.call("get_signed_speed"))) > 0.01:
+		push_error("drive_smoke: speed not zero after park")
+		quit(1)
+		return false
+	if str(_mode_controller.call("get_mode_name")) != "MANUAL":
+		push_error(
+			"drive_smoke: mode still %s after park (expected MANUAL)"
+			% str(_mode_controller.call("get_mode_name"))
+		)
+		quit(1)
+		return false
+	if bool(_vehicle.call("is_cruise_control_active")):
+		push_error("drive_smoke: cruise still active while PARKED")
+		quit(1)
+		return false
+	if bool(_vehicle.call("is_travel_mode")):
+		push_error("drive_smoke: travel mode still active while PARKED")
+		quit(1)
+		return false
+	if bool(_autopilot.call("is_autopilot_active")):
+		push_error("drive_smoke: autopilot still active while PARKED")
+		quit(1)
+		return false
+	if int(park_signals["n"]) < 1:
+		push_error("drive_smoke: parking_state_changed did not fire on park")
+		quit(1)
+		return false
+
+	# Stay parked: accel/steer must not move the vehicle.
+	var parked_origin: Vector3 = _vehicle.global_position
+	Input.action_press("vehicle_accelerate")
+	Input.action_press("vehicle_right")
+	for _hold in range(60):
+		await physics_frame
+	Input.action_release("vehicle_accelerate")
+	Input.action_release("vehicle_right")
+
+	if absf(float(_vehicle.call("get_signed_speed"))) > 0.01:
+		push_error("drive_smoke: parked vehicle gained speed under accel")
+		quit(1)
+		return false
+	var drift: float = parked_origin.distance_to(_vehicle.global_position)
+	if drift > 0.35:
+		push_error("drive_smoke: parked vehicle drifted (%.2f m)" % drift)
+		quit(1)
+		return false
+
+	# Cruise/travel toggles while parked must not stick.
+	_mode_controller.call("set_mode", MODE_TRAVEL)
+	await physics_frame
+	if str(_mode_controller.call("get_mode_name")) != "MANUAL":
+		push_error("drive_smoke: TRAVEL_MODE engaged while PARKED")
+		quit(1)
+		return false
+	_mode_controller.call("set_mode", 1)  # CRUISE
+	await physics_frame
+	if str(_mode_controller.call("get_mode_name")) != "MANUAL":
+		push_error("drive_smoke: CRUISE engaged while PARKED")
+		quit(1)
+		return false
+
+	# --- Unpark → DRIVING; controls return ---
+	if not bool(_vehicle.call("try_unpark")):
+		push_error("drive_smoke: try_unpark failed")
+		quit(1)
+		return false
+	await physics_frame
+	if str(_vehicle.call("get_motion_state_name")) != "DRIVING":
+		push_error("drive_smoke: expected DRIVING after unpark")
+		quit(1)
+		return false
+	if bool(_vehicle.call("is_parked")):
+		push_error("drive_smoke: is_parked true after unpark")
+		quit(1)
+		return false
+	if int(park_signals["n"]) < 2:
+		push_error("drive_smoke: parking_state_changed did not fire on unpark")
+		quit(1)
+		return false
+
+	_vehicle.parking_state_changed.disconnect(on_park)
+	_clear_vehicle_input()
+	print("drive_smoke: parking state OK (reject@speed → PARKED cancels assist → unpark DRIVING)")
+	return true
+
+
+func _clear_vehicle_input() -> void:
+	Input.action_release("vehicle_accelerate")
+	Input.action_release("vehicle_brake")
+	Input.action_release("vehicle_left")
+	Input.action_release("vehicle_right")
+	Input.action_release("vehicle_cruise_toggle")
+	Input.action_release("vehicle_autopilot_toggle")
+	Input.action_release("vehicle_autopilot_cancel")
+	Input.action_release("vehicle_travel_mode_toggle")
+	Input.action_release("vehicle_travel_mode_cancel")
+	Input.action_release("vehicle_camera_cinematic_toggle")
+	Input.action_release("vehicle_park")

@@ -30,6 +30,12 @@ func _ready() -> void:
 func _physics_process(_delta: float) -> void:
 	_resolve_refs()
 
+	if _vehicle != null and _vehicle.has_method("is_parked") and bool(_vehicle.call("is_parked")):
+		# Parked: keep assisted modes off; ignore cruise / travel toggles.
+		if _mode != Mode.MANUAL:
+			set_mode(Mode.MANUAL)
+		return
+
 	# One combined toggle so dual-bound actions cannot flip twice in one frame.
 	# vehicle_autopilot_toggle remains a Travel Mode shortcut when this controller is present.
 	if (
@@ -93,11 +99,20 @@ func is_travel_mode() -> bool:
 
 ## True when vehicle should hold cruise target speed (CRUISE or TRAVEL_MODE).
 func is_speed_hold_active() -> bool:
+	if _vehicle != null and _vehicle.has_method("is_parked") and bool(_vehicle.call("is_parked")):
+		return false
 	return _mode == Mode.CRUISE or _mode == Mode.TRAVEL_MODE
 
 
 func set_mode(mode: Mode) -> void:
 	_resolve_refs()
+	if (
+		mode != Mode.MANUAL
+		and _vehicle != null
+		and _vehicle.has_method("is_parked")
+		and bool(_vehicle.call("is_parked"))
+	):
+		mode = Mode.MANUAL
 	if mode == _mode:
 		_apply_mode_effects()
 		return

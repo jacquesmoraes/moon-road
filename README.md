@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **Sunset Viewpoint POI** — first explorável pull-off with persistent discovery. Placeholders only; Travel Mode stays on the highway.
+Current slice: **vehicle parking state** — explicit `DRIVING` / `PARKED` motion on `PlayerVehicle` (no character exit yet). Builds on Sunset Viewpoint POI + Travel Mode.
 
 ## Requirements
 
@@ -26,10 +26,22 @@ Current slice: **Sunset Viewpoint POI** — first explorável pull-off with pers
 | `vehicle_travel_mode_cancel` / `vehicle_autopilot_cancel` | X / Esc |
 | `vehicle_camera_next` / `vehicle_camera_previous` | F / Shift+F (cancels cinematic, then cycles) |
 | `vehicle_camera_cinematic_toggle` | M — Travel Mode only: toggle automatic cinematic camera |
+| `vehicle_park` | P — toggle `DRIVING` ↔ `PARKED` (only parks when slow enough + on floor) |
 
-Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`, plus cruise `cruise_target_speed_kmh`, `cruise_speed_deadzone`, `cruise_control_gain`.
+Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`, plus cruise `cruise_target_speed_kmh`, `cruise_speed_deadzone`, `cruise_control_gain`, and parking `max_parking_speed`, `require_valid_surface`.
 
-### Driving states (`DrivingModeController`)
+### Motion state (`PlayerVehicle`)
+
+Orthogonal to assisted driving modes. Single enum — not scattered booleans.
+
+| State | Behavior |
+|-------|----------|
+| `DRIVING` | Normal accel / brake / steer (and cruise / Travel Mode when engaged) |
+| `PARKED` | Speed forced to 0; accel and steering disabled; Cruise + Travel Mode cancelled |
+
+Park only when `|speed| ≤ max_parking_speed` (default 1.5 m/s) and, if `require_valid_surface`, the vehicle is on a floor (road, viewpoint pad, future lots). Signal: `parking_state_changed`. Unpark (P again) returns to `DRIVING`. No exit-vehicle / handbrake VFX yet.
+
+### Driving assistance (`DrivingModeController`)
 
 | Mode | Speed | Steering |
 |------|-------|----------|
@@ -37,7 +49,7 @@ Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `
 | `CRUISE` | hold target km/h | player |
 | `TRAVEL_MODE` | hold target km/h | `RoadFollowAutopilot` road-center |
 
-Travel Mode enables cruise + road-follow together. Cancel immediately with V/T toggle, X/Esc, brake, or manual steer. While Travel Mode is on, press **M** for cinematic camera (auto shot cycling).
+Travel Mode enables cruise + road-follow together. Cancel immediately with V/T toggle, X/Esc, brake, or manual steer. While Travel Mode is on, press **M** for cinematic camera (auto shot cycling). Parking forces `MANUAL` and refuses cruise/travel until unparked.
 
 `RoadFollowAutopilot` only steers (`set_steer_override`); the mode controller owns when it is on.
 
@@ -68,7 +80,7 @@ Travel Mode enables cruise + road-follow together. Cancel immediately with V/T t
 
 ### Dev HUD
 
-`DrivingDebugHUD` (top-left): full debug in MANUAL/CRUISE (mode, **region**, journey, camera, cruise, autopilot, pos, controls, FPS). In **TRAVEL_MODE** it shrinks to essentials — Travel Mode label, **region name**, journey km, remaining, speed/target, camera (incl. `CINEMATIC→MODE`), cancel hint.
+`DrivingDebugHUD` (top-left): full debug in MANUAL/CRUISE (**Motion: DRIVING/PARKED**, mode, **region**, journey, camera, cruise, autopilot, pos, controls, FPS). In **TRAVEL_MODE** it shrinks to essentials — Travel Mode label, motion state, **region name**, journey km, remaining, speed/target, camera (incl. `CINEMATIC→MODE`), cancel hint.
 
 ### Journey (logical distance)
 
@@ -161,6 +173,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 ## Notes
 
 - Dev main: `scenes/test/DrivingSandbox.tscn` — road pool, recenter, `PlayerVehicle`, `DrivingDebugHUD`
+- Motion: `PlayerVehicle` — DRIVING / PARKED (`vehicle_park`, `parking_state_changed`)
 - Driving modes: `DrivingModeController` — MANUAL / CRUISE / TRAVEL_MODE
 - Vehicle: cruise speed hold + `RoadFollowAutopilot` (steering under Travel Mode)
 - Camera: `VehicleCameraController` — FOLLOW / FAR / HOOD / PASSENGER / WINDOW + Travel Mode cinematic director

@@ -61,6 +61,7 @@ func _build_travel_mode_lines() -> PackedStringArray:
 
 	var lines: PackedStringArray = [
 		"TRAVEL MODE",
+		"Motion: %s" % _format_motion_state(),
 		"Region: %s" % _format_region_name(),
 		"Journey: %s km" % _format_journey_km(current_km),
 		"Remaining: %s km" % _format_journey_km(remaining_km),
@@ -95,6 +96,7 @@ func _build_full_lines() -> PackedStringArray:
 
 	var lines: PackedStringArray = [
 		"DEV HUD",
+		"Motion: %s (P park/unpark)" % _format_motion_state(),
 		"Mode: %s" % _format_driving_mode(),
 		"Region: %s (%.0f%%)" % [_format_region_name(), _format_region_progress() * 100.0],
 		"Exit/POI: %s" % _format_exit_poi(),
@@ -117,6 +119,16 @@ func _build_full_lines() -> PackedStringArray:
 		lines.append("FPS: %d" % Engine.get_frames_per_second())
 
 	return lines
+
+
+func _format_motion_state() -> String:
+	if _vehicle == null:
+		return "n/a"
+	if _vehicle.has_method("get_motion_state_name"):
+		return str(_vehicle.call("get_motion_state_name"))
+	if _vehicle.has_method("is_parked") and bool(_vehicle.call("is_parked")):
+		return "PARKED"
+	return "DRIVING"
 
 
 func _format_driving_mode() -> String:

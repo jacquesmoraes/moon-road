@@ -1,6 +1,14 @@
 extends CharacterBody3D
 ## Arcade-style player vehicle. Light feel, not a physics sim.
 ## Assisted driving state lives in DrivingModeController (MANUAL / CRUISE / TRAVEL_MODE).
+## Motion state is DRIVING / PARKED (explicit — not scattered booleans).
+
+enum MotionState {
+	DRIVING,
+	PARKED,
+}
+
+signal parking_state_changed(previous_state: MotionState, current_state: MotionState)
 
 @export var acceleration: float = 18.0
 @export var braking: float = 32.0
@@ -15,6 +23,12 @@ extends CharacterBody3D
 ## How aggressively cruise maps speed error → throttle/brake (higher = snappier).
 @export var cruise_control_gain: float = 0.85
 
+@export_group("Parking")
+## Max |signed speed| (m/s) allowed to enter PARKED.
+@export var max_parking_speed: float = 1.5
+## When true, park requires CharacterBody3D floor contact (road, viewpoint pad, lots).
+@export var require_valid_surface: bool = true
+
 ## Signed forward speed along local -Z (positive = forward).
 var _speed: float = 0.0
 ## Legacy flag kept in sync by DrivingModeController / set_cruise_control_active.
@@ -22,6 +36,7 @@ var _cruise_active: bool = false
 var _steer_override_enabled: bool = false
 var _steer_override: float = 0.0
 var _mode_controller: Node
+var _motion_state: MotionState = MotionState.DRIVING
 
 const GRAVITY: float = 24.0
 const REVERSE_SPEED_FACTOR: float = 0.4
@@ -33,10 +48,24 @@ func _ready() -> void:
 	_mode_controller = get_node_or_null("DrivingModeController")
 
 
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("vehicle_park"):
+		toggle_park()
+		get_viewport().set_input_as_handled()
+
+
 func _physics_process(delta: float) -> void:
 	# Cruise / travel toggles are owned by DrivingModeController when present.
-	if _mode_controller == null and Input.is_action_just_pressed("vehicle_cruise_toggle"):
+	if (
+		_motion_state == MotionState.DRIVING
+		and _mode_controller == null
+		and Input.is_action_just_pressed("vehicle_cruise_toggle")
+	):
 		_toggle_cruise_control()
+
+	if _motion_state == MotionState.PARKED:
+		_update_parked(delta)
+		return
 
 	var accel_input := Input.get_action_strength("vehicle_accelerate")
 	var brake_input := Input.get_action_strength("vehicle_brake")
@@ -83,7 +112,97 @@ func _physics_process(delta: float) -> void:
 			_mode_controller.call("set_mode", 0)  # MANUAL
 
 
+func _update_parked(delta: float) -> void:
+	## Keep stationary; still resolve floor contact / gravity so slopes stay stable.
+	_speed = 0.0
+	_steer_override = 0.0
+	_steer_override_enabled = false
+	if is_on_floor():
+		velocity = Vector3.ZERO
+	else:
+		velocity.x = 0.0
+		velocity.z = 0.0
+		velocity.y -= GRAVITY * delta
+	move_and_slide()
+
+
+func toggle_park() -> void:
+	if _motion_state == MotionState.PARKED:
+		try_unpark()
+	else:
+		try_park()
+
+
+## Attempts to enter PARKED. Returns true on success.
+func try_park() -> bool:
+	if _motion_state == MotionState.PARKED:
+		return true
+	if not can_park():
+		return false
+	_set_motion_state(MotionState.PARKED)
+	return true
+
+
+## Leaves PARKED and returns to DRIVING. Returns true on success.
+func try_unpark() -> bool:
+	if _motion_state == MotionState.DRIVING:
+		return true
+	_set_motion_state(MotionState.DRIVING)
+	return true
+
+
+func can_park() -> bool:
+	if absf(_speed) > maxf(max_parking_speed, 0.0):
+		return false
+	if require_valid_surface and not is_on_floor():
+		return false
+	return true
+
+
+func is_parked() -> bool:
+	return _motion_state == MotionState.PARKED
+
+
+func is_driving() -> bool:
+	return _motion_state == MotionState.DRIVING
+
+
+func get_motion_state() -> MotionState:
+	return _motion_state
+
+
+func get_motion_state_name() -> String:
+	match _motion_state:
+		MotionState.PARKED:
+			return "PARKED"
+		_:
+			return "DRIVING"
+
+
+func _set_motion_state(state: MotionState) -> void:
+	if state == _motion_state:
+		return
+	var previous := _motion_state
+	_motion_state = state
+	if _motion_state == MotionState.PARKED:
+		_enter_parked()
+	parking_state_changed.emit(previous, _motion_state)
+
+
+func _enter_parked() -> void:
+	_speed = 0.0
+	velocity = Vector3.ZERO
+	_cruise_active = false
+	_steer_override = 0.0
+	_steer_override_enabled = false
+	# Cancel assisted modes immediately — Cruise / Travel must not stay active.
+	if _mode_controller != null and _mode_controller.has_method("set_mode"):
+		_mode_controller.call("set_mode", 0)  # MANUAL
+
+
 func _toggle_cruise_control() -> void:
+	if _motion_state == MotionState.PARKED:
+		return
 	if _cruise_active:
 		_cruise_active = false
 		return
@@ -93,6 +212,8 @@ func _toggle_cruise_control() -> void:
 
 
 func _wants_speed_hold() -> bool:
+	if _motion_state == MotionState.PARKED:
+		return false
 	if _mode_controller != null and _mode_controller.has_method("is_speed_hold_active"):
 		return bool(_mode_controller.call("is_speed_hold_active"))
 	return _cruise_active
@@ -179,6 +300,9 @@ func get_cruise_target_speed_ms() -> float:
 
 
 func set_cruise_control_active(active: bool) -> void:
+	if _motion_state == MotionState.PARKED:
+		_cruise_active = false
+		return
 	if active:
 		if get_cruise_target_speed_ms() <= 0.05:
 			_cruise_active = false
@@ -189,6 +313,10 @@ func set_cruise_control_active(active: bool) -> void:
 
 
 func set_steer_override(value: float, enabled: bool) -> void:
+	if _motion_state == MotionState.PARKED:
+		_steer_override = 0.0
+		_steer_override_enabled = false
+		return
 	_steer_override = clampf(value, -1.0, 1.0)
 	_steer_override_enabled = enabled
 
@@ -206,6 +334,8 @@ func get_driving_mode_name() -> String:
 
 
 func is_travel_mode() -> bool:
+	if _motion_state == MotionState.PARKED:
+		return false
 	if _mode_controller != null and _mode_controller.has_method("is_travel_mode"):
 		return bool(_mode_controller.call("is_travel_mode"))
 	return false
