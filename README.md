@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **versioned save system** — `SaveSystem` JSON at `user://savegame.json` (journey, inventory, quests, POIs).
+Current slice: **persistent world state** — `WorldStateSystem` for terminals/pickups + SaveSystem round-trip.
 
 ## Requirements
 
@@ -60,7 +60,7 @@ Reusable world-object interaction — terminals, logs, and NPCs share the same d
 
 **E key UX:** On foot, a focused interactable wins (`player_interact`). If none, E enters the parked vehicle. In vehicle (parked), E still exits. Prompt only shows while a valid object is in range/front cone. During dialogue, movement is locked and `dialogue_continue` advances lines.
 
-**ViewpointTerminal choice:** one-shot **ON** (not a toggle). First successful interact powers it; `can_interact` becomes false; state persists while that viewpoint instance stays loaded (survives enter/exit car). No disk save yet.
+**ViewpointTerminal choice:** one-shot **ON** (not a toggle). First successful interact powers it; `can_interact` becomes false; `powered` persists in `WorldStateSystem` across unload/save.
 
 ### NPCs + Dialogue (`DialogueSystem`)
 
@@ -83,12 +83,23 @@ Versioned JSON at `user://savegame.json`. SaveSystem only coordinates — each s
 | Piece | Role |
 |-------|------|
 | `save_version` / `created_at` / `updated_at` | Header on every file |
-| Providers | `JourneySystem`, `InventorySystem`, `QuestSystem`, `POISystem` |
+| Providers | `JourneySystem`, `InventorySystem`, `QuestSystem`, `POISystem`, `WorldStateSystem` |
 | API | `save_game`, `load_game`, `has_save`, `delete_save`, `get_save_version` |
 | Backup | `user://savegame.json.bak` before overwrite |
 | Debug | **F5** save · **F9** load · **F6** delete |
 
 Corrupt / unknown-version files are refused and **kept** (never auto-deleted). No autosave, multi-slots, cloud, or encryption.
+
+### World state (`WorldStateSystem`)
+
+Logical bag of serializable flags by `entity_id` — survives scene unload. No Node refs, no city logic. POI discovery stays in `POISystem`.
+
+| Convention | Example |
+|------------|---------|
+| `poi.<id>.terminal.<name>` | `poi.sunset_viewpoint.terminal.main` (`powered`) |
+| `poi.<id>.pickup.<name>` | `poi.sunset_viewpoint.pickup.scrap_01` (`collected`) |
+
+API: `set_value` / `get_value` / `has_value` / `clear_entity` / `set_flag`. ViewpointTerminal + WorldItem read/write on interact and restore in `_ready`.
 
 ### Crafting (`CraftingSystem` + `RecipeData`)
 
@@ -315,7 +326,7 @@ godot --path . --headless -s res://scripts/test/drive_smoke.gd
 | `scripts/{core,player,vehicles,road,world,ui,test}` | GDScript by domain |
 | `resources/{vehicles,road,world}` | Shared resources / configs |
 | `assets/{models,materials,textures,audio}` | Art and audio |
-| `autoload/` | Autoload scripts (`JourneySystem`, `WorldRegionSystem`, `POISystem`, `DialogueSystem`, `InventorySystem`, `QuestSystem`, `CraftingSystem`, `SaveSystem`) |
+| `autoload/` | Autoload scripts (`JourneySystem`, `WorldRegionSystem`, `POISystem`, `DialogueSystem`, `InventorySystem`, `QuestSystem`, `CraftingSystem`, `SaveSystem`, `WorldStateSystem`) |
 | `data/` | Static data files |
 
 Empty directories keep a `.gdkeep` placeholder so Git tracks them.
@@ -331,6 +342,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Inventory: `InventorySystem` + `ItemData` catalog + `InventoryDebugUI` (I to toggle)
 - Crafting: `CraftingSystem` + `RecipeData` + Workbench + `CraftingDebugUI`
 - Save: `SaveSystem` → `user://savegame.json` (F5/F9/F6 debug)
+- World state: `WorldStateSystem` (terminal powered / pickup collected)
 - Pickups: `WorldItem` at Sunset Viewpoint (Scrap Metal / Copper Wire) + `PickupFeedbackUI`
 - Quests: `QuestSystem` + `power_the_viewpoint` (Mira → terminal)
 - Crafting recipe: Basic Repair Kit at Sunset Viewpoint workbench

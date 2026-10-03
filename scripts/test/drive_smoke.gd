@@ -315,6 +315,7 @@ func _verify_sunset_viewpoint_reachable() -> bool:
 		return false
 	if poi_sys.has_method("clear_discovery_for_tests"):
 		poi_sys.call("clear_discovery_for_tests")
+	_clear_world_state()
 
 	for _i in 10:
 		if bool(_exit_system.call("is_exit_active", "sunset_viewpoint_exit")):
@@ -884,13 +885,16 @@ func _finish() -> void:
 	if not _verify_save_system():
 		return
 
+	if not await _verify_world_state_system():
+		return
+
 	if not await _verify_enter_exit_vehicle():
 		return
 
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK crafting=OK save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK crafting=OK save=OK world_state=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1502,7 +1506,152 @@ func _verify_save_system() -> bool:
 	inv.call("clear_inventory")
 	qs.call("reset_all")
 	poi.call("clear_discovery_for_tests")
+	_clear_world_state()
 	print("drive_smoke: save OK (round-trip + corrupt kept + version gate)")
+	return true
+
+
+func _clear_world_state() -> void:
+	var ws: Node = root.get_node_or_null("WorldStateSystem")
+	if ws != null and ws.has_method("clear_all"):
+		ws.call("clear_all")
+
+
+func _verify_world_state_system() -> bool:
+	## WorldStateSystem: terminal + pickup survive despawn and save/load. No Node refs.
+	var ws: Node = root.get_node_or_null("WorldStateSystem")
+	var save: Node = root.get_node_or_null("SaveSystem")
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	var inv: Node = root.get_node_or_null("InventorySystem")
+	if ws == null or save == null or poi_sys == null or inv == null:
+		push_error("drive_smoke: WorldStateSystem/SaveSystem/POI/Inventory missing")
+		quit(1)
+		return false
+
+	var ws_script: Script = load("res://autoload/world_state_system.gd") as Script
+	if ws_script != null:
+		var src := ws_script.source_code
+		for banned in ["ViewpointTerminal", "WorldItem", "city", "City"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: WorldStateSystem must not reference %s" % banned)
+				quit(1)
+				return false
+
+	const TERM_ID := "poi.sunset_viewpoint.terminal.main"
+	const PICK_ID := "poi.sunset_viewpoint.pickup.scrap_01"
+
+	_clear_world_state()
+	inv.call("clear_inventory")
+	save.call("delete_save")
+
+	# Reject Node values.
+	if bool(ws.call("set_value", "test.entity", "bad", self)):
+		push_error("drive_smoke: WorldStateSystem must reject Node values")
+		quit(1)
+		return false
+
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+	var spawn_xf := Transform3D(Basis.IDENTITY, Vector3(20.0, 0.0, -8.0))
+	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	if vp == null:
+		push_error("drive_smoke: viewpoint spawn failed for world state")
+		quit(1)
+		return false
+
+	var terminal: Node = vp.find_child("ViewpointTerminal", true, false)
+	var scrap: Node = vp.find_child("ScrapMetalPickup", true, false)
+	if terminal == null or scrap == null:
+		push_error("drive_smoke: terminal/scrap missing for world state")
+		quit(1)
+		return false
+	if str(terminal.get("world_state_id")) != TERM_ID:
+		push_error("drive_smoke: terminal world_state_id mismatch")
+		quit(1)
+		return false
+	if str(scrap.call("get_pickup_id")) != PICK_ID:
+		push_error("drive_smoke: scrap pickup_id mismatch (expected convention id)")
+		quit(1)
+		return false
+
+	# Power + collect → world flags.
+	terminal.call("force_state", 1)  # PowerState.ON
+	if not bool(ws.call("get_flag", TERM_ID, "powered", false)):
+		push_error("drive_smoke: powered flag not written on terminal ON")
+		quit(1)
+		return false
+	if not bool(scrap.call("interact", null)):
+		push_error("drive_smoke: scrap collect failed for world state")
+		quit(1)
+		return false
+	if not bool(ws.call("get_flag", PICK_ID, "collected", false)):
+		push_error("drive_smoke: collected flag not written on pickup")
+		quit(1)
+		return false
+
+	# Unload / reload scene instance — logical state must stick.
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	await physics_frame
+	await physics_frame
+	vp = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	terminal = vp.find_child("ViewpointTerminal", true, false)
+	scrap = vp.find_child("ScrapMetalPickup", true, false)
+	if terminal == null or scrap == null:
+		push_error("drive_smoke: terminal/scrap missing after respawn")
+		quit(1)
+		return false
+	if str(terminal.call("get_state_name")) != "ON":
+		push_error("drive_smoke: terminal not ON after scene reload")
+		quit(1)
+		return false
+	if not bool(scrap.call("is_collected")):
+		push_error("drive_smoke: scrap not collected after scene reload")
+		quit(1)
+		return false
+	if bool(scrap.call("can_interact", null)):
+		push_error("drive_smoke: collected scrap still interactable after reload")
+		quit(1)
+		return false
+
+	# Disk round-trip.
+	if not bool(save.call("save_game")):
+		push_error("drive_smoke: save_game failed in world state test")
+		quit(1)
+		return false
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	_clear_world_state()
+	inv.call("clear_inventory")
+	if bool(ws.call("get_flag", TERM_ID, "powered", false)):
+		push_error("drive_smoke: world state not cleared before load")
+		quit(1)
+		return false
+	if not bool(save.call("load_game")):
+		push_error("drive_smoke: load_game failed in world state test")
+		quit(1)
+		return false
+	if not bool(ws.call("get_flag", TERM_ID, "powered", false)):
+		push_error("drive_smoke: powered flag not restored from save")
+		quit(1)
+		return false
+	if not bool(ws.call("get_flag", PICK_ID, "collected", false)):
+		push_error("drive_smoke: collected flag not restored from save")
+		quit(1)
+		return false
+
+	vp = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	terminal = vp.find_child("ViewpointTerminal", true, false)
+	scrap = vp.find_child("ScrapMetalPickup", true, false)
+	if str(terminal.call("get_state_name")) != "ON" or not bool(scrap.call("is_collected")):
+		push_error("drive_smoke: scene after save/load did not restore terminal/pickup")
+		quit(1)
+		return false
+
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	save.call("delete_save")
+	_clear_world_state()
+	inv.call("clear_inventory")
+	print("drive_smoke: world_state OK (reload + save round-trip terminal/pickup)")
 	return true
 
 
@@ -1937,6 +2086,7 @@ func _verify_viewpoint_terminal(occupancy: Node, character: CharacterBody3D, foo
 		return false
 	if qs != null and qs.has_method("reset_all"):
 		qs.call("reset_all")
+	_clear_world_state()
 
 	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
 	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
@@ -1996,6 +2146,7 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 		push_error("drive_smoke: DialogueSystem autoload missing")
 		quit(1)
 		return false
+	_clear_world_state()
 
 	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
 	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
@@ -2203,6 +2354,7 @@ func _verify_small_interior(occupancy: Node, character: CharacterBody3D, foot_ca
 		push_error("drive_smoke: POISystem missing for interior test")
 		quit(1)
 		return false
+	_clear_world_state()
 
 	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
 	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
@@ -2324,6 +2476,7 @@ func _verify_world_items(_occupancy: Node, character: CharacterBody3D, foot_cam:
 
 	if inv.has_method("clear_inventory"):
 		inv.call("clear_inventory")
+	_clear_world_state()
 
 	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
 	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
@@ -2403,7 +2556,7 @@ func _verify_world_items(_occupancy: Node, character: CharacterBody3D, foot_cam:
 		quit(1)
 		return false
 	var state: Dictionary = scrap.call("get_collected_state")
-	if not bool(state.get("collected", false)) or str(state.get("pickup_id", "")) != "sunset_scrap_metal_a":
+	if not bool(state.get("collected", false)) or str(state.get("pickup_id", "")) != "poi.sunset_viewpoint.pickup.scrap_01":
 		push_error("drive_smoke: scrap collected state snapshot invalid")
 		quit(1)
 		return false
@@ -2461,6 +2614,7 @@ func _verify_side_quest(occupancy: Node, character: CharacterBody3D, foot_cam: N
 
 	qs.call("reset_all")
 	inv.call("clear_inventory")
+	_clear_world_state()
 
 	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
 	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")

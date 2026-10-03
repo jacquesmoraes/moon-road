@@ -1,13 +1,13 @@
 extends Area3D
 class_name WorldItem
 ## Collectible world pickup. Duck-types Interactable; stores item_id + quantity.
-## On collect: InventorySystem.add_item → deactivate. Collected state is queryable for future saves.
-## No loot tables, respawn, or animation.
+## On collect: InventorySystem.add_item → WorldStateSystem collected=true → deactivate.
+## pickup_id is the persistent WorldState entity id (e.g. poi.sunset_viewpoint.pickup.scrap_01).
 
 signal collected(item_id: String, quantity: int, display_name: String)
 signal interact_failed(reason: String)
 
-## Stable id for future persistence (defaults to node name if empty).
+## Stable WorldState entity id (defaults to node name if empty).
 @export var pickup_id: String = ""
 @export var item_id: String = ""
 @export var quantity: int = 1
@@ -30,6 +30,7 @@ func _ready() -> void:
 	_model = get_node_or_null("Model") as Node3D
 	_label = get_node_or_null("NameLabel") as Label3D
 	_refresh_label()
+	_restore_from_world_state()
 	if _collected:
 		_apply_collected_visuals()
 
@@ -50,7 +51,7 @@ func is_collected() -> bool:
 	return _collected
 
 
-## Snapshot for a future save system — clear collected flag semantics.
+## Snapshot for debug / tools — WorldStateSystem is the persistence source of truth.
 func get_collected_state() -> Dictionary:
 	return {
 		"pickup_id": get_pickup_id(),
@@ -60,7 +61,7 @@ func get_collected_state() -> Dictionary:
 
 
 func apply_collected_state(collected_flag: bool) -> void:
-	## Future load path: restore without granting items again.
+	## Restore visuals without granting items again.
 	_collected = collected_flag
 	if _collected:
 		_apply_collected_visuals()
@@ -114,6 +115,7 @@ func interact(actor: Node = null) -> bool:
 		return false
 
 	_collected = true
+	_persist_collected(true)
 	_apply_collected_visuals()
 
 	var display := get_interaction_name()
@@ -138,6 +140,28 @@ func _notify_feedback(message: String) -> void:
 
 func _inventory() -> Node:
 	return get_node_or_null("/root/InventorySystem")
+
+
+func _world_state() -> Node:
+	return get_node_or_null("/root/WorldStateSystem")
+
+
+func _restore_from_world_state() -> void:
+	var ws := _world_state()
+	var id := get_pickup_id()
+	if ws == null or id.is_empty():
+		return
+	if ws.has_method("get_flag") and bool(ws.call("get_flag", id, "collected", false)):
+		_collected = true
+
+
+func _persist_collected(flag: bool) -> void:
+	var ws := _world_state()
+	var id := get_pickup_id()
+	if ws == null or id.is_empty():
+		return
+	if ws.has_method("set_flag"):
+		ws.call("set_flag", id, "collected", flag)
 
 
 func _item_data() -> Resource:

@@ -18,6 +18,8 @@ signal turn_in_failed(reason: String)
 @export var enabled: bool = true
 ## If set, interact attempts QuestSystem.try_turn_in before powering ON.
 @export var linked_quest_id: String = "power_the_viewpoint"
+## Persistent WorldStateSystem id, e.g. poi.sunset_viewpoint.terminal.main
+@export var world_state_id: String = ""
 
 @export_group("Feedback (placeholder)")
 @export var color_off: Color = Color(0.22, 0.24, 0.28, 1)
@@ -38,6 +40,7 @@ func _ready() -> void:
 	monitoring = false
 	monitorable = true
 	_cache_feedback_nodes()
+	_restore_from_world_state()
 	_apply_visuals()
 
 
@@ -142,11 +145,32 @@ func _quest_system() -> Node:
 	return get_node_or_null("/root/QuestSystem")
 
 
+func _world_state() -> Node:
+	return get_node_or_null("/root/WorldStateSystem")
+
+
+func _restore_from_world_state() -> void:
+	var ws := _world_state()
+	if ws == null or world_state_id.is_empty():
+		return
+	if ws.has_method("get_flag") and bool(ws.call("get_flag", world_state_id, "powered", false)):
+		_state = PowerState.ON
+
+
+func _persist_powered(on: bool) -> void:
+	var ws := _world_state()
+	if ws == null or world_state_id.is_empty():
+		return
+	if ws.has_method("set_flag"):
+		ws.call("set_flag", world_state_id, "powered", on)
+
+
 func _set_state(next: PowerState) -> void:
 	if next == _state:
 		return
 	var previous := _state
 	_state = next
+	_persist_powered(_state == PowerState.ON)
 	_apply_visuals()
 	state_changed.emit(previous, _state)
 

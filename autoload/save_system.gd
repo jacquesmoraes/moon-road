@@ -199,6 +199,7 @@ func _register_default_providers() -> void:
 	_try_register("inventory", "/root/InventorySystem")
 	_try_register("quest", "/root/QuestSystem")
 	_try_register("poi", "/root/POISystem")
+	_try_register("world_state", "/root/WorldStateSystem")
 
 
 func _try_register(system_id: String, path: String) -> void:
