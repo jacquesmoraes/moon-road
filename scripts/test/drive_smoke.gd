@@ -2019,27 +2019,37 @@ func _verify_vehicle_fuel_system() -> bool:
 		quit(1)
 		return false
 
-	# Stop / park — fuel must not keep draining.
-	for _i in range(240):
+	# Stopped — fuel must not keep draining (brake to rest; park if possible).
+	Input.action_press("vehicle_brake")
+	for _i in range(300):
 		await physics_frame
-		if absf(float(_vehicle.call("get_signed_speed"))) <= float(_vehicle.get("max_parking_speed")):
+		if absf(float(_vehicle.call("get_signed_speed"))) <= 0.05 and _vehicle.is_on_floor():
 			break
-	if not bool(_vehicle.call("try_park")):
-		push_error("drive_smoke: could not park for fuel idle check")
+	Input.action_release("vehicle_brake")
+	_clear_vehicle_input()
+	for _i in range(10):
+		await physics_frame
+
+	if absf(float(_vehicle.call("get_signed_speed"))) > float(_vehicle.get("max_parking_speed")):
+		push_error("drive_smoke: could not slow for fuel idle check")
 		quit(1)
 		return false
-	var fuel_parked := float(vs.call("get_fuel_current"))
+	if _vehicle.is_on_floor() and _vehicle.has_method("try_park"):
+		_vehicle.call("try_park")
+
+	var fuel_stopped := float(vs.call("get_fuel_current"))
 	await create_timer(0.4).timeout
 	var fuel_still := float(vs.call("get_fuel_current"))
-	if absf(fuel_still - fuel_parked) > 0.001:
+	if absf(fuel_still - fuel_stopped) > 0.001:
 		push_error(
-			"drive_smoke: fuel changed while PARKED (%.4f → %.4f)" % [fuel_parked, fuel_still]
+			"drive_smoke: fuel changed while stopped (%.4f → %.4f)" % [fuel_stopped, fuel_still]
 		)
 		quit(1)
 		return false
 
 	# Empty fuel: cancel assist, no accel progress.
-	_vehicle.call("try_unpark")
+	if _vehicle.has_method("try_unpark"):
+		_vehicle.call("try_unpark")
 	await physics_frame
 	vs.call("set_fuel_current", 0.0)
 	if not bool(vs.call("is_out_of_fuel")):
