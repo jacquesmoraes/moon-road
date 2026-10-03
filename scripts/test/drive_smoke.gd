@@ -359,6 +359,9 @@ func _verify_sunset_viewpoint_reachable() -> bool:
 		push_error("drive_smoke: failed to reach Sunset Viewpoint via detour POI")
 		quit(1)
 		return false
+
+	# Discard teleport deltas so the long-drive journey monotonic check stays meaningful.
+	_journey.call("reset_journey")
 	print(
 		"drive_smoke: Sunset Viewpoint reachable via EXIT_RIGHT detour (main_lat=%.1f)"
 		% main_lat
