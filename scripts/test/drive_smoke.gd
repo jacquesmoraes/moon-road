@@ -329,22 +329,40 @@ func _verify_sunset_viewpoint_reachable() -> bool:
 		quit(1)
 		return false
 
+	# Detour must sit off the main road (not on the centerline).
+	var main_sample: Dictionary = _road_manager.call("sample_road", poi_pos, 8.0)
+	var main_lat := absf(float(main_sample.get("lateral", 0.0)))
+	if main_lat < 6.0:
+		push_error("drive_smoke: Sunset Viewpoint POI too close to main road (lat=%.2f)" % main_lat)
+		quit(1)
+		return false
+
 	var saved_xf := _vehicle.global_transform
 	var saved_vel := _vehicle.velocity
 	# Manual stand-in: arrive via detour end (player would peel EXIT_RIGHT off the main road).
 	_mode_controller.call("set_mode", MODE_MANUAL)
-	_vehicle.global_position = poi_pos + Vector3(0.0, 0.6, 2.0)
+	_vehicle.global_position = poi_pos + Vector3(0.0, 0.8, 2.0)
 	_vehicle.velocity = Vector3.ZERO
 	await physics_frame
 	await physics_frame
 	_poi_reach_ok = bool(_exit_system.call("was_poi_reached", "sunset_viewpoint"))
-	_vehicle.global_transform = saved_xf
-	_vehicle.velocity = saved_vel
+
+	# Snap back onto the main road surface so the drive smoke does not fall through.
+	var spawn_sample: Dictionary = _road_manager.call("sample_road", saved_xf.origin, 12.0)
+	var road_point: Vector3 = spawn_sample.get("point", saved_xf.origin)
+	_vehicle.global_transform = Transform3D(saved_xf.basis, road_point + Vector3(0.0, 0.6, 0.0))
+	_vehicle.velocity = Vector3.ZERO
+	for _j in 5:
+		await physics_frame
+
 	if not _poi_reach_ok:
 		push_error("drive_smoke: failed to reach Sunset Viewpoint via detour POI")
 		quit(1)
 		return false
-	print("drive_smoke: Sunset Viewpoint reachable via EXIT_RIGHT detour")
+	print(
+		"drive_smoke: Sunset Viewpoint reachable via EXIT_RIGHT detour (main_lat=%.1f)"
+		% main_lat
+	)
 	return true
 
 
