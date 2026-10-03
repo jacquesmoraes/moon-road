@@ -551,7 +551,25 @@ func _on_physics_frame() -> void:
 
 	if _elapsed >= LONG_DRIVE_TOTAL_SEC * 0.5 and _journey_mid < 0.0:
 		_journey_mid = float(_journey.call("get_current_distance_km"))
+		print(
+			"drive_smoke: journey_mid=%.4f elapsed=%.1f speed=%.2f pos=%s"
+			% [
+				_journey_mid,
+				_elapsed,
+				float(_vehicle.call("get_signed_speed")) if _vehicle.has_method("get_signed_speed") else 0.0,
+				_vehicle.global_position,
+			]
+		)
 
+	if int(_elapsed) % 15 == 0 and is_equal_approx(_elapsed, float(int(_elapsed))):
+		print(
+			"drive_smoke: t=%.0f journey=%.4f speed=%.2f"
+			% [
+				_elapsed,
+				float(_journey.call("get_current_distance_km")),
+				float(_vehicle.call("get_signed_speed")) if _vehicle.has_method("get_signed_speed") else 0.0,
+			]
+		)
 	# Instant cinematic cancel mid Travel Mode (well before phase end).
 	if (
 		_phase == PHASE_LONG_DRIVE
@@ -730,7 +748,13 @@ func _finish() -> void:
 		return
 
 	if _journey_mid < 0.0 or journey_km <= _journey_mid:
-		push_error("drive_smoke: journey did not keep increasing")
+		var end_speed := 0.0
+		if _vehicle.has_method("get_signed_speed"):
+			end_speed = float(_vehicle.call("get_signed_speed"))
+		push_error(
+			"drive_smoke: journey did not keep increasing mid=%.4f end=%.4f elapsed=%.1f pos=%s speed=%.2f recenters=%d"
+			% [_journey_mid, journey_km, _elapsed, origin, end_speed, recenters]
+		)
 		quit(1)
 		return
 

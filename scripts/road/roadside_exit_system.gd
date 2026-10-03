@@ -134,16 +134,9 @@ func _create_slot(def: RoadsideExitDefinition) -> Dictionary:
 			seg.set("show_shoulders", true)
 			seg.set("shoulder_width", 1.0)
 		if seg.has_method("set_kind"):
-			# First piece curves gently toward the exit side; rest stay straight.
-			if i == 0:
-				seg.call(
-					"set_kind",
-					1 if def.side == RoadsideExitDefinition.ExitSide.EXIT_LEFT else 2
-				)
-				if seg.get("curve_angle_degrees") != null:
-					seg.set("curve_angle_degrees", 22.0)
-			else:
-				seg.call("set_kind", 0)
+			# First piece is also straight — the ramp/mouth already provides the peel.
+			# Avoid a curved RoadSegment that can swing collision back onto the main lane.
+			seg.call("set_kind", 0)
 		if seg.has_method("set_elevation"):
 			seg.call("set_elevation", 0)
 		if seg.has_method("ensure_built"):
@@ -232,7 +225,6 @@ func _sync_exits_to_main_road() -> void:
 	var recycle := 0
 	if _road_manager.has_method("get_recycle_count"):
 		recycle = int(_road_manager.call("get_recycle_count"))
-	var recycle_changed := recycle != _last_recycle_seen
 	_last_recycle_seen = recycle
 
 	var active_segments: Array = _road_manager.call("get_active_segments")
@@ -244,11 +236,7 @@ func _sync_exits_to_main_road() -> void:
 		var host := _find_host(active_segments, def.appear_at_sequence)
 		if host != null:
 			var prev_host: Node3D = slot.get("host")
-			var needs_place := (
-				not bool(slot.get("active", false))
-				or prev_host != host
-				or recycle_changed
-			)
+			var needs_place := not bool(slot.get("active", false)) or prev_host != host
 			slot["host"] = host
 			slot["active"] = true
 			if needs_place:
@@ -313,8 +301,8 @@ func _place_detour(slot: Dictionary, host: Node3D) -> void:
 	if host.has_method("get_width"):
 		host_half = float(host.call("get_width")) * 0.5
 
-	# Mouth sits at the roadway edge, slightly ahead so the ramp is approachable.
-	var mouth := point + right * side_sign * (host_half + 0.4) + forward * 2.0
+	# Mouth sits past the roadway edge so the spur does not clip the main lane.
+	var mouth := point + right * side_sign * (host_half + 2.5) + forward * 1.0
 	mouth.y = point.y
 
 	var peel := deg_to_rad(def.peel_angle_degrees) * side_sign
@@ -326,11 +314,11 @@ func _place_detour(slot: Dictionary, host: Node3D) -> void:
 	var mouth_basis := _basis_looking_along(exit_forward)
 	var mouth_xf := Transform3D(mouth_basis, mouth)
 
-	# Ramp bridges main edge → first detour entrance.
+	# Ramp bridges main edge → first detour entrance (kept clear of centerline).
 	if ramp != null:
 		ramp.visible = true
-		_set_collision_enabled(ramp, true)
-		var ramp_mid := mouth + exit_forward * 6.0 - right * side_sign * 0.5
+		_enable_collision_tree(ramp)
+		var ramp_mid := mouth + exit_forward * 6.0
 		ramp_mid.y = mouth.y
 		ramp.global_transform = Transform3D(mouth_basis, ramp_mid)
 
@@ -364,36 +352,52 @@ func _place_detour(slot: Dictionary, host: Node3D) -> void:
 
 
 func _park_slot_nodes(ramp: Node3D, segments: Array, poi_node: Node3D) -> void:
-	var park := Vector3(0.0, -500.0, 0.0)
+	var park := Vector3(0.0, -800.0, 0.0)
 	if ramp != null:
 		ramp.visible = false
-		_set_collision_enabled(ramp, false)
+		_disable_collision_tree(ramp)
 		ramp.global_position = park
-	for seg in segments:
+	for i in segments.size():
+		var seg: Node3D = segments[i]
 		if seg == null or not is_instance_valid(seg):
 			continue
-		_set_segment_visible(seg as Node3D, false)
-		(seg as Node3D).global_position = park + Vector3(0.0, -10.0, float(segments.find(seg)) * 50.0)
+		seg.visible = false
+		_disable_collision_tree(seg)
+		seg.global_position = park + Vector3(float(i) * 80.0, -20.0, 0.0)
 	if poi_node != null:
 		poi_node.visible = false
-		poi_node.global_position = park
+		poi_node.global_position = park + Vector3(0.0, 0.0, -40.0)
 
 
 func _set_segment_visible(seg: Node3D, on: bool) -> void:
 	seg.visible = on
-	for child in seg.get_children():
-		if child is CollisionObject3D:
-			(child as CollisionObject3D).collision_layer = 1 if on else 0
-			(child as CollisionObject3D).collision_mask = 1 if on else 0
-		_set_collision_enabled(child, on)
+	if on:
+		_enable_collision_tree(seg)
+	else:
+		_disable_collision_tree(seg)
 
 
 func _set_collision_enabled(node: Node, on: bool) -> void:
+	if on:
+		_enable_collision_tree(node)
+	else:
+		_disable_collision_tree(node)
+
+
+func _disable_collision_tree(node: Node) -> void:
 	if node is CollisionObject3D:
-		(node as CollisionObject3D).collision_layer = 1 if on else 0
-		(node as CollisionObject3D).collision_mask = 1 if on else 0
+		(node as CollisionObject3D).collision_layer = 0
+		(node as CollisionObject3D).collision_mask = 0
 	for child in node.get_children():
-		_set_collision_enabled(child, on)
+		_disable_collision_tree(child)
+
+
+func _enable_collision_tree(node: Node) -> void:
+	if node is CollisionObject3D:
+		(node as CollisionObject3D).collision_layer = 1
+		(node as CollisionObject3D).collision_mask = 1
+	for child in node.get_children():
+		_enable_collision_tree(child)
 
 
 func _basis_looking_along(forward: Vector3) -> Basis:
