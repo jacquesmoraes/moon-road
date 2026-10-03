@@ -124,18 +124,13 @@ func _physics_process(delta: float) -> void:
 			_mode_controller.call("set_mode", 0)  # MANUAL
 
 
-func _update_parked(delta: float) -> void:
-	## Keep stationary; still resolve floor contact / gravity so slopes stay stable.
+func _update_parked(_delta: float) -> void:
+	## Hold the parked world pose. Do not freefall or slope-slide — the player left the
+	## car here (validated by can_park). Origin recenter still moves us explicitly.
 	_speed = 0.0
 	_steer_override = 0.0
 	_steer_override_enabled = false
-	if is_on_floor():
-		velocity = Vector3.ZERO
-	else:
-		velocity.x = 0.0
-		velocity.z = 0.0
-		velocity.y -= GRAVITY * delta
-	move_and_slide()
+	velocity = Vector3.ZERO
 
 
 func toggle_park() -> void:

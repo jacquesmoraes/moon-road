@@ -1643,7 +1643,9 @@ func _verify_small_interior(occupancy: Node, character: CharacterBody3D, foot_ca
 		return false
 
 	var parked_origin: Vector3 = _vehicle.global_position
-	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(8.0, 0.0, -2.0))
+	var recenter_before: int = int(_recenter.call("get_recenter_count")) if _recenter != null else 0
+	# Keep the platform clear of the parked car so collision does not disturb the stop.
+	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(14.0, 0.0, -6.0))
 	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
 	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
 	if vp == null:
@@ -1721,15 +1723,17 @@ func _verify_small_interior(occupancy: Node, character: CharacterBody3D, foot_ca
 		quit(1)
 		return false
 
-	# Parked car must not have moved.
-	if parked_origin.distance_to(_vehicle.global_position) > 0.5:
-		push_error("drive_smoke: parked vehicle moved during interior explore")
-		quit(1)
-		return false
+	# Parked car must remain parked; absolute move is OK only if origin recentered.
+	var recenter_after: int = int(_recenter.call("get_recenter_count")) if _recenter != null else 0
 	if not bool(_vehicle.call("is_parked")):
 		push_error("drive_smoke: vehicle left PARKED during interior explore")
 		quit(1)
 		return false
+	if recenter_after == recenter_before:
+		if parked_origin.distance_to(_vehicle.global_position) > 0.5:
+			push_error("drive_smoke: parked vehicle drifted without origin recenter")
+			quit(1)
+			return false
 
 	booth.player_entered_interior.disconnect(on_enter)
 	booth.player_exited_interior.disconnect(on_exit)
