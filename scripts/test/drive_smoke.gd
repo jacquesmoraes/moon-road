@@ -1160,26 +1160,84 @@ func _verify_enter_exit_vehicle() -> bool:
 		push_error("drive_smoke: character spawn distance odd (%.2f)" % door_dist)
 		quit(1)
 		return false
-	if _camera_rig.has_method("get_follow_target"):
-		var cam_target: Node3D = _camera_rig.call("get_follow_target") as Node3D
-		if cam_target != character:
-			push_error("drive_smoke: camera not following character on foot")
+
+	# Walk briefly with camera-relative move + run; vehicle must stay put.
+	Input.action_press("player_move_forward")
+	Input.action_press("player_run")
+	var walked := false
+	var start_char: Vector3 = character.global_position
+	for _walk in range(45):
+		await physics_frame
+		if character.global_position.distance_to(start_char) > 0.6:
+			walked = true
+	Input.action_release("player_move_forward")
+	Input.action_release("player_run")
+	if not walked:
+		push_error("drive_smoke: on-foot character did not move")
+		quit(1)
+		return false
+	if character.has_method("get_planar_speed"):
+		# After release, should decelerate (not required zero immediately).
+		pass
+	if vehicle_origin.distance_to(_vehicle.global_position) > 0.5:
+		push_error("drive_smoke: parked vehicle drifted while on foot")
+		quit(1)
+		return false
+
+	# Dedicated on-foot camera must be active (not vehicle cam retargeted).
+	var foot_cam: Node3D = root.find_child("OnFootCameraController", true, false) as Node3D
+	if foot_cam == null:
+		push_error("drive_smoke: OnFootCameraController missing")
+		quit(1)
+		return false
+	if foot_cam.has_method("is_active") and not bool(foot_cam.call("is_active")):
+		push_error("drive_smoke: on-foot camera not active while ON_FOOT")
+		quit(1)
+		return false
+	if foot_cam.has_method("get_follow_target"):
+		var foot_target: Node3D = foot_cam.call("get_follow_target") as Node3D
+		if foot_target != character:
+			push_error("drive_smoke: on-foot camera not following character")
 			quit(1)
 			return false
+	var vcam: Camera3D = null
+	if _camera_rig.has_method("get_camera"):
+		vcam = _camera_rig.call("get_camera") as Camera3D
+	var fcam: Camera3D = null
+	if foot_cam.has_method("get_camera"):
+		fcam = foot_cam.call("get_camera") as Camera3D
+	if fcam == null or not fcam.current:
+		push_error("drive_smoke: on-foot Camera3D is not current")
+		quit(1)
+		return false
+	if vcam != null and vcam.current:
+		push_error("drive_smoke: vehicle camera still current while on foot")
+		quit(1)
+		return false
 	if int(occupancy_signals["n"]) < 1:
 		push_error("drive_smoke: occupancy_changed did not fire on exit")
 		quit(1)
 		return false
 
-	# Walk briefly; vehicle must stay put.
-	Input.action_press("player_move_forward")
-	for _walk in range(30):
+	# Simple collision: character must not pass through the parked vehicle.
+	var before_push := character.global_position
+	character.global_position = _vehicle.global_position + Vector3(-2.6, 0.05, 0.0)
+	character.rotation.y = 0.0
+	if foot_cam.has_method("set_look_angles"):
+		foot_cam.call("set_look_angles", 0.0, deg_to_rad(-12.0))
+	await physics_frame
+	# yaw=0 → camera-relative right is +X, into the vehicle from the left side.
+	Input.action_press("player_move_right")
+	for _push in range(30):
 		await physics_frame
-	Input.action_release("player_move_forward")
-	if vehicle_origin.distance_to(_vehicle.global_position) > 0.5:
-		push_error("drive_smoke: parked vehicle drifted while on foot")
+	Input.action_release("player_move_right")
+	var penetrated := character.global_position.distance_to(_vehicle.global_position) < 0.85
+	if penetrated:
+		push_error("drive_smoke: character clipped into parked vehicle")
 		quit(1)
 		return false
+	character.global_position = before_push
+	await physics_frame
 
 	# Origin recenter while on foot must shift character + vehicle together.
 	var saved_recenter_dist: float = float(_recenter.get("recenter_distance"))
@@ -1243,6 +1301,18 @@ func _verify_enter_exit_vehicle() -> bool:
 		push_error("drive_smoke: vehicle should still be PARKED after enter")
 		quit(1)
 		return false
+	if foot_cam.has_method("is_active") and bool(foot_cam.call("is_active")):
+		push_error("drive_smoke: on-foot camera still active after enter")
+		quit(1)
+		return false
+	if fcam != null and fcam.current:
+		push_error("drive_smoke: on-foot Camera3D still current after enter")
+		quit(1)
+		return false
+	if vcam != null and not vcam.current:
+		push_error("drive_smoke: vehicle camera not current after enter")
+		quit(1)
+		return false
 	if _camera_rig.has_method("get_follow_target"):
 		var cam_back: Node3D = _camera_rig.call("get_follow_target") as Node3D
 		if cam_back != _vehicle:
@@ -1256,7 +1326,9 @@ func _verify_enter_exit_vehicle() -> bool:
 
 	occupancy.occupancy_changed.disconnect(on_occ)
 	_clear_vehicle_input()
-	print("drive_smoke: enter/exit OK (reject@move → exit ON_FOOT → recenter OK → enter IN_VEHICLE)")
+	# Release mouse capture if smoke left it on.
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	print("drive_smoke: enter/exit OK (reject@move → exit ON_FOOT → on-foot cam/move → recenter OK → enter IN_VEHICLE)")
 	return true
 
 
@@ -1275,6 +1347,9 @@ func _clear_vehicle_input() -> void:
 	Input.action_release("player_exit_vehicle")
 	Input.action_release("player_enter_vehicle")
 	Input.action_release("player_move_forward")
-	Input.action_release("player_move_back")
+	Input.action_release("player_move_backward")
+	if InputMap.has_action("player_move_back"):
+		Input.action_release("player_move_back")
 	Input.action_release("player_move_left")
 	Input.action_release("player_move_right")
+	Input.action_release("player_run")

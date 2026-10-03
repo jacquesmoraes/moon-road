@@ -1,0 +1,16 @@
+[gd_scene load_steps=2 format=3 uid="uid://bterra_on_foot_camera"]
+
+[ext_resource type="Script" path="res://scripts/player/on_foot_camera_controller.gd" id="1_script"]
+
+[node name="OnFootCameraController" type="Node3D"]
+script = ExtResource("1_script")
+follow_distance = 4.2
+follow_height = 1.65
+follow_smoothing = 10.0
+look_at_height = 1.35
+mouse_sensitivity = 0.12
+view_mode = 0
+
+[node name="Camera3D" type="Camera3D" parent="."]
+current = false
+fov = 70.0

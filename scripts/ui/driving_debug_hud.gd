@@ -62,14 +62,27 @@ func _build_on_foot_lines() -> PackedStringArray:
 	var can_enter := false
 	if _occupancy != null and _occupancy.has_method("can_enter_vehicle"):
 		can_enter = bool(_occupancy.call("can_enter_vehicle"))
+	var speed := 0.0
+	var running := false
+	if char_node != null:
+		if char_node.has_method("get_planar_speed"):
+			speed = float(char_node.call("get_planar_speed"))
+		if char_node.has_method("is_running"):
+			running = bool(char_node.call("is_running"))
+	var cam_mode := "THIRD_PERSON"
+	if _occupancy != null and _occupancy.has_method("get_on_foot_camera"):
+		var foot_cam: Node = _occupancy.call("get_on_foot_camera")
+		if foot_cam != null and foot_cam.has_method("get_view_mode_name"):
+			cam_mode = str(foot_cam.call("get_view_mode_name"))
 	var lines: PackedStringArray = [
 		"ON FOOT",
 		"Occupancy: %s" % _format_occupancy(),
 		"Vehicle: %s (stays put)" % _format_motion_state(),
+		"Speed: %.1f m/s%s" % [speed, "  RUN" if running else ""],
 		"Pos: (%.1f, %.1f, %.1f)" % [pos.x, pos.y, pos.z],
-		"Walk: WASD",
+		"Walk: WASD · Run: Shift · Look: mouse",
 		"Enter: E%s" % (" (in range)" if can_enter else " (near vehicle)"),
-		"Camera: FOLLOW→character",
+		"Camera: %s (on-foot)" % cam_mode,
 	]
 	if show_fps:
 		lines.append("FPS: %d" % Engine.get_frames_per_second())

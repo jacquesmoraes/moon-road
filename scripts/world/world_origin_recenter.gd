@@ -123,6 +123,12 @@ func _apply_shift(offset: Vector3) -> void:
 		if camera.has_method("notify_origin_shifted"):
 			camera.call("notify_origin_shifted", offset)
 
+	var on_foot_cam := get_tree().current_scene.find_child("OnFootCameraController", true, false) as Node3D
+	if on_foot_cam != null:
+		on_foot_cam.global_position -= offset
+		if on_foot_cam.has_method("notify_origin_shifted"):
+			on_foot_cam.call("notify_origin_shifted", offset)
+
 	if shift_scale_refs:
 		var refs := get_tree().current_scene.find_child("ScaleRefs", true, false) as Node3D
 		if refs != null:

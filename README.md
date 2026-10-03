@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **enter / exit vehicle** — park, step out as a simple on-foot character, walk, re-enter. Builds on parking state + Sunset Viewpoint POI.
+Current slice: **basic on-foot movement** — camera-relative walk/run, dedicated on-foot camera (third person, first-person-ready), re-enter still works.
 
 ## Requirements
 
@@ -29,9 +29,12 @@ Current slice: **enter / exit vehicle** — park, step out as a simple on-foot c
 | `vehicle_park` | P — toggle `DRIVING` ↔ `PARKED` (only parks when slow enough + on floor) |
 | `player_exit_vehicle` | E — leave a **PARKED** vehicle (on foot) |
 | `player_enter_vehicle` | E — re-enter when near the parked vehicle |
-| `player_move_*` | WASD / arrows — on-foot walk |
+| `player_move_forward` / `backward` / `left` / `right` | WASD / arrows — camera-relative walk |
+| `player_run` | Shift — run while on foot |
 
 Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`, plus cruise `cruise_target_speed_kmh`, `cruise_speed_deadzone`, `cruise_control_gain`, and parking `max_parking_speed`, `require_valid_surface`.
+
+On-foot feel on `PlayerCharacter`: `walk_speed`, `run_speed`, `acceleration`, `deceleration`, `gravity`, `max_step_height`.
 
 ### Occupancy (`PlayerOccupancyController`)
 
@@ -39,10 +42,21 @@ Single controller for player presence — not scattered booleans.
 
 | State | Behavior |
 |-------|----------|
-| `IN_VEHICLE` | Vehicle manual control + vehicle camera target |
-| `ON_FOOT` | `PlayerCharacter` active near driver door; vehicle stays `PARKED` with control disabled; camera follows character |
+| `IN_VEHICLE` | Vehicle manual control + **VehicleCameraController** |
+| `ON_FOOT` | `PlayerCharacter` + **OnFootCameraController**; vehicle stays `PARKED` with control disabled |
 
-Exit only when `PARKED` (and nearly stopped). Re-enter within `enter_distance` (default 3.5 m). Vehicle node is never destroyed/recreated during the swap. Character visual lives under `Model/` for a later art swap. Not included: door anims, inventory, interactions, stamina.
+Exit only when `PARKED` (and nearly stopped). Re-enter within `enter_distance` (default 3.5 m). Vehicle node is never destroyed/recreated during the swap. Character visual lives under `Model/` for a later art swap. Not included: door anims, inventory, interactions, stamina, jump, crouch, combat.
+
+### On-foot camera (`OnFootCameraController`)
+
+Dedicated rig — **does not reuse** vehicle hood/passenger/cinematic logic.
+
+| Mode | Status |
+|------|--------|
+| `THIRD_PERSON` | Default — smooth orbit follow + mouse look |
+| `FIRST_PERSON` | Enum + offsets ready; swap via `set_view_mode` later |
+
+Mouse look while on foot (Esc releases capture). Occupancy toggles `set_active` between vehicle and on-foot cameras.
 
 ### Motion state (`PlayerVehicle`)
 
@@ -188,7 +202,8 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 
 - Dev main: `scenes/test/DrivingSandbox.tscn` — road pool, recenter, `PlayerVehicle`, `DrivingDebugHUD`
 - Motion: `PlayerVehicle` — DRIVING / PARKED (`vehicle_park`, `parking_state_changed`)
-- Occupancy: `PlayerOccupancyController` — IN_VEHICLE / ON_FOOT + `PlayerCharacter` placeholder
+- Occupancy: `PlayerOccupancyController` — IN_VEHICLE / ON_FOOT + `PlayerCharacter` (walk/run)
+- On-foot camera: `OnFootCameraController` — THIRD_PERSON (FIRST_PERSON-ready)
 - Driving modes: `DrivingModeController` — MANUAL / CRUISE / TRAVEL_MODE
 - Vehicle: cruise speed hold + `RoadFollowAutopilot` (steering under Travel Mode)
 - Camera: `VehicleCameraController` — FOLLOW / FAR / HOOD / PASSENGER / WINDOW + Travel Mode cinematic director

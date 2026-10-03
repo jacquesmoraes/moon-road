@@ -1,4 +1,4 @@
-[gd_scene load_steps=21 format=3 uid="uid://bterra_drive_sandbox"]
+[gd_scene load_steps=22 format=3 uid="uid://bterra_drive_sandbox"]
 
 [ext_resource type="PackedScene" uid="uid://bterra_player_vehicle" path="res://scenes/vehicles/PlayerVehicle.tscn" id="1_vehicle"]
 [ext_resource type="PackedScene" uid="uid://bterra_driving_debug_hud" path="res://scenes/ui/DrivingDebugHUD.tscn" id="2_hud"]
@@ -11,6 +11,7 @@
 [ext_resource type="PackedScene" path="res://scenes/world/ViewpointPOI.tscn" id="9_viewpoint"]
 [ext_resource type="PackedScene" uid="uid://bterra_player_character" path="res://scenes/player/PlayerCharacter.tscn" id="10_character"]
 [ext_resource type="Script" path="res://scripts/player/player_occupancy_controller.gd" id="11_occupancy"]
+[ext_resource type="PackedScene" uid="uid://bterra_on_foot_camera" path="res://scenes/player/OnFootCameraController.tscn" id="12_foot_cam"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.28, 0.48, 0.78, 1)
@@ -130,13 +131,17 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 16)
 [node name="PlayerCharacter" parent="." instance=ExtResource("10_character")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 16)
 visible = false
-camera_path = NodePath("../VehicleCameraController")
+camera_path = NodePath("../OnFootCameraController")
+
+[node name="OnFootCameraController" parent="." instance=ExtResource("12_foot_cam")]
+target_path = NodePath("../PlayerCharacter")
 
 [node name="PlayerOccupancyController" type="Node" parent="."]
 script = ExtResource("11_occupancy")
 vehicle_path = NodePath("../PlayerVehicle")
 character_path = NodePath("../PlayerCharacter")
-camera_path = NodePath("../VehicleCameraController")
+vehicle_camera_path = NodePath("../VehicleCameraController")
+on_foot_camera_path = NodePath("../OnFootCameraController")
 recenter_path = NodePath("../WorldOriginRecenter")
 enter_distance = 3.5
 

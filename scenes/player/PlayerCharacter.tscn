@@ -32,10 +32,19 @@ size = Vector3(0.35, 0.45, 0.18)
 
 [node name="PlayerCharacter" type="CharacterBody3D"]
 collision_layer = 4
-collision_mask = 1
+collision_mask = 3
 floor_stop_on_slope = true
-floor_max_angle = 0.785398
+floor_constant_speed = true
+floor_max_angle = 0.872665
+floor_snap_length = 0.2
 script = ExtResource("1_script")
+walk_speed = 3.2
+run_speed = 6.5
+acceleration = 22.0
+deceleration = 28.0
+turn_speed = 12.0
+gravity = 28.0
+max_step_height = 0.4
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)

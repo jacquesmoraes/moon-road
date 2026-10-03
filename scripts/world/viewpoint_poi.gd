@@ -192,7 +192,8 @@ func _build_discover_area() -> void:
 	_discover_area.monitoring = true
 	_discover_area.monitorable = false
 	_discover_area.collision_layer = 0
-	_discover_area.collision_mask = 1
+	# Detect vehicle (layer bit 1 → value 2) and on-foot character (layer bit 2 → value 4).
+	_discover_area.collision_mask = 2 | 4
 
 	var col := _discover_area.get_node_or_null("CollisionShape3D") as CollisionShape3D
 	if col == null:

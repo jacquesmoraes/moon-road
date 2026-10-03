@@ -2,6 +2,7 @@ extends Node
 class_name PlayerOccupancyController
 ## Single source of truth for player presence: IN_VEHICLE vs ON_FOOT.
 ## Owns enter/exit flow; does not recreate the vehicle or wipe its parked state.
+## Switches between VehicleCameraController and OnFootCameraController (no shared cam logic).
 
 enum OccupancyState {
 	IN_VEHICLE,
@@ -12,7 +13,8 @@ signal occupancy_changed(previous_state: OccupancyState, current_state: Occupanc
 
 @export var vehicle_path: NodePath = NodePath("../PlayerVehicle")
 @export var character_path: NodePath = NodePath("../PlayerCharacter")
-@export var camera_path: NodePath = NodePath("../VehicleCameraController")
+@export var vehicle_camera_path: NodePath = NodePath("../VehicleCameraController")
+@export var on_foot_camera_path: NodePath = NodePath("../OnFootCameraController")
 @export var recenter_path: NodePath = NodePath("../WorldOriginRecenter")
 ## Max planar distance from vehicle origin to allow re-enter (meters).
 @export var enter_distance: float = 3.5
@@ -22,7 +24,8 @@ signal occupancy_changed(previous_state: OccupancyState, current_state: Occupanc
 var _state: OccupancyState = OccupancyState.IN_VEHICLE
 var _vehicle: Node3D
 var _character: Node3D
-var _camera: Node3D
+var _vehicle_camera: Node3D
+var _on_foot_camera: Node3D
 var _recenter: Node
 
 
@@ -75,7 +78,6 @@ func can_exit_vehicle() -> bool:
 		return false
 	if _vehicle.has_method("is_parked") and not bool(_vehicle.call("is_parked")):
 		return false
-	# Moving / not yet PARKED — never exit while driving.
 	if _vehicle.has_method("get_signed_speed") and absf(float(_vehicle.call("get_signed_speed"))) > 0.05:
 		return false
 	return true
@@ -116,6 +118,16 @@ func get_character() -> Node3D:
 	return _character
 
 
+func get_on_foot_camera() -> Node3D:
+	_resolve_refs()
+	return _on_foot_camera
+
+
+func get_vehicle_camera() -> Node3D:
+	_resolve_refs()
+	return _vehicle_camera
+
+
 func _set_state(next: OccupancyState) -> void:
 	if next == _state:
 		return
@@ -131,7 +143,6 @@ func _set_state(next: OccupancyState) -> void:
 
 func _apply_on_foot() -> void:
 	_resolve_refs()
-	# Vehicle stays PARKED and keeps all motion/journey state — only drop player control.
 	if _vehicle != null and _vehicle.has_method("set_manual_control_enabled"):
 		_vehicle.call("set_manual_control_enabled", false)
 
@@ -142,14 +153,24 @@ func _apply_on_foot() -> void:
 		else:
 			_character.global_transform = exit_xf
 			_character.visible = true
+		if _on_foot_camera != null and _character.has_method("set_camera_ref"):
+			_character.call("set_camera_ref", _on_foot_camera)
 
-	if _camera != null:
-		if _camera.has_method("set_cinematic_active"):
-			_camera.call("set_cinematic_active", false)
-		if _camera.has_method("set_mode"):
-			_camera.call("set_mode", 0)  # FOLLOW
-		if _camera.has_method("set_follow_target") and _character != null:
-			_camera.call("set_follow_target", _character)
+	# Disable vehicle cam; enable dedicated on-foot cam (do not reuse car shot logic).
+	if _vehicle_camera != null:
+		if _vehicle_camera.has_method("set_cinematic_active"):
+			_vehicle_camera.call("set_cinematic_active", false)
+		var vcam: Camera3D = null
+		if _vehicle_camera.has_method("get_camera"):
+			vcam = _vehicle_camera.call("get_camera") as Camera3D
+		if vcam != null:
+			vcam.current = false
+
+	if _on_foot_camera != null:
+		if _on_foot_camera.has_method("set_follow_target") and _character != null:
+			_on_foot_camera.call("set_follow_target", _character)
+		if _on_foot_camera.has_method("set_active"):
+			_on_foot_camera.call("set_active", true)
 
 	if _recenter != null and _recenter.has_method("set_recenter_target") and _character != null:
 		_recenter.call("set_recenter_target", _character)
@@ -157,6 +178,9 @@ func _apply_on_foot() -> void:
 
 func _apply_in_vehicle(from_foot: bool) -> void:
 	_resolve_refs()
+
+	if _on_foot_camera != null and _on_foot_camera.has_method("set_active"):
+		_on_foot_camera.call("set_active", false)
 
 	if _character != null:
 		if _character.has_method("deactivate"):
@@ -167,11 +191,16 @@ func _apply_in_vehicle(from_foot: bool) -> void:
 	if _vehicle != null and _vehicle.has_method("set_manual_control_enabled"):
 		_vehicle.call("set_manual_control_enabled", true)
 
-	if _camera != null:
-		if _camera.has_method("set_follow_target") and _vehicle != null:
-			_camera.call("set_follow_target", _vehicle)
-		if from_foot and _camera.has_method("set_mode"):
-			_camera.call("set_mode", 0)  # FOLLOW
+	if _vehicle_camera != null:
+		if _vehicle_camera.has_method("set_follow_target") and _vehicle != null:
+			_vehicle_camera.call("set_follow_target", _vehicle)
+		if from_foot and _vehicle_camera.has_method("set_mode"):
+			_vehicle_camera.call("set_mode", 0)  # FOLLOW
+		var vcam: Camera3D = null
+		if _vehicle_camera.has_method("get_camera"):
+			vcam = _vehicle_camera.call("get_camera") as Camera3D
+		if vcam != null:
+			vcam.current = true
 
 	if _recenter != null and _recenter.has_method("set_recenter_target") and _vehicle != null:
 		_recenter.call("set_recenter_target", _vehicle)
@@ -188,7 +217,6 @@ func _compute_exit_transform() -> Transform3D:
 	else:
 		xf = _vehicle.global_transform * Transform3D(Basis.IDENTITY, exit_offset)
 
-	# Face roughly the same yaw as the vehicle so the first walk step feels natural.
 	xf.basis = Basis(Vector3.UP, _vehicle.global_rotation.y)
 	return xf
 
@@ -204,10 +232,15 @@ func _resolve_refs() -> void:
 	if _character == null and get_tree() != null and get_tree().current_scene != null:
 		_character = get_tree().current_scene.find_child("PlayerCharacter", true, false) as Node3D
 
-	if camera_path != NodePath():
-		_camera = get_node_or_null(camera_path) as Node3D
-	if _camera == null and get_tree() != null and get_tree().current_scene != null:
-		_camera = get_tree().current_scene.find_child("VehicleCameraController", true, false) as Node3D
+	if vehicle_camera_path != NodePath():
+		_vehicle_camera = get_node_or_null(vehicle_camera_path) as Node3D
+	if _vehicle_camera == null and get_tree() != null and get_tree().current_scene != null:
+		_vehicle_camera = get_tree().current_scene.find_child("VehicleCameraController", true, false) as Node3D
+
+	if on_foot_camera_path != NodePath():
+		_on_foot_camera = get_node_or_null(on_foot_camera_path) as Node3D
+	if _on_foot_camera == null and get_tree() != null and get_tree().current_scene != null:
+		_on_foot_camera = get_tree().current_scene.find_child("OnFootCameraController", true, false) as Node3D
 
 	if recenter_path != NodePath():
 		_recenter = get_node_or_null(recenter_path)
