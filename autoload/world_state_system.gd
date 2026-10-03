@@ -1,5 +1,5 @@
 extends Node
-## Logical persistent world flags by entity_id. No Node refs, no city-specific logic.
+## Logical persistent world flags by entity_id. No Node refs, no location-specific logic.
 ## Scene instances read/write here; SaveSystem serializes the bag.
 ##
 ## Id convention (dot-separated):

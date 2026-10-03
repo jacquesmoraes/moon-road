@@ -1531,7 +1531,7 @@ func _verify_world_state_system() -> bool:
 	var ws_script: Script = load("res://autoload/world_state_system.gd") as Script
 	if ws_script != null:
 		var src := ws_script.source_code
-		for banned in ["ViewpointTerminal", "WorldItem", "city", "City"]:
+		for banned in ["ViewpointTerminal", "WorldItem", "CitySystem"]:
 			if src.find(banned) >= 0:
 				push_error("drive_smoke: WorldStateSystem must not reference %s" % banned)
 				quit(1)
