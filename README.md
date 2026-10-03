@@ -250,6 +250,8 @@ API: `get_current_region()`, `get_current_region_name()`, `get_region_progress()
 
 `RoadManager` keeps a **fixed pool** around the player: recycles the rearmost segment to the front via `place_after_exit`. After `start_straight_count` opening straight/level pieces, recycled segments pick weighted random curve + elevation. `sample_road` / centerline follow arcs and grades. Recycle distance is along the rear segment’s forward (planar).
 
+Roadway collision is a **concave strip** (top/bottom only) matching the mesh — not a box chain (box end-faces used to halt the car mid-accel). Shoulder meshes are visual-only. Detour mouths sit fully outside the main lane so spur colliders never wedge Travel Mode.
+
 Knobs: `active_segment_count`, `segment_length`, `recycle_behind_distance`, `curve_angle_degrees`, `elevation_angle_degrees`, kind/elevation weights. Pooling, origin recenter, and JourneySystem stay unchanged.
 
 `WorldOriginRecenter` (`scripts/world/world_origin_recenter.gd`) shifts vehicle, road pool, and follow camera when planar distance from origin exceeds `recenter_distance` (sandbox default 500). Journey keeps using position deltas (`notify_origin_shifted`); vehicle velocity is preserved.
