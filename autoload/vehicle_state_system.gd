@@ -23,10 +23,13 @@ const DEFAULT_SPEED_CONSUMPTION_REF_KMH: float = 60.0
 ## Extra burn per full reference-speed step above the reference (e.g. 0.5 → +50% at 120).
 const DEFAULT_SPEED_CONSUMPTION_EXTRA: float = 0.5
 const DEFAULT_OFFLINE_CRUISE_SPEED_KMH: float = 60.0
+const DEFAULT_UPGRADE_CATALOG_PATH := "res://resources/upgrades/default_upgrade_catalog.tres"
 const STOPPED_REASON_NONE := ""
 const STOPPED_REASON_OUT_OF_FUEL := "OUT_OF_FUEL"
 const MS_TO_KMH: float = 3.6
 const KM_PER_HOUR_TO_KM_PER_SEC: float = 1.0 / 3600.0
+
+@export_file("*.tres") var upgrade_catalog_path: String = DEFAULT_UPGRADE_CATALOG_PATH
 
 var vehicle_id: String = DEFAULT_VEHICLE_ID
 var display_name: String = DEFAULT_DISPLAY_NAME
@@ -35,7 +38,7 @@ var fuel_current: float = DEFAULT_FUEL_CAPACITY
 var condition_max: float = DEFAULT_CONDITION_MAX
 var condition_current: float = DEFAULT_CONDITION_MAX
 var storage_capacity: int = DEFAULT_STORAGE_CAPACITY
-## Upgrade ids only — never Node refs.
+## Upgrade ids only — never Node refs. Effects resolved from UpgradeCatalog at runtime.
 var installed_upgrades: PackedStringArray = PackedStringArray()
 var base_max_speed_kmh: float = DEFAULT_BASE_MAX_SPEED_KMH
 ## Multipliers: cruise assist / economy hooks (efficiency > 1 burns less).
@@ -53,8 +56,12 @@ var stopped_reason: String = STOPPED_REASON_NONE
 ## Snapshot at save: if true, load may apply limited offline travel.
 var was_traveling_at_save: bool = false
 
+## upgrade_id → UpgradeData
+var _upgrade_by_id: Dictionary = {}
+
 
 func _ready() -> void:
+	_load_upgrade_catalog()
 	reset_to_defaults()
 
 
@@ -156,13 +163,61 @@ func clear_stopped_reason() -> void:
 
 
 func install_upgrade(upgrade_id: String) -> bool:
+	## Install by id only (no inventory consume). Used by tests / already-owned modules.
 	if upgrade_id.is_empty():
 		return false
+	_ensure_upgrade_index()
+	var data: Resource = get_upgrade_data(upgrade_id)
 	if has_upgrade(upgrade_id):
-		return false
+		# Non-stackable (default) — refuse duplicates so effects never double.
+		if data == null or not bool(data.get("stackable")):
+			return false
 	installed_upgrades.append(upgrade_id)
 	upgrade_installed.emit(upgrade_id)
 	vehicle_state_changed.emit()
+	return true
+
+
+func can_install_from_inventory(upgrade_id: String) -> bool:
+	return get_install_block_reason(upgrade_id).is_empty()
+
+
+func get_install_block_reason(upgrade_id: String) -> String:
+	if upgrade_id.is_empty():
+		return "empty_id"
+	_ensure_upgrade_index()
+	var data: Resource = get_upgrade_data(upgrade_id)
+	if data == null:
+		return "unknown_upgrade"
+	if has_upgrade(upgrade_id) and not bool(data.get("stackable")):
+		return "already_installed"
+	var item_id := str(data.call("get_item_id")) if data.has_method("get_item_id") else upgrade_id
+	var inv := get_node_or_null("/root/InventorySystem")
+	if inv == null:
+		return "no_inventory"
+	if not bool(inv.call("has_item", item_id, 1)):
+		return "missing_item"
+	return ""
+
+
+## Consumes the matching inventory item, then installs. Atomic on success.
+func install_upgrade_from_inventory(upgrade_id: String) -> bool:
+	var reason := get_install_block_reason(upgrade_id)
+	if not reason.is_empty():
+		push_warning("VehicleStateSystem: install blocked '%s' (%s)" % [upgrade_id, reason])
+		return false
+	var data: Resource = get_upgrade_data(upgrade_id)
+	var item_id := str(data.call("get_item_id")) if data.has_method("get_item_id") else upgrade_id
+	var inv := get_node_or_null("/root/InventorySystem")
+	var removed: int = int(inv.call("remove_item", item_id, 1))
+	if removed < 1:
+		push_warning("VehicleStateSystem: could not consume '%s' for install" % item_id)
+		return false
+	if not install_upgrade(upgrade_id):
+		# Roll back item if install somehow failed after consume.
+		inv.call("add_item", item_id, 1)
+		return false
+	print("VehicleStateSystem: installed '%s' (consumed %s)" % [upgrade_id, item_id])
 	return true
 
 
@@ -193,15 +248,68 @@ func remove_upgrade(upgrade_id: String) -> bool:
 	return true
 
 
+func get_upgrade_data(upgrade_id: String) -> Resource:
+	_ensure_upgrade_index()
+	return _upgrade_by_id.get(upgrade_id, null)
+
+
+func get_upgrade_ids() -> PackedStringArray:
+	_ensure_upgrade_index()
+	var ids: PackedStringArray = []
+	for key in _upgrade_by_id.keys():
+		ids.append(str(key))
+	ids.sort()
+	return ids
+
+
+func register_upgrade(data: Resource) -> void:
+	if data == null:
+		return
+	var key := str(data.get("id"))
+	if key.is_empty():
+		return
+	_upgrade_by_id[key] = data
+
+
+func get_upgrade_max_speed_bonus_kmh() -> float:
+	## Sum of max_speed_bonus_kmh from installed UpgradeData (runtime — not baked).
+	_ensure_upgrade_index()
+	var bonus := 0.0
+	for upgrade_id in installed_upgrades:
+		var data: Resource = get_upgrade_data(str(upgrade_id))
+		if data == null:
+			continue
+		bonus += float(data.get("max_speed_bonus_kmh"))
+	return bonus
+
+
+func get_upgrade_efficiency_multiplier() -> float:
+	## Product of efficiency_multiplier from installed upgrades.
+	_ensure_upgrade_index()
+	var product := 1.0
+	for upgrade_id in installed_upgrades:
+		var data: Resource = get_upgrade_data(str(upgrade_id))
+		if data == null:
+			continue
+		var mult := float(data.get("efficiency_multiplier"))
+		if mult > 0.0:
+			product *= mult
+	return product
+
+
 func get_effective_max_speed() -> float:
-	## Authoritative max speed in km/h. Upgrade *effects* not fully wired yet —
-	## modifiers apply; upgrade ids are persisted for future effect tables.
+	## base * cruise_mod + Σ upgrade max_speed_bonus_kmh (never double-applied on load).
 	var mod := maxf(cruise_speed_modifier, 0.0)
-	return maxf(base_max_speed_kmh * mod, 0.0)
+	var bonus := get_upgrade_max_speed_bonus_kmh()
+	return maxf(base_max_speed_kmh * mod + bonus, 0.0)
 
 
 func get_effective_max_speed_ms() -> float:
 	return get_effective_max_speed() / MS_TO_KMH
+
+
+func get_effective_efficiency_modifier() -> float:
+	return maxf(efficiency_modifier, 0.01) * maxf(get_upgrade_efficiency_multiplier(), 0.01)
 
 
 func add_fuel(liters: float) -> float:
@@ -246,12 +354,12 @@ func get_speed_consumption_factor(speed_kmh: float) -> float:
 
 
 func estimate_consumption_liters(distance_km: float, speed_kmh: float) -> float:
-	## liters = (km/100) * L/100km * speed_factor / efficiency_modifier
+	## liters = (km/100) * L/100km * speed_factor / effective_efficiency
 	if not is_finite(distance_km) or distance_km <= 0.0:
 		return 0.0
 	var rate := maxf(liters_per_100km, 0.0)
 	var factor := get_speed_consumption_factor(speed_kmh)
-	var efficiency := maxf(efficiency_modifier, 0.01)
+	var efficiency := get_effective_efficiency_modifier()
 	return (distance_km / 100.0) * rate * factor / efficiency
 
 
@@ -445,3 +553,31 @@ func load_save_data(data: Dictionary) -> void:
 			installed_upgrades.append(uid)
 	fuel_changed.emit(fuel_current, fuel_capacity)
 	vehicle_state_changed.emit()
+
+
+func reload_upgrade_catalog() -> void:
+	_upgrade_by_id.clear()
+	_load_upgrade_catalog()
+
+
+func _ensure_upgrade_index() -> void:
+	if not _upgrade_by_id.is_empty():
+		return
+	_load_upgrade_catalog()
+
+
+func _load_upgrade_catalog() -> void:
+	var catalog: Resource = null
+	if not upgrade_catalog_path.is_empty() and ResourceLoader.exists(upgrade_catalog_path):
+		catalog = load(upgrade_catalog_path)
+	if catalog != null and catalog.has_method("build_index"):
+		var built: Dictionary = catalog.call("build_index")
+		for key in built.keys():
+			_upgrade_by_id[str(key)] = built[key]
+	elif catalog != null and "entries" in catalog:
+		for entry in catalog.entries:
+			if entry == null:
+				continue
+			var key := str(entry.get("id"))
+			if not key.is_empty():
+				_upgrade_by_id[key] = entry

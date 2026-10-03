@@ -897,13 +897,16 @@ func _finish() -> void:
 	if not await _verify_vehicle_fuel_system():
 		return
 
+	if not _verify_vehicle_upgrade_loop():
+		return
+
 	if not await _verify_enter_exit_vehicle():
 		return
 
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -2159,6 +2162,168 @@ func _verify_vehicle_fuel_system() -> bool:
 		_vehicle.call("try_unpark")
 	print(
 		"drive_smoke: fuel OK (drive burn + park idle + speed factor + empty + offline + save)"
+	)
+	return true
+
+
+func _verify_vehicle_upgrade_loop() -> bool:
+	## Full loop: craft Cruise Module Mk I → install → effective speed → save/load once.
+	var vs: Node = root.get_node_or_null("VehicleStateSystem")
+	var craft: Node = root.get_node_or_null("CraftingSystem")
+	var inv: Node = root.get_node_or_null("InventorySystem")
+	var save: Node = root.get_node_or_null("SaveSystem")
+	if vs == null or craft == null or inv == null or save == null:
+		push_error("drive_smoke: systems missing for upgrade loop")
+		quit(1)
+		return false
+
+	vs.call("reset_for_tests")
+	inv.call("clear_inventory")
+	if craft.has_method("reload_catalog"):
+		craft.call("reload_catalog")
+	if inv.has_method("reload_catalog"):
+		inv.call("reload_catalog")
+	if vs.has_method("reload_upgrade_catalog"):
+		vs.call("reload_upgrade_catalog")
+
+	const UPGRADE_ID := "cruise_module_mk1"
+	const RECIPE_ID := "cruise_module_mk1"
+
+	if not bool(craft.call("has_recipe", RECIPE_ID)):
+		push_error("drive_smoke: cruise_module_mk1 recipe missing")
+		quit(1)
+		return false
+	if not bool(inv.call("has_item_data", UPGRADE_ID)):
+		push_error("drive_smoke: cruise_module_mk1 item missing from catalog")
+		quit(1)
+		return false
+	if vs.call("get_upgrade_data", UPGRADE_ID) == null:
+		push_error("drive_smoke: cruise_module_mk1 UpgradeData missing")
+		quit(1)
+		return false
+
+	var base_speed := float(vs.call("get_effective_max_speed"))
+	if not is_equal_approx(base_speed, 86.4):
+		push_error("drive_smoke: base effective max expected 86.4 got %.2f" % base_speed)
+		quit(1)
+		return false
+
+	# Gather test ingredients (same pool as world pickups / crafting smoke).
+	inv.call("add_item", "scrap_metal", 2)
+	inv.call("add_item", "copper_wire", 1)
+	inv.call("add_item", "circuit_board", 1)
+	if not bool(craft.call("can_craft", RECIPE_ID)):
+		push_error("drive_smoke: should be able to craft cruise module with test items")
+		quit(1)
+		return false
+	if not bool(craft.call("craft", RECIPE_ID)):
+		push_error("drive_smoke: craft cruise_module_mk1 failed")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", UPGRADE_ID)) != 1:
+		push_error("drive_smoke: crafted module not in inventory")
+		quit(1)
+		return false
+
+	# Effects come from UpgradeData modifiers — not the display name.
+	var data: Resource = vs.call("get_upgrade_data", UPGRADE_ID)
+	var bonus := float(data.get("max_speed_bonus_kmh"))
+	if not is_equal_approx(bonus, 10.0):
+		push_error("drive_smoke: expected +10 km/h bonus on Cruise Module Mk I")
+		quit(1)
+		return false
+
+	if not bool(vs.call("can_install_from_inventory", UPGRADE_ID)):
+		push_error("drive_smoke: can_install_from_inventory false before install")
+		quit(1)
+		return false
+	if not bool(vs.call("install_upgrade_from_inventory", UPGRADE_ID)):
+		push_error("drive_smoke: install_upgrade_from_inventory failed")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", UPGRADE_ID)) != 0:
+		push_error("drive_smoke: install did not consume module item")
+		quit(1)
+		return false
+	if not bool(vs.call("has_upgrade", UPGRADE_ID)):
+		push_error("drive_smoke: upgrade not marked installed")
+		quit(1)
+		return false
+
+	var boosted := float(vs.call("get_effective_max_speed"))
+	if not is_equal_approx(boosted, base_speed + bonus):
+		push_error(
+			"drive_smoke: effective max expected %.1f got %.1f" % [base_speed + bonus, boosted]
+		)
+		quit(1)
+		return false
+	if not is_equal_approx(float(_vehicle.call("get_effective_max_speed_kmh")), boosted):
+		push_error("drive_smoke: PlayerVehicle did not pick up upgrade max speed")
+		quit(1)
+		return false
+
+	# Non-stackable: cannot install again even with another module.
+	inv.call("add_item", UPGRADE_ID, 1)
+	if bool(vs.call("install_upgrade_from_inventory", UPGRADE_ID)):
+		push_error("drive_smoke: duplicate non-stackable install should fail")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", UPGRADE_ID)) != 1:
+		push_error("drive_smoke: failed duplicate install should not consume item")
+		quit(1)
+		return false
+	# Speed must not double.
+	if not is_equal_approx(float(vs.call("get_effective_max_speed")), boosted):
+		push_error("drive_smoke: effective speed changed after refused reinstall")
+		quit(1)
+		return false
+
+	# Persist ids only — reload must not duplicate the bonus.
+	if save.has_method("delete_save"):
+		save.call("delete_save")
+	if not bool(save.call("save_game")):
+		push_error("drive_smoke: save_game failed in upgrade loop")
+		quit(1)
+		return false
+	vs.call("reset_for_tests")
+	inv.call("clear_inventory")
+	if float(vs.call("get_effective_max_speed")) != 86.4:
+		push_error("drive_smoke: reset should clear upgrade bonus")
+		quit(1)
+		return false
+	if not bool(save.call("load_game")):
+		push_error("drive_smoke: load_game failed in upgrade loop")
+		quit(1)
+		return false
+	if not bool(vs.call("has_upgrade", UPGRADE_ID)):
+		push_error("drive_smoke: upgrade id not restored")
+		quit(1)
+		return false
+	var restored := float(vs.call("get_effective_max_speed"))
+	if not is_equal_approx(restored, base_speed + bonus):
+		push_error("drive_smoke: effective speed not restored (got %.2f)" % restored)
+		quit(1)
+		return false
+	# Count installed once — summing catalog effects must not double on load.
+	var installed: PackedStringArray = vs.call("get_installed_upgrades")
+	var count := 0
+	for id in installed:
+		if str(id) == UPGRADE_ID:
+			count += 1
+	if count != 1:
+		push_error("drive_smoke: upgrade id duplicated after load (count=%d)" % count)
+		quit(1)
+		return false
+	if not is_equal_approx(float(vs.call("get_upgrade_max_speed_bonus_kmh")), bonus):
+		push_error("drive_smoke: upgrade bonus duplicated after load")
+		quit(1)
+		return false
+
+	save.call("delete_save")
+	vs.call("reset_for_tests")
+	inv.call("clear_inventory")
+	print(
+		"drive_smoke: upgrade OK (craft → install +10 km/h → persist once, no duplicate)"
 	)
 	return true
 

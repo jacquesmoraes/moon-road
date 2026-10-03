@@ -378,8 +378,12 @@ func _format_vehicle_state() -> String:
 	if vid.is_empty():
 		vid = "?"
 	var fuel_label := "EMPTY" if empty else "%.0f%%" % (ratio * 100.0)
-	return "%s  fuel %.1f/%.0f (%s)  cond %.0f/%.0f  upg %d" % [
-		vid, fuel, fuel_max, fuel_label, cond, cond_max, upgrades
+	var bonus := 0.0
+	if _vehicle_state.has_method("get_upgrade_max_speed_bonus_kmh"):
+		bonus = float(_vehicle_state.call("get_upgrade_max_speed_bonus_kmh"))
+	var bonus_txt := "  +%.0fkm/h" % bonus if bonus > 0.01 else ""
+	return "%s  fuel %.1f/%.0f (%s)  cond %.0f/%.0f  upg %d%s" % [
+		vid, fuel, fuel_max, fuel_label, cond, cond_max, upgrades, bonus_txt
 	]
 
 

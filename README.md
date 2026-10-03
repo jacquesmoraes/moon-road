@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **vehicle fuel** — distance-based burn, empty-tank coast, offline progress capped by fuel.
+Current slice: **first vehicle upgrade loop** — craft Cruise Module Mk I → install → +10 km/h effective speed.
 
 ## Requirements
 
@@ -39,7 +39,7 @@ Current slice: **vehicle fuel** — distance-based burn, empty-tank coast, offli
 | `save_debug_load` | F9 — load save (keeps file if corrupt) |
 | `save_debug_delete` | F6 — delete save + backup |
 
-Workbench: walk up at Sunset Viewpoint, **E** opens CraftingDebugUI (↑↓ select, Enter/C craft, Esc or E again to close).
+Workbench: walk up at Sunset Viewpoint, **E** opens CraftingDebugUI (↑↓ select, Enter/C craft, **Tab** Install mode, Esc or E again to close).
 
 Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`, plus cruise `cruise_target_speed_kmh`, `cruise_speed_deadzone`, `cruise_control_gain`, and parking `max_parking_speed`, `require_valid_surface`.
 
@@ -119,7 +119,17 @@ Persistent car attributes / progression — separate from `PlayerVehicle` physic
 | `cruise_speed_modifier` / `efficiency_modifier` | Speed / economy multipliers |
 | `liters_per_100km` | Base burn rate (game-feel, not a real sim) |
 
-API: `install_upgrade` / `has_upgrade` / `remove_upgrade` / `get_effective_max_speed()` (km/h); fuel: `add_fuel` / `consume_fuel` / `get_fuel_ratio` / `apply_offline_travel`. `PlayerVehicle` clamps motion via VehicleState and burns fuel from distance×speed. Empty tank: coast only, Cruise/Travel cancelled. Offline load hook caps journey by remaining fuel (`stopped_reason=OUT_OF_FUEL`). Not included: multi-vehicle, garage, swap, visual damage, gas stations, full upgrade effect tables.
+API: `install_upgrade` / `install_upgrade_from_inventory` / `has_upgrade` / `remove_upgrade` / `get_effective_max_speed()` (km/h = `base * cruise_mod + Σ upgrade bonuses`); fuel: `add_fuel` / `consume_fuel` / `get_fuel_ratio` / `apply_offline_travel`. Effects come from `UpgradeData` modifiers at runtime (not baked into base on install — no duplicate on reload). Workbench UI: **Tab** toggles Craft / Install. Not included: multi-vehicle, garage, swap, visual damage, gas stations.
+
+### Vehicle upgrades (`UpgradeData` + catalog)
+
+| Piece | Role |
+|-------|------|
+| `UpgradeData` | `id`, `display_name`, `description`, `category`, `item_id`, `stackable`, `max_speed_bonus_kmh`, `efficiency_multiplier` |
+| `UpgradeCatalog` | `resources/upgrades/default_upgrade_catalog.tres` |
+| First upgrade | **Cruise Module Mk I** — `+10 km/h` (`cruise_module_mk1`) |
+| Recipe | 2 Scrap Metal + 1 Copper Wire + 1 Circuit Board → module |
+| Install | Workbench panel → Tab → Install (consumes item) |
 
 ### World state (`WorldStateSystem`)
 
@@ -144,7 +154,7 @@ Data-driven recipes over `InventorySystem`. No tech tree, craft time, quality, o
 | `Workbench` | Interactable placeholder; opens debug craft UI |
 | `CraftingDebugUI` | Select recipe (↑↓), craft (Enter/C), Esc to close |
 
-Test recipe **Basic Repair Kit**: 2 Scrap Metal + 1 Copper Wire → 1 Basic Repair Kit (`TOOL`). Workbench sits at Sunset Viewpoint. Crafting does not couple to NPCs or quests — add recipes via `.tres` / `register_recipe`.
+Test recipe **Basic Repair Kit**: 2 Scrap Metal + 1 Copper Wire → 1 Basic Repair Kit (`TOOL`). **Cruise Module Mk I**: 2 Scrap + 1 Wire + 1 Circuit Board → installable upgrade. Workbench sits at Sunset Viewpoint (**Tab** Craft/Install). Crafting does not couple to NPCs or quests — add recipes via `.tres` / `register_recipe`.
 
 ### Quests (`QuestSystem`)
 
@@ -182,7 +192,7 @@ Decoupled bag of item ids — no weight, equipment, or drag-drop UI.
 | `InventorySystem` | Autoload: `add_item`, `remove_item`, `has_item`, `get_quantity` |
 | `InventoryDebugUI` | Dev panel listing contents (**I** to toggle) |
 
-Test items: `scrap_metal`, `copper_wire`, `circuit_board`, `basic_repair_kit`. Inventory stores quantities by id only — used by pickups, quests, and crafting. Does not depend on NPC, dialogue, quest, or the debug UI.
+Test items: `scrap_metal`, `copper_wire`, `circuit_board`, `basic_repair_kit`, `cruise_module_mk1`. Inventory stores quantities by id only — used by pickups, quests, crafting, and upgrade install. Does not depend on NPC, dialogue, quest, or the debug UI.
 
 ### Small interiors (`SmallInterior`)
 
@@ -375,6 +385,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Save: `SaveSystem` → `user://savegame.json` (F5/F9/F6 debug)
 - Game time: `GameTimeSystem` (play / travel / offline; HUD debug)
 - Vehicle state: `VehicleStateSystem` (`starter_car` attrs / upgrades / fuel; drives max speed)
+- Upgrades: `UpgradeData` + Cruise Module Mk I (+10 km/h via Workbench Install)
 - World state: `WorldStateSystem` (terminal powered / pickup collected)
 - Pickups: `WorldItem` at Sunset Viewpoint (Scrap Metal / Copper Wire) + `PickupFeedbackUI`
 - Quests: `QuestSystem` + `power_the_viewpoint` (Mira → terminal)
@@ -390,4 +401,4 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - World: `WorldOriginRecenter` + `RoadsideScenery` + `RoadsideExitSystem` + `POISystem` / `ViewpointPOI`
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: quest log UI, dialogue choices/branching, NPC routines/pathfinding, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, craft time/quality/tech tree, autosave/multi-slot, final art, gas stations, damage visuals, full upgrade effects, garage/multi-vehicle, full offline sim caps, final UI
+- Not implemented yet: quest log UI, dialogue choices/branching, NPC routines/pathfinding, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, craft time/quality/tech tree, autosave/multi-slot, final art, gas stations, damage visuals, garage/multi-vehicle, full offline sim caps, final UI

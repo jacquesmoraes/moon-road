@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="UpgradeData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/upgrades/upgrade_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = "cruise_module_mk1"
+display_name = "Cruise Module Mk I"
+description = "Raises effective max / cruise / travel speed by 10 km/h."
+category = 1
+item_id = "cruise_module_mk1"
+stackable = false
+max_speed_bonus_kmh = 10.0
+efficiency_multiplier = 1.0

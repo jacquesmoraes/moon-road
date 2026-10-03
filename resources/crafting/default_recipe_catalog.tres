@@ -1,8 +1,9 @@
-[gd_resource type="Resource" script_class="RecipeCatalog" load_steps=3 format=3]
+[gd_resource type="Resource" script_class="RecipeCatalog" load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/crafting/recipe_catalog.gd" id="1_script"]
 [ext_resource type="Resource" path="res://resources/crafting/basic_repair_kit_recipe.tres" id="2_kit"]
+[ext_resource type="Resource" path="res://resources/crafting/cruise_module_mk1_recipe.tres" id="3_cruise"]
 
 [resource]
 script = ExtResource("1_script")
-entries = [ExtResource("2_kit")]
+entries = [ExtResource("2_kit"), ExtResource("3_cruise")]
