@@ -856,10 +856,13 @@ func _finish() -> void:
 	if not await _verify_parking_state():
 		return
 
+	if not await _verify_enter_exit_vehicle():
+		return
+
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1058,6 +1061,205 @@ func _verify_parking_state() -> bool:
 	return true
 
 
+func _verify_enter_exit_vehicle() -> bool:
+	## Park → exit on foot → vehicle stays → camera follows character → enter → control back.
+	var occupancy: Node = root.find_child("PlayerOccupancyController", true, false)
+	if occupancy == null:
+		push_error("drive_smoke: PlayerOccupancyController missing")
+		quit(1)
+		return false
+	var character: CharacterBody3D = root.find_child("PlayerCharacter", true, false) as CharacterBody3D
+	if character == null:
+		push_error("drive_smoke: PlayerCharacter missing")
+		quit(1)
+		return false
+
+	_clear_vehicle_input()
+	_mode_controller.call("set_mode", MODE_MANUAL)
+	if occupancy.has_method("is_on_foot") and bool(occupancy.call("is_on_foot")):
+		occupancy.call("try_enter_vehicle")
+	_vehicle.call("try_unpark")
+	await physics_frame
+
+	# Cannot exit while moving / not parked.
+	Input.action_press("vehicle_accelerate")
+	var moving := false
+	for _i in range(120):
+		await physics_frame
+		if absf(float(_vehicle.call("get_signed_speed"))) > 2.0:
+			moving = true
+			break
+	Input.action_release("vehicle_accelerate")
+	if not moving:
+		push_error("drive_smoke: could not move before exit rejection check")
+		quit(1)
+		return false
+	if bool(occupancy.call("try_exit_vehicle")):
+		push_error("drive_smoke: exit allowed while moving / not parked")
+		quit(1)
+		return false
+	if str(occupancy.call("get_state_name")) != "IN_VEHICLE":
+		push_error("drive_smoke: occupancy left IN_VEHICLE after rejected exit")
+		quit(1)
+		return false
+
+	# Stop and park.
+	Input.action_press("vehicle_brake")
+	for _j in range(240):
+		await physics_frame
+		if absf(float(_vehicle.call("get_signed_speed"))) <= 0.05 and _vehicle.is_on_floor():
+			break
+	Input.action_release("vehicle_brake")
+	_clear_vehicle_input()
+	for _k in range(8):
+		await physics_frame
+	if not bool(_vehicle.call("try_park")):
+		push_error("drive_smoke: park failed before exit")
+		quit(1)
+		return false
+
+	var vehicle_origin: Vector3 = _vehicle.global_position
+	var occupancy_signals := {"n": 0}
+	var on_occ := func(_prev, _cur) -> void:
+		occupancy_signals["n"] = int(occupancy_signals["n"]) + 1
+	occupancy.occupancy_changed.connect(on_occ)
+
+	if not bool(occupancy.call("try_exit_vehicle")):
+		push_error("drive_smoke: try_exit_vehicle failed while PARKED")
+		quit(1)
+		return false
+	await physics_frame
+	await physics_frame
+
+	if str(occupancy.call("get_state_name")) != "ON_FOOT":
+		push_error("drive_smoke: expected ON_FOOT after exit")
+		quit(1)
+		return false
+	if not character.visible:
+		push_error("drive_smoke: character not visible after exit")
+		quit(1)
+		return false
+	if character.has_method("is_control_enabled") and not bool(character.call("is_control_enabled")):
+		push_error("drive_smoke: character control disabled after exit")
+		quit(1)
+		return false
+	if not bool(_vehicle.call("is_parked")):
+		push_error("drive_smoke: vehicle left PARKED after exit")
+		quit(1)
+		return false
+	if bool(_vehicle.call("is_manual_control_enabled")):
+		push_error("drive_smoke: vehicle manual control still enabled on foot")
+		quit(1)
+		return false
+	if vehicle_origin.distance_to(_vehicle.global_position) > 0.5:
+		push_error("drive_smoke: vehicle moved after exit")
+		quit(1)
+		return false
+	var door_dist: float = character.global_position.distance_to(vehicle_origin)
+	if door_dist > 4.0 or door_dist < 0.5:
+		push_error("drive_smoke: character spawn distance odd (%.2f)" % door_dist)
+		quit(1)
+		return false
+	if _camera_rig.has_method("get_follow_target"):
+		var cam_target: Node3D = _camera_rig.call("get_follow_target") as Node3D
+		if cam_target != character:
+			push_error("drive_smoke: camera not following character on foot")
+			quit(1)
+			return false
+	if int(occupancy_signals["n"]) < 1:
+		push_error("drive_smoke: occupancy_changed did not fire on exit")
+		quit(1)
+		return false
+
+	# Walk briefly; vehicle must stay put.
+	Input.action_press("player_move_forward")
+	for _walk in range(30):
+		await physics_frame
+	Input.action_release("player_move_forward")
+	if vehicle_origin.distance_to(_vehicle.global_position) > 0.5:
+		push_error("drive_smoke: parked vehicle drifted while on foot")
+		quit(1)
+		return false
+
+	# Origin recenter while on foot must shift character + vehicle together.
+	var saved_recenter_dist: float = float(_recenter.get("recenter_distance"))
+	_recenter.set("recenter_distance", 40.0)
+	var before_char: Vector3 = character.global_position
+	var before_veh: Vector3 = _vehicle.global_position
+	var rel: Vector3 = before_char - before_veh
+	var count_before: int = int(_recenter.call("get_recenter_count"))
+	# Nudge subject far from origin so planar length exceeds threshold.
+	character.global_position = Vector3(80.0, before_char.y, before_char.z)
+	_vehicle.global_position = character.global_position - rel
+	for _r in range(20):
+		await physics_frame
+		if int(_recenter.call("get_recenter_count")) > count_before:
+			break
+	_recenter.set("recenter_distance", saved_recenter_dist)
+	if int(_recenter.call("get_recenter_count")) <= count_before:
+		push_error("drive_smoke: on-foot origin recenter did not fire")
+		quit(1)
+		return false
+	var rel_after: Vector3 = character.global_position - _vehicle.global_position
+	if rel_after.distance_to(rel) > 0.35:
+		push_error(
+			"drive_smoke: recenter broke character/vehicle relative pose (before=%s after=%s)"
+			% [rel, rel_after]
+		)
+		quit(1)
+		return false
+
+	# Re-enter.
+	# Ensure in range (recenter may have moved us but relative is intact).
+	if not bool(occupancy.call("can_enter_vehicle")):
+		# Snap near door if walk/recenter put us out of enter_distance.
+		var exit_xf: Transform3D = _vehicle.call("get_driver_exit_global_transform")
+		character.global_transform = exit_xf
+		await physics_frame
+	if not bool(occupancy.call("try_enter_vehicle")):
+		push_error("drive_smoke: try_enter_vehicle failed")
+		quit(1)
+		return false
+	await physics_frame
+	await physics_frame
+
+	if str(occupancy.call("get_state_name")) != "IN_VEHICLE":
+		push_error("drive_smoke: expected IN_VEHICLE after enter")
+		quit(1)
+		return false
+	if character.visible:
+		push_error("drive_smoke: character still visible after enter")
+		quit(1)
+		return false
+	if character.has_method("is_control_enabled") and bool(character.call("is_control_enabled")):
+		push_error("drive_smoke: character control still enabled after enter")
+		quit(1)
+		return false
+	if not bool(_vehicle.call("is_manual_control_enabled")):
+		push_error("drive_smoke: vehicle control not restored after enter")
+		quit(1)
+		return false
+	if not bool(_vehicle.call("is_parked")):
+		push_error("drive_smoke: vehicle should still be PARKED after enter")
+		quit(1)
+		return false
+	if _camera_rig.has_method("get_follow_target"):
+		var cam_back: Node3D = _camera_rig.call("get_follow_target") as Node3D
+		if cam_back != _vehicle:
+			push_error("drive_smoke: camera not following vehicle after enter")
+			quit(1)
+			return false
+	if int(occupancy_signals["n"]) < 2:
+		push_error("drive_smoke: occupancy_changed did not fire on enter")
+		quit(1)
+		return false
+
+	occupancy.occupancy_changed.disconnect(on_occ)
+	_clear_vehicle_input()
+	print("drive_smoke: enter/exit OK (reject@move → exit ON_FOOT → recenter OK → enter IN_VEHICLE)")
+	return true
+
+
 func _clear_vehicle_input() -> void:
 	Input.action_release("vehicle_accelerate")
 	Input.action_release("vehicle_brake")
@@ -1070,3 +1272,9 @@ func _clear_vehicle_input() -> void:
 	Input.action_release("vehicle_travel_mode_cancel")
 	Input.action_release("vehicle_camera_cinematic_toggle")
 	Input.action_release("vehicle_park")
+	Input.action_release("player_exit_vehicle")
+	Input.action_release("player_enter_vehicle")
+	Input.action_release("player_move_forward")
+	Input.action_release("player_move_back")
+	Input.action_release("player_move_left")
+	Input.action_release("player_move_right")

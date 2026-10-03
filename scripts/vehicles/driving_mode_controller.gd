@@ -30,6 +30,13 @@ func _ready() -> void:
 func _physics_process(_delta: float) -> void:
 	_resolve_refs()
 
+	if _vehicle != null and _vehicle.has_method("is_manual_control_enabled"):
+		if not bool(_vehicle.call("is_manual_control_enabled")):
+			# Player on foot: keep assisted modes off; ignore toggles.
+			if _mode != Mode.MANUAL:
+				set_mode(Mode.MANUAL)
+			return
+
 	if _vehicle != null and _vehicle.has_method("is_parked") and bool(_vehicle.call("is_parked")):
 		# Parked: keep assisted modes off; ignore cruise / travel toggles.
 		if _mode != Mode.MANUAL:

@@ -1,13 +1,15 @@
 extends CanvasLayer
-## Development-only driving HUD. Reads vehicle/journey public data; never controls the vehicle.
+## Development-only driving HUD. Reads vehicle/journey/occupancy public data; never controls them.
 ## In TRAVEL_MODE, shows only essential contemplative readouts.
 
 @export var vehicle_path: NodePath = NodePath("../PlayerVehicle")
+@export var occupancy_path: NodePath = NodePath("../PlayerOccupancyController")
 @export var show_fps: bool = true
 
 @onready var _label: Label = $Margin/Panel/Label
 
 var _vehicle: Node3D
+var _occupancy: Node
 var _journey: Node
 var _regions: Node
 var _exits: Node
@@ -15,6 +17,7 @@ var _exits: Node
 
 func _ready() -> void:
 	_resolve_vehicle()
+	_resolve_occupancy()
 	_journey = get_node_or_null("/root/JourneySystem")
 	_regions = get_node_or_null("/root/WorldRegionSystem")
 	_resolve_exits()
@@ -27,12 +30,19 @@ func _process(_delta: float) -> void:
 			_label.text = "DrivingDebugHUD: no vehicle"
 			return
 
+	if _occupancy == null or not is_instance_valid(_occupancy):
+		_resolve_occupancy()
+
 	if _journey == null:
 		_journey = get_node_or_null("/root/JourneySystem")
 	if _regions == null:
 		_regions = get_node_or_null("/root/WorldRegionSystem")
 	if _exits == null:
 		_resolve_exits()
+
+	if _occupancy != null and _occupancy.has_method("is_on_foot") and bool(_occupancy.call("is_on_foot")):
+		_label.text = "\n".join(_build_on_foot_lines())
+		return
 
 	var travel_mode := false
 	if _vehicle.has_method("is_travel_mode"):
@@ -42,6 +52,28 @@ func _process(_delta: float) -> void:
 		_label.text = "\n".join(_build_travel_mode_lines())
 	else:
 		_label.text = "\n".join(_build_full_lines())
+
+
+func _build_on_foot_lines() -> PackedStringArray:
+	var char_node: Node3D = null
+	if _occupancy != null and _occupancy.has_method("get_character"):
+		char_node = _occupancy.call("get_character") as Node3D
+	var pos := char_node.global_position if char_node != null else Vector3.ZERO
+	var can_enter := false
+	if _occupancy != null and _occupancy.has_method("can_enter_vehicle"):
+		can_enter = bool(_occupancy.call("can_enter_vehicle"))
+	var lines: PackedStringArray = [
+		"ON FOOT",
+		"Occupancy: %s" % _format_occupancy(),
+		"Vehicle: %s (stays put)" % _format_motion_state(),
+		"Pos: (%.1f, %.1f, %.1f)" % [pos.x, pos.y, pos.z],
+		"Walk: WASD",
+		"Enter: E%s" % (" (in range)" if can_enter else " (near vehicle)"),
+		"Camera: FOLLOW→character",
+	]
+	if show_fps:
+		lines.append("FPS: %d" % Engine.get_frames_per_second())
+	return lines
 
 
 func _build_travel_mode_lines() -> PackedStringArray:
@@ -61,6 +93,7 @@ func _build_travel_mode_lines() -> PackedStringArray:
 
 	var lines: PackedStringArray = [
 		"TRAVEL MODE",
+		"Occupancy: %s" % _format_occupancy(),
 		"Motion: %s" % _format_motion_state(),
 		"Region: %s" % _format_region_name(),
 		"Journey: %s km" % _format_journey_km(current_km),
@@ -94,9 +127,14 @@ func _build_full_lines() -> PackedStringArray:
 		progress = float(_journey.call("get_progress_ratio"))
 		scale = float(_journey.call("get_physical_to_journey_scale"))
 
+	var exit_hint := ""
+	if _format_motion_state() == "PARKED":
+		exit_hint = " · E exit"
+
 	var lines: PackedStringArray = [
 		"DEV HUD",
-		"Motion: %s (P park/unpark)" % _format_motion_state(),
+		"Occupancy: %s" % _format_occupancy(),
+		"Motion: %s (P park/unpark%s)" % [_format_motion_state(), exit_hint],
 		"Mode: %s" % _format_driving_mode(),
 		"Region: %s (%.0f%%)" % [_format_region_name(), _format_region_progress() * 100.0],
 		"Exit/POI: %s" % _format_exit_poi(),
@@ -119,6 +157,14 @@ func _build_full_lines() -> PackedStringArray:
 		lines.append("FPS: %d" % Engine.get_frames_per_second())
 
 	return lines
+
+
+func _format_occupancy() -> String:
+	if _occupancy == null:
+		return "IN_VEHICLE"
+	if _occupancy.has_method("get_state_name"):
+		return str(_occupancy.call("get_state_name"))
+	return "IN_VEHICLE"
 
 
 func _format_motion_state() -> String:
@@ -230,6 +276,13 @@ func _resolve_vehicle() -> void:
 		_vehicle = get_node_or_null(vehicle_path) as Node3D
 	if _vehicle == null:
 		_vehicle = get_tree().current_scene.find_child("PlayerVehicle", true, false) as Node3D
+
+
+func _resolve_occupancy() -> void:
+	if occupancy_path != NodePath():
+		_occupancy = get_node_or_null(occupancy_path)
+	if _occupancy == null and get_tree().current_scene != null:
+		_occupancy = get_tree().current_scene.find_child("PlayerOccupancyController", true, false)
 
 
 func _resolve_exits() -> void:

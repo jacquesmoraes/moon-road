@@ -37,6 +37,8 @@ var _steer_override_enabled: bool = false
 var _steer_override: float = 0.0
 var _mode_controller: Node
 var _motion_state: MotionState = MotionState.DRIVING
+## False while the player is on foot (occupancy). Parked physics still run.
+var _manual_control_enabled: bool = true
 
 const GRAVITY: float = 24.0
 const REVERSE_SPEED_FACTOR: float = 0.4
@@ -49,6 +51,8 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not _manual_control_enabled:
+		return
 	if event.is_action_pressed("vehicle_park"):
 		toggle_park()
 		get_viewport().set_input_as_handled()
@@ -57,7 +61,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	# Cruise / travel toggles are owned by DrivingModeController when present.
 	if (
-		_motion_state == MotionState.DRIVING
+		_manual_control_enabled
+		and _motion_state == MotionState.DRIVING
 		and _mode_controller == null
 		and Input.is_action_just_pressed("vehicle_cruise_toggle")
 	):
@@ -65,6 +70,13 @@ func _physics_process(delta: float) -> void:
 
 	if _motion_state == MotionState.PARKED:
 		_update_parked(delta)
+		return
+
+	# On foot: never drive even if somehow left in DRIVING.
+	if not _manual_control_enabled:
+		_speed = 0.0
+		velocity = Vector3.ZERO
+		move_and_slide()
 		return
 
 	var accel_input := Input.get_action_strength("vehicle_accelerate")
@@ -137,6 +149,8 @@ func toggle_park() -> void:
 func try_park() -> bool:
 	if _motion_state == MotionState.PARKED:
 		return true
+	if not _manual_control_enabled:
+		return false
 	if not can_park():
 		return false
 	_set_motion_state(MotionState.PARKED)
@@ -147,11 +161,16 @@ func try_park() -> bool:
 func try_unpark() -> bool:
 	if _motion_state == MotionState.DRIVING:
 		return true
+	# Stay PARKED while the player is outside the vehicle.
+	if not _manual_control_enabled:
+		return false
 	_set_motion_state(MotionState.DRIVING)
 	return true
 
 
 func can_park() -> bool:
+	if not _manual_control_enabled:
+		return false
 	if absf(_speed) > maxf(max_parking_speed, 0.0):
 		return false
 	if require_valid_surface and not is_on_floor():
@@ -177,6 +196,29 @@ func get_motion_state_name() -> String:
 			return "PARKED"
 		_:
 			return "DRIVING"
+
+
+## Occupancy: disable while ON_FOOT so WASD / park do not affect the parked car.
+func set_manual_control_enabled(enabled: bool) -> void:
+	_manual_control_enabled = enabled
+	if not _manual_control_enabled:
+		_cruise_active = false
+		_steer_override = 0.0
+		_steer_override_enabled = false
+		if _mode_controller != null and _mode_controller.has_method("set_mode"):
+			_mode_controller.call("set_mode", 0)  # MANUAL
+
+
+func is_manual_control_enabled() -> bool:
+	return _manual_control_enabled
+
+
+## World-space transform for spawning the on-foot character (DriverExitMarker).
+func get_driver_exit_global_transform() -> Transform3D:
+	var marker := get_node_or_null("DriverExitMarker") as Node3D
+	if marker != null:
+		return marker.global_transform
+	return global_transform * Transform3D(Basis.IDENTITY, Vector3(-1.85, 0.05, 0.25))
 
 
 func _set_motion_state(state: MotionState) -> void:

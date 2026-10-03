@@ -1,6 +1,7 @@
 extends Node
 class_name WorldOriginRecenter
-## Shifts vehicle + road + follow camera so the player stays near world origin.
+## Shifts active subject + companions (vehicle, on-foot character, road, camera)
+## so the player stays near world origin.
 ## Logical journey distance is unaffected (reporter uses deltas + shift notification).
 
 signal recentered(offset: Vector3, count: int)
@@ -8,6 +9,8 @@ signal recentered(offset: Vector3, count: int)
 @export var target_path: NodePath = NodePath("../PlayerVehicle")
 @export var road_manager_path: NodePath = NodePath("../RoadManager")
 @export var exit_system_path: NodePath = NodePath("../RoadsideExitSystem")
+## Extra Node3Ds always shifted with the origin (e.g. parked vehicle while on foot).
+@export var companion_paths: Array[NodePath] = []
 ## Recenter when planar distance from origin exceeds this (meters / world units).
 @export var recenter_distance: float = 1000.0
 @export var enabled: bool = true
@@ -16,6 +19,7 @@ signal recentered(offset: Vector3, count: int)
 var _target: Node3D
 var _road_manager: Node
 var _exit_system: Node
+var _companions: Array[Node3D] = []
 var _recenter_count: int = 0
 
 
@@ -46,11 +50,21 @@ func get_recenter_count() -> int:
 	return _recenter_count
 
 
+## Occupancy swaps the distance-check subject (vehicle ↔ on-foot character).
+func set_recenter_target(node: Node3D) -> void:
+	_target = node
+
+
+func get_recenter_target() -> Node3D:
+	return _target
+
+
 func _resolve_nodes() -> void:
-	if target_path != NodePath():
-		_target = get_node_or_null(target_path) as Node3D
-	if _target == null and get_tree().current_scene != null:
-		_target = get_tree().current_scene.find_child("PlayerVehicle", true, false) as Node3D
+	if _target == null or not is_instance_valid(_target):
+		if target_path != NodePath():
+			_target = get_node_or_null(target_path) as Node3D
+		if _target == null and get_tree().current_scene != null:
+			_target = get_tree().current_scene.find_child("PlayerVehicle", true, false) as Node3D
 
 	if road_manager_path != NodePath():
 		_road_manager = get_node_or_null(road_manager_path)
@@ -62,20 +76,30 @@ func _resolve_nodes() -> void:
 	if _exit_system == null and get_tree().current_scene != null:
 		_exit_system = get_tree().current_scene.find_child("RoadsideExitSystem", true, false)
 
+	_companions.clear()
+	for path in companion_paths:
+		var n := get_node_or_null(path) as Node3D
+		if n != null:
+			_companions.append(n)
+	# Always keep vehicle + character coherent across origin shifts when present.
+	if get_tree().current_scene != null:
+		for name in ["PlayerVehicle", "PlayerCharacter"]:
+			var found := get_tree().current_scene.find_child(name, true, false) as Node3D
+			if found != null and not _companions.has(found):
+				_companions.append(found)
+
 
 func _apply_shift(offset: Vector3) -> void:
 	if offset.length_squared() < 0.0001:
 		return
 
-	var saved_velocity := Vector3.ZERO
-	var had_velocity := false
-	if _target is CharacterBody3D:
-		saved_velocity = (_target as CharacterBody3D).velocity
-		had_velocity = true
+	_resolve_nodes()
 
-	_target.global_position -= offset
-	if had_velocity:
-		(_target as CharacterBody3D).velocity = saved_velocity
+	var shifted: Array[Node3D] = []
+	_shift_body(_target, offset, shifted)
+
+	for companion in _companions:
+		_shift_body(companion, offset, shifted)
 
 	if _road_manager != null and _road_manager.has_method("apply_origin_shift"):
 		_road_manager.call("apply_origin_shift", offset)
@@ -105,10 +129,28 @@ func _apply_shift(offset: Vector3) -> void:
 			refs.global_position -= offset
 
 	# Keep journey delta tracking coherent (do not count the teleport as travel).
-	if _target != null:
-		for child in _target.get_children():
+	for body in shifted:
+		if body == null:
+			continue
+		for child in body.get_children():
 			if child.has_method("notify_origin_shifted"):
 				child.call("notify_origin_shifted", offset)
 
 	_recenter_count += 1
 	recentered.emit(offset, _recenter_count)
+
+
+func _shift_body(node: Node3D, offset: Vector3, shifted: Array[Node3D]) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	if shifted.has(node):
+		return
+	var saved_velocity := Vector3.ZERO
+	var had_velocity := false
+	if node is CharacterBody3D:
+		saved_velocity = (node as CharacterBody3D).velocity
+		had_velocity = true
+	node.global_position -= offset
+	if had_velocity:
+		(node as CharacterBody3D).velocity = saved_velocity
+	shifted.append(node)

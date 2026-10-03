@@ -1,0 +1,59 @@
+[gd_scene load_steps=8 format=3 uid="uid://bterra_player_character"]
+
+[ext_resource type="Script" path="res://scripts/player/player_character.gd" id="1_script"]
+
+[sub_resource type="CapsuleShape3D" id="Shape_body"]
+radius = 0.35
+height = 1.6
+
+[sub_resource type="StandardMaterial3D" id="Mat_body"]
+albedo_color = Color(0.22, 0.48, 0.62, 1)
+
+[sub_resource type="CapsuleMesh" id="Mesh_body"]
+radius = 0.32
+height = 1.5
+radial_segments = 12
+rings = 4
+
+[sub_resource type="StandardMaterial3D" id="Mat_head"]
+albedo_color = Color(0.86, 0.72, 0.58, 1)
+
+[sub_resource type="SphereMesh" id="Mesh_head"]
+radius = 0.22
+height = 0.44
+radial_segments = 12
+rings = 6
+
+[sub_resource type="StandardMaterial3D" id="Mat_pack"]
+albedo_color = Color(0.55, 0.32, 0.18, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_pack"]
+size = Vector3(0.35, 0.45, 0.18)
+
+[node name="PlayerCharacter" type="CharacterBody3D"]
+collision_layer = 4
+collision_mask = 1
+floor_stop_on_slope = true
+floor_max_angle = 0.785398
+script = ExtResource("1_script")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("Shape_body")
+
+[node name="Model" type="Node3D" parent="."]
+
+[node name="Body" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.85, 0)
+material_override = SubResource("Mat_body")
+mesh = SubResource("Mesh_body")
+
+[node name="Head" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.72, 0)
+material_override = SubResource("Mat_head")
+mesh = SubResource("Mesh_head")
+
+[node name="Pack" type="MeshInstance3D" parent="Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.05, 0.28)
+material_override = SubResource("Mat_pack")
+mesh = SubResource("Mesh_pack")

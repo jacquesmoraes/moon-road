@@ -219,7 +219,22 @@ func get_camera() -> Camera3D:
 	return _camera
 
 
-## Origin recenter already shifts global_position; poses are recomputed from the vehicle.
+func get_follow_target() -> Node3D:
+	return _target
+
+
+## Retarget chase/rigged poses (vehicle while driving, character while on foot).
+func set_follow_target(target: Node3D) -> void:
+	_target = target
+	_initialized = false
+	_blending = false
+	if _cinematic_active:
+		set_cinematic_active(false)
+	if _target != null and is_instance_valid(_target):
+		_smoothed_yaw = _target.global_rotation.y
+
+
+## Origin recenter already shifts global_position; poses are recomputed from the live target.
 func notify_origin_shifted(_offset: Vector3) -> void:
 	pass
 
