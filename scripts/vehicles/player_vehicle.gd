@@ -48,6 +48,10 @@ const MS_TO_KMH: float = 3.6
 
 func _ready() -> void:
 	_mode_controller = get_node_or_null("DrivingModeController")
+	# Stick to gentle grades across strip joints; reduces brief airborne wall hits.
+	floor_snap_length = maxf(floor_snap_length, 0.35)
+	floor_max_angle = maxf(floor_max_angle, deg_to_rad(50.0))
+	safe_margin = maxf(safe_margin, 0.08)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -114,6 +118,22 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= GRAVITY * delta
 
 	move_and_slide()
+
+	# If a nearly-vertical hit still kills planar motion while throttling, re-apply
+	# intended speed along the road without nudging into the collider.
+	if absf(_speed) > 0.5 and is_on_wall():
+		var planar_speed := Vector3(velocity.x, 0.0, velocity.z).length()
+		if planar_speed < absf(_speed) * 0.25:
+			var slide_forward := forward
+			if is_on_floor():
+				var floor_n := get_floor_normal()
+				var along := floor_n.cross(forward.cross(floor_n))
+				if along.length_squared() > 0.0001:
+					along = along.normalized()
+					if along.dot(forward) < 0.0:
+						along = -along
+					slide_forward = along
+			velocity = slide_forward * _speed
 
 	if not is_finite(_speed) or not velocity.is_finite():
 		push_error("PlayerVehicle became unstable; resetting motion.")

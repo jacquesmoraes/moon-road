@@ -250,7 +250,14 @@ func _place_detour(slot: Dictionary, host: Node3D) -> void:
 	if host.has_method("get_width"):
 		host_half = float(host.call("get_width")) * 0.5
 
-	var mouth := point + right * side_sign * (host_half + 4.0) + forward * 1.0
+	var first: Node3D = segments[0]
+	var spur_half := 5.0
+	if first != null and first.has_method("get_width"):
+		spur_half = float(first.call("get_width")) * 0.5
+	# Spur centerline must sit fully outside the main roadway. Overlap previously
+	# wedged Travel Mode against detour colliders ("car stops while accelerating").
+	const SPUR_CLEARANCE := 1.5
+	var mouth := point + right * side_sign * (host_half + spur_half + SPUR_CLEARANCE) + forward * 2.0
 	mouth.y = point.y
 
 	var peel := deg_to_rad(def.peel_angle_degrees) * side_sign
@@ -264,11 +271,10 @@ func _place_detour(slot: Dictionary, host: Node3D) -> void:
 
 	if ramp != null:
 		ramp.visible = true
-		var ramp_mid := point + right * side_sign * (host_half + 2.0) + forward * 1.0 + exit_forward * 4.0
+		var ramp_mid := point + right * side_sign * (host_half + spur_half * 0.35) + forward * 1.5 + exit_forward * 3.0
 		ramp_mid.y = mouth.y
 		ramp.global_transform = Transform3D(mouth_basis, ramp_mid)
 
-	var first: Node3D = segments[0]
 	_set_segment_visible(first, true)
 	if first.has_method("place_after_exit"):
 		first.call("place_after_exit", mouth_xf)
@@ -353,8 +359,15 @@ func _disable_collision_tree(node: Node) -> void:
 
 func _enable_collision_tree(node: Node) -> void:
 	if node is CollisionObject3D:
-		(node as CollisionObject3D).collision_layer = 1
-		(node as CollisionObject3D).collision_mask = 1
+		var body := node as CollisionObject3D
+		# Shoulders are visual-only; never re-arm their colliders.
+		var n := str(body.name)
+		if n.contains("Shoulder") or n == "LeftBody" or n == "RightBody":
+			body.collision_layer = 0
+			body.collision_mask = 0
+		else:
+			body.collision_layer = 1
+			body.collision_mask = 0
 	for child in node.get_children():
 		_enable_collision_tree(child)
 

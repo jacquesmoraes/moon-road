@@ -474,7 +474,9 @@ func _build_road_mesh() -> void:
 	# Prefer road over shoulders if any edge still shares a plane.
 	_road_mesh.sorting_offset = 0.0
 
-	_rebuild_box_colliders(_roadway_body, _road_collision, width, 0.0)
+	# Collision uses top+bottom only — vertical side faces were stopping the car.
+	var collision_mesh := _make_strip_mesh(-half, half, false)
+	_rebuild_strip_collision(_roadway_body, _road_collision, collision_mesh)
 
 
 func _build_shoulder_meshes() -> void:
@@ -483,8 +485,9 @@ func _build_shoulder_meshes() -> void:
 	_shoulder_right.visible = has_shoulders
 	_shoulder_left_body.visible = has_shoulders
 	_shoulder_right_body.visible = has_shoulders
-	_shoulder_left_body.collision_layer = 1 if has_shoulders else 0
-	_shoulder_right_body.collision_layer = 1 if has_shoulders else 0
+	# Visual only — shoulder side/end faces previously wedged the vehicle mid-accel.
+	_shoulder_left_body.collision_layer = 0
+	_shoulder_right_body.collision_layer = 0
 
 	_shoulder_left.position = Vector3.ZERO
 	_shoulder_right.position = Vector3.ZERO
@@ -522,9 +525,10 @@ func _build_shoulder_meshes() -> void:
 	_shoulder_left.sorting_offset = -1.0
 	_shoulder_right.sorting_offset = -1.0
 
-	var shoulder_center := half_road + shoulder_width * 0.5
-	_rebuild_box_colliders(_shoulder_left_body, _shoulder_left_collision, shoulder_width, -shoulder_center)
-	_rebuild_box_colliders(_shoulder_right_body, _shoulder_right_collision, shoulder_width, shoulder_center)
+	_clear_extra_collision(_shoulder_left_body, _shoulder_left_collision)
+	_clear_extra_collision(_shoulder_right_body, _shoulder_right_collision)
+	_shoulder_left_collision.shape = null
+	_shoulder_right_collision.shape = null
 	_shoulder_left_body.position = Vector3(0.0, -SHOULDER_SINK, 0.0)
 	_shoulder_right_body.position = Vector3(0.0, -SHOULDER_SINK, 0.0)
 
@@ -541,53 +545,28 @@ func _clear_extra_collision(body: StaticBody3D, keep: CollisionShape3D) -> void:
 		child.free()
 
 
-## Convex box chain along the centerline — reliable for CharacterBody3D (unlike trimesh).
-func _rebuild_box_colliders(
+## Continuous concave collision matching the strip mesh.
+## Box-chain end faces previously acted as walls and halted the vehicle mid-accel.
+func _rebuild_strip_collision(
 	body: StaticBody3D,
 	primary: CollisionShape3D,
-	collider_width: float,
-	lateral_offset: float
+	mesh: Mesh
 ) -> void:
-	_ensure_samples()
 	_clear_extra_collision(body, primary)
-	if _samples.size() < 2 or primary == null:
+	if primary == null:
 		return
-
-	var piece_count := _samples.size() - 1
-	for i in range(piece_count):
-		var a: Dictionary = _samples[i]
-		var b: Dictionary = _samples[i + 1]
-		var pa: Vector3 = a["pos"]
-		var pb: Vector3 = b["pos"]
-		var yaw := lerpf(float(a["yaw"]), float(b["yaw"]), 0.5)
-		var pitch := lerpf(float(a.get("pitch", 0.0)), float(b.get("pitch", 0.0)), 0.5)
-		var mid := pa.lerp(pb, 0.5)
-		var basis := _basis_from_yaw_pitch(yaw, pitch)
-		var right := basis.x
-		mid += right * lateral_offset
-		# Shift from top-surface sample down to box center along local up.
-		mid -= basis.y * (thickness * 0.5)
-		# Generous overlap so CharacterBody rides the grade without hitting box ends.
-		var seg_len := maxf(pa.distance_to(pb) * 1.2, 0.5)
-
-		var shape := BoxShape3D.new()
-		shape.size = Vector3(collider_width, thickness, seg_len)
-
-		var col: CollisionShape3D
-		if i == 0:
-			col = primary
-			col.shape = shape
-		else:
-			col = CollisionShape3D.new()
-			col.shape = shape
-			body.add_child(col)
-
-		col.transform = Transform3D(basis, mid)
+	primary.transform = Transform3D.IDENTITY
+	if mesh == null:
+		primary.shape = null
+		return
+	var shape: Shape3D = mesh.create_trimesh_shape()
+	primary.shape = shape
 
 
 ## Build a roadway strip between signed lateral edges (negative = left of center).
 ## Example: road = (-half, +half); left shoulder = (-half-sw, -half).
-func _make_strip_mesh(left_edge: float, right_edge: float) -> ArrayMesh:
+## When include_sides is false, only top/bottom are emitted (safe CharacterBody floor).
+func _make_strip_mesh(left_edge: float, right_edge: float, include_sides: bool = true) -> ArrayMesh:
 	_ensure_samples()
 	if _samples.size() < 2:
 		return null
@@ -657,8 +636,9 @@ func _make_strip_mesh(left_edge: float, right_edge: float) -> ArrayMesh:
 
 		_add_quad(st, a_l, b_l, b_r, a_r, up_a)
 		_add_quad(st, a_rb, b_rb, b_lb, a_lb, -up_a)
-		_add_quad(st, a_lb, b_lb, b_l, a_l, -right_a)
-		_add_quad(st, a_r, b_r, b_rb, a_rb, right_a)
+		if include_sides:
+			_add_quad(st, a_lb, b_lb, b_l, a_l, -right_a)
+			_add_quad(st, a_r, b_r, b_rb, a_rb, right_a)
 
 	st.generate_normals()
 	return st.commit()
