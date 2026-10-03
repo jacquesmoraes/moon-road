@@ -875,13 +875,16 @@ func _finish() -> void:
 	if not await _verify_parking_state():
 		return
 
+	if not _verify_inventory_system():
+		return
+
 	if not await _verify_enter_exit_vehicle():
 		return
 
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK interior=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK interior=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1077,6 +1080,124 @@ func _verify_parking_state() -> bool:
 	_vehicle.parking_state_changed.disconnect(on_park)
 	_clear_vehicle_input()
 	print("drive_smoke: parking state OK (reject@speed → PARKED cancels assist → unpark DRIVING)")
+	return true
+
+
+func _verify_inventory_system() -> bool:
+	## InventorySystem: add/remove/stack/clamp — no NPC/UI/crafting coupling.
+	var inv: Node = root.get_node_or_null("InventorySystem")
+	if inv == null:
+		push_error("drive_smoke: InventorySystem autoload missing")
+		quit(1)
+		return false
+
+	# Decoupling: inventory script must not hard-depend on NPC / dialogue / debug UI.
+	var inv_script: Script = load("res://autoload/inventory_system.gd") as Script
+	if inv_script != null:
+		var src := inv_script.source_code
+		for banned in ["/root/DialogueSystem", "NpcCharacter", "InventoryDebugUI", "poi_system.gd"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: InventorySystem must not reference %s" % banned)
+				quit(1)
+				return false
+
+	if inv.has_method("clear_inventory"):
+		inv.call("clear_inventory")
+
+	for item_id in ["scrap_metal", "copper_wire", "circuit_board"]:
+		if not bool(inv.call("has_item_data", item_id)):
+			push_error("drive_smoke: missing item data '%s'" % item_id)
+			quit(1)
+			return false
+		if int(inv.call("get_quantity", item_id)) != 0:
+			push_error("drive_smoke: inventory not empty for %s after clear" % item_id)
+			quit(1)
+			return false
+
+	# Add + stack.
+	if int(inv.call("add_item", "scrap_metal", 5)) != 5:
+		push_error("drive_smoke: add_item scrap_metal x5 failed")
+		quit(1)
+		return false
+	if int(inv.call("add_item", "scrap_metal", 3)) != 3:
+		push_error("drive_smoke: stack scrap_metal +3 failed")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "scrap_metal")) != 8:
+		push_error("drive_smoke: scrap_metal quantity expected 8")
+		quit(1)
+		return false
+	if not bool(inv.call("has_item", "scrap_metal", 8)):
+		push_error("drive_smoke: has_item scrap_metal x8 false")
+		quit(1)
+		return false
+	if bool(inv.call("has_item", "scrap_metal", 9)):
+		push_error("drive_smoke: has_item scrap_metal x9 should be false")
+		quit(1)
+		return false
+
+	# Stack cap (circuit_board max_stack=20).
+	if int(inv.call("add_item", "circuit_board", 15)) != 15:
+		push_error("drive_smoke: add circuit_board x15 failed")
+		quit(1)
+		return false
+	if int(inv.call("add_item", "circuit_board", 10)) != 5:
+		push_error("drive_smoke: circuit_board stack should clamp to +5 (max 20)")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "circuit_board")) != 20:
+		push_error("drive_smoke: circuit_board should be at max_stack 20")
+		quit(1)
+		return false
+	if int(inv.call("add_item", "circuit_board", 1)) != 0:
+		push_error("drive_smoke: circuit_board over-stack should add 0")
+		quit(1)
+		return false
+
+	# Remove + never negative.
+	if int(inv.call("remove_item", "scrap_metal", 3)) != 3:
+		push_error("drive_smoke: remove scrap_metal x3 failed")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "scrap_metal")) != 5:
+		push_error("drive_smoke: scrap_metal expected 5 after remove")
+		quit(1)
+		return false
+	if int(inv.call("remove_item", "scrap_metal", 100)) != 5:
+		push_error("drive_smoke: remove over-quantity should only take 5")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "scrap_metal")) != 0:
+		push_error("drive_smoke: scrap_metal should be 0 after full remove")
+		quit(1)
+		return false
+	if int(inv.call("remove_item", "scrap_metal", 1)) != 0:
+		push_error("drive_smoke: remove from empty should return 0")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "scrap_metal")) < 0:
+		push_error("drive_smoke: quantity went negative")
+		quit(1)
+		return false
+
+	# Second item proves catalog reuse.
+	if int(inv.call("add_item", "copper_wire", 2)) != 2:
+		push_error("drive_smoke: add copper_wire failed")
+		quit(1)
+		return false
+	if not bool(inv.call("has_item", "copper_wire")):
+		push_error("drive_smoke: has_item copper_wire false")
+		quit(1)
+		return false
+
+	# Unknown id rejected.
+	if int(inv.call("add_item", "not_a_real_item", 1)) != 0:
+		push_error("drive_smoke: unknown item should not add")
+		quit(1)
+		return false
+
+	inv.call("clear_inventory")
+	print("drive_smoke: inventory OK (add/stack/clamp/remove, never negative)")
 	return true
 
 

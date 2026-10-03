@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="ItemCatalog" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/inventory/item_catalog.gd" id="1_script"]
+[ext_resource type="Resource" path="res://resources/inventory/scrap_metal.tres" id="2_scrap"]
+[ext_resource type="Resource" path="res://resources/inventory/copper_wire.tres" id="3_wire"]
+[ext_resource type="Resource" path="res://resources/inventory/circuit_board.tres" id="4_board"]
+
+[resource]
+script = ExtResource("1_script")
+entries = [ExtResource("2_scrap"), ExtResource("3_wire"), ExtResource("4_board")]

@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **data-driven dialogue** — `DialogueSystem` + `DialogueDefinition` catalog; Mira/Rafa at Sunset Viewpoint open linear sequences that lock on-foot control until finished.
+Current slice: **basic inventory** — `InventorySystem` + `ItemData` (id quantities, stacking); debug panel toggled with **I**.
 
 ## Requirements
 
@@ -33,6 +33,7 @@ Current slice: **data-driven dialogue** — `DialogueSystem` + `DialogueDefiniti
 | `player_run` | Shift — run while on foot |
 | `player_interact` | E — world interact when focused; else enter vehicle (see Occupancy) |
 | `dialogue_continue` | Space / E / Enter — advance or close active dialogue |
+| `inventory_debug_toggle` | I — show/hide debug inventory panel |
 
 Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`, plus cruise `cruise_target_speed_kmh`, `cruise_speed_deadzone`, `cruise_control_gain`, and parking `max_parking_speed`, `require_valid_surface`.
 
@@ -68,6 +69,20 @@ Data-driven linear talk — no choices, branching, VO, or quests yet.
 | `NpcDefinition.dialogue_id` | NPC only points at the first line id |
 
 **Authoring:** create `.tres` lines, chain with `next_dialogue_id`, add them to the catalog, set the NPC's `dialogue_id`. **Mira** (`mira_01`→`mira_02`) and **Rafa** (`rafa_01`→`rafa_02`) at Sunset Viewpoint prove reuse.
+
+### Inventory (`InventorySystem` + `ItemData`)
+
+Decoupled bag of item ids — no weight, equipment, drag-drop, or crafting hooks.
+
+| Piece | Role |
+|-------|------|
+| `ItemData` | `id`, `display_name`, `description`, `stackable`, `max_stack`, `category` |
+| Categories | `RESOURCE`, `COMPONENT`, `TOOL`, `CONSUMABLE`, `QUEST` |
+| `ItemCatalog` | Registers definitions (`resources/inventory/default_item_catalog.tres`) |
+| `InventorySystem` | Autoload: `add_item`, `remove_item`, `has_item`, `get_quantity` |
+| `InventoryDebugUI` | Dev panel listing contents (**I** to toggle) |
+
+Test items: `scrap_metal`, `copper_wire`, `circuit_board`. Inventory stores quantities by id only — reusable by loot/crafting later. Does not depend on NPC, dialogue, quest, or the debug UI.
 
 ### Small interiors (`SmallInterior`)
 
@@ -253,6 +268,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Interaction: `Interactable` + `InteractionDetector` + `TestTerminal` / `ViewpointTerminal` (stateful OFF→ON)
 - NPCs: `NPC.tscn` + `NpcDefinition` (Mira / Rafa at Sunset Viewpoint)
 - Dialogue: `DialogueSystem` + `DialogueDefinition` catalog + `DialogueUI` (linear sequences)
+- Inventory: `InventorySystem` + `ItemData` catalog + `InventoryDebugUI` (I to toggle)
 - Interiors: `SmallInterior` Observation Booth (walk-in doorway) + `ObservationLog`
 - On-foot camera: `OnFootCameraController` — THIRD_PERSON (FIRST_PERSON-ready)
 - Driving modes: `DrivingModeController` — MANUAL / CRUISE / TRAVEL_MODE
@@ -264,4 +280,4 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - World: `WorldOriginRecenter` + `RoadsideScenery` + `RoadsideExitSystem` + `POISystem` / `ViewpointPOI`
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: dialogue choices/branching, NPC routines/pathfinding, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, quests/loot, final art, fuel, damage, upgrades, final UI, inventory, save
+- Not implemented yet: dialogue choices/branching, NPC routines/pathfinding, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, quests/loot, crafting, final art, fuel, damage, upgrades, final UI, save

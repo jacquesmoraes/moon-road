@@ -1,0 +1,58 @@
+[gd_scene load_steps=2 format=3 uid="uid://bterra_inventory_debug"]
+
+[ext_resource type="Script" path="res://scripts/inventory/inventory_debug_ui.gd" id="1_script"]
+
+[node name="InventoryDebugUI" type="CanvasLayer"]
+layer = 92
+script = ExtResource("1_script")
+
+[node name="Root" type="Control" parent="."]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Panel" type="PanelContainer" parent="Root"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -320.0
+offset_top = 72.0
+offset_right = -24.0
+offset_bottom = 320.0
+grow_horizontal = 0
+
+[node name="Margin" type="MarginContainer" parent="Root/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 12
+
+[node name="VBox" type="VBoxContainer" parent="Root/Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TitleLabel" type="Label" parent="Root/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.78, 0.4, 1)
+theme_override_font_sizes/font_size = 18
+text = "Inventory (debug)"
+
+[node name="ListLabel" type="Label" parent="Root/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.92, 0.88, 1)
+theme_override_font_sizes/font_size = 15
+autowrap_mode = 3
+text = "(empty)"
+
+[node name="HintLabel" type="Label" parent="Root/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.64, 0.58, 1)
+theme_override_font_sizes/font_size = 12
+text = "I — close debug inventory"
