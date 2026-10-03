@@ -14,6 +14,7 @@ var _journey: Node
 var _regions: Node
 var _exits: Node
 var _game_time: Node
+var _vehicle_state: Node
 
 
 func _ready() -> void:
@@ -22,6 +23,7 @@ func _ready() -> void:
 	_journey = get_node_or_null("/root/JourneySystem")
 	_regions = get_node_or_null("/root/WorldRegionSystem")
 	_game_time = get_node_or_null("/root/GameTimeSystem")
+	_vehicle_state = get_node_or_null("/root/VehicleStateSystem")
 	_resolve_exits()
 
 
@@ -41,6 +43,8 @@ func _process(_delta: float) -> void:
 		_regions = get_node_or_null("/root/WorldRegionSystem")
 	if _game_time == null:
 		_game_time = get_node_or_null("/root/GameTimeSystem")
+	if _vehicle_state == null:
+		_vehicle_state = get_node_or_null("/root/VehicleStateSystem")
 	if _exits == null:
 		_resolve_exits()
 
@@ -169,7 +173,8 @@ func _build_full_lines() -> PackedStringArray:
 			_format_game_time_travel(),
 			"TRAVELING" if _format_game_time_traveling() else "idle",
 		],
-		"Speed: %.1f km/h" % speed_kmh,
+		"Vehicle: %s" % _format_vehicle_state(),
+		"Speed: %.1f / max %.0f km/h" % [speed_kmh, _format_vehicle_max_kmh()],
 		"Cruise: %s" % _format_cruise_state(),
 		"Autopilot: %s" % _format_autopilot_state(),
 		"Pos: (%.1f, %.1f, %.1f)" % [pos.x, pos.y, pos.z],
@@ -340,6 +345,40 @@ func _format_game_time_traveling() -> bool:
 	if _game_time.has_method("is_traveling"):
 		return bool(_game_time.call("is_traveling"))
 	return false
+
+
+func _format_vehicle_state() -> String:
+	if _vehicle_state == null:
+		return "n/a"
+	var vid := ""
+	var fuel := 0.0
+	var fuel_max := 0.0
+	var cond := 0.0
+	var cond_max := 0.0
+	var upgrades := 0
+	if _vehicle_state.has_method("get_vehicle_id"):
+		vid = str(_vehicle_state.call("get_vehicle_id"))
+	if _vehicle_state.has_method("get_fuel_current"):
+		fuel = float(_vehicle_state.call("get_fuel_current"))
+	if _vehicle_state.has_method("get_fuel_capacity"):
+		fuel_max = float(_vehicle_state.call("get_fuel_capacity"))
+	if _vehicle_state.has_method("get_condition_current"):
+		cond = float(_vehicle_state.call("get_condition_current"))
+	if _vehicle_state.has_method("get_condition_max"):
+		cond_max = float(_vehicle_state.call("get_condition_max"))
+	if _vehicle_state.has_method("get_installed_upgrades"):
+		upgrades = int((_vehicle_state.call("get_installed_upgrades") as PackedStringArray).size())
+	if vid.is_empty():
+		vid = "?"
+	return "%s  fuel %.0f/%.0f  cond %.0f/%.0f  upg %d" % [vid, fuel, fuel_max, cond, cond_max, upgrades]
+
+
+func _format_vehicle_max_kmh() -> float:
+	if _vehicle != null and _vehicle.has_method("get_effective_max_speed_kmh"):
+		return float(_vehicle.call("get_effective_max_speed_kmh"))
+	if _vehicle_state != null and _vehicle_state.has_method("get_effective_max_speed"):
+		return float(_vehicle_state.call("get_effective_max_speed"))
+	return 0.0
 
 
 func _resolve_vehicle() -> void:

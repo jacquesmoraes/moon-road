@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **game time foundation** — `GameTimeSystem` for play / travel / offline clocks + SaveSystem persistence.
+Current slice: **persistent vehicle state** — `VehicleStateSystem` for starter_car attrs / upgrades + SaveSystem.
 
 ## Requirements
 
@@ -83,7 +83,7 @@ Versioned JSON at `user://savegame.json`. SaveSystem only coordinates — each s
 | Piece | Role |
 |-------|------|
 | `save_version` / `created_at` / `updated_at` | Header on every file |
-| Providers | `JourneySystem`, `InventorySystem`, `QuestSystem`, `POISystem`, `WorldStateSystem`, `GameTimeSystem` |
+| Providers | `JourneySystem`, `InventorySystem`, `QuestSystem`, `POISystem`, `WorldStateSystem`, `GameTimeSystem`, `VehicleStateSystem` |
 | API | `save_game`, `load_game`, `has_save`, `delete_save`, `get_save_version` |
 | Backup | `user://savegame.json.bak` before overwrite |
 | Debug | **F5** save · **F9** load · **F6** delete |
@@ -104,6 +104,21 @@ Central real-time foundation — not narrative journey distance, not a day/night
 Travel detection: in vehicle, not parked, and either Travel Mode **or** `|speed| > 0.35 m/s`. Parked / on-foot POI explore do **not** count.
 
 Persisted via SaveSystem (`systems.game_time`): `current_session_started_at`, `total_play_time_seconds`, `total_travel_time_seconds`, `last_save_timestamp`, `last_exit_timestamp`. Clock uses `Time.get_ticks_msec` (FPS-independent). Dev HUD shows `Time: play · travel · TRAVELING|idle`.
+
+### Vehicle state (`VehicleStateSystem`)
+
+Persistent car attributes / progression — separate from `PlayerVehicle` physics and input.
+
+| Field | Role |
+|-------|------|
+| `vehicle_id` / `display_name` | Active vehicle identity (default `starter_car`) |
+| `fuel_*` / `condition_*` | Capacity + current (effects later) |
+| `storage_capacity` | Cargo slots (effects later) |
+| `installed_upgrades` | Upgrade **ids** only (never Nodes) |
+| `base_max_speed_kmh` | Authoritative speed cap |
+| `cruise_speed_modifier` / `efficiency_modifier` | Reserved multipliers |
+
+API: `install_upgrade` / `has_upgrade` / `remove_upgrade` / `get_effective_max_speed()` (km/h). `PlayerVehicle` clamps motion via `get_effective_max_speed_ms()` from VehicleState — local `max_speed` export is fallback only. Not included: multi-vehicle, garage, swap, visual damage, full upgrade effect tables.
 
 ### World state (`WorldStateSystem`)
 
@@ -341,7 +356,7 @@ godot --path . --headless -s res://scripts/test/drive_smoke.gd
 | `scripts/{core,player,vehicles,road,world,ui,test}` | GDScript by domain |
 | `resources/{vehicles,road,world}` | Shared resources / configs |
 | `assets/{models,materials,textures,audio}` | Art and audio |
-| `autoload/` | Autoload scripts (`JourneySystem`, `WorldRegionSystem`, `POISystem`, `DialogueSystem`, `InventorySystem`, `QuestSystem`, `CraftingSystem`, `SaveSystem`, `WorldStateSystem`, `GameTimeSystem`) |
+| `autoload/` | Autoload scripts (`JourneySystem`, `WorldRegionSystem`, `POISystem`, `DialogueSystem`, `InventorySystem`, `QuestSystem`, `CraftingSystem`, `SaveSystem`, `WorldStateSystem`, `GameTimeSystem`, `VehicleStateSystem`) |
 | `data/` | Static data files |
 
 Empty directories keep a `.gdkeep` placeholder so Git tracks them.
@@ -358,6 +373,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Crafting: `CraftingSystem` + `RecipeData` + Workbench + `CraftingDebugUI`
 - Save: `SaveSystem` → `user://savegame.json` (F5/F9/F6 debug)
 - Game time: `GameTimeSystem` (play / travel / offline; HUD debug)
+- Vehicle state: `VehicleStateSystem` (`starter_car` attrs / upgrades; drives max speed)
 - World state: `WorldStateSystem` (terminal powered / pickup collected)
 - Pickups: `WorldItem` at Sunset Viewpoint (Scrap Metal / Copper Wire) + `PickupFeedbackUI`
 - Quests: `QuestSystem` + `power_the_viewpoint` (Mira → terminal)
@@ -373,4 +389,4 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - World: `WorldOriginRecenter` + `RoadsideScenery` + `RoadsideExitSystem` + `POISystem` / `ViewpointPOI`
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: quest log UI, dialogue choices/branching, NPC routines/pathfinding, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, craft time/quality/tech tree, autosave/multi-slot, final art, fuel, damage, upgrades, final UI
+- Not implemented yet: quest log UI, dialogue choices/branching, NPC routines/pathfinding, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, craft time/quality/tech tree, autosave/multi-slot, final art, fuel drain, damage visuals, full upgrade effects, garage/multi-vehicle, final UI

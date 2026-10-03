@@ -891,13 +891,16 @@ func _finish() -> void:
 	if not await _verify_game_time_system():
 		return
 
+	if not _verify_vehicle_state_system():
+		return
+
 	if not await _verify_enter_exit_vehicle():
 		return
 
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1743,6 +1746,197 @@ func _verify_game_time_system() -> bool:
 		_vehicle.call("try_unpark")
 	print(
 		"drive_smoke: game_time OK (play/travel split + park idle + Travel Mode + save + offline)"
+	)
+	return true
+
+
+func _verify_vehicle_state_system() -> bool:
+	## VehicleStateSystem: persistent attrs survive save/load; PlayerVehicle uses effective max.
+	var vs: Node = root.get_node_or_null("VehicleStateSystem")
+	var save: Node = root.get_node_or_null("SaveSystem")
+	if vs == null or save == null or _vehicle == null:
+		push_error("drive_smoke: VehicleStateSystem/SaveSystem/PlayerVehicle missing")
+		quit(1)
+		return false
+
+	for required in [
+		"install_upgrade",
+		"has_upgrade",
+		"remove_upgrade",
+		"get_effective_max_speed",
+		"get_save_data",
+		"load_save_data",
+		"reset_for_tests",
+	]:
+		if not vs.has_method(required):
+			push_error("drive_smoke: VehicleStateSystem missing %s" % required)
+			quit(1)
+			return false
+
+	# No physics fields in persistence payload.
+	var vs_script: Script = load("res://autoload/vehicle_state_system.gd") as Script
+	if vs_script != null:
+		var src := vs_script.source_code
+		for banned in ["velocity", "transform", "global_position", "CharacterBody3D"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: VehicleStateSystem must not store physics field '%s'" % banned)
+				quit(1)
+				return false
+
+	vs.call("reset_for_tests")
+	if str(vs.call("get_vehicle_id")) != "starter_car":
+		push_error("drive_smoke: default vehicle_id should be starter_car")
+		quit(1)
+		return false
+
+	var base_kmh := float(vs.call("get_effective_max_speed"))
+	if not is_equal_approx(base_kmh, 86.4):
+		push_error("drive_smoke: starter effective max expected 86.4 km/h got %.2f" % base_kmh)
+		quit(1)
+		return false
+
+	# PlayerVehicle must consult VehicleState for the cap.
+	if not _vehicle.has_method("get_effective_max_speed_ms"):
+		push_error("drive_smoke: PlayerVehicle missing get_effective_max_speed_ms")
+		quit(1)
+		return false
+	var vehicle_ms := float(_vehicle.call("get_effective_max_speed_ms"))
+	var expected_ms := base_kmh / 3.6
+	if not is_equal_approx(vehicle_ms, expected_ms):
+		push_error(
+			"drive_smoke: PlayerVehicle max_ms %.3f != VehicleState %.3f"
+			% [vehicle_ms, expected_ms]
+		)
+		quit(1)
+		return false
+
+	# Modifier changes effective speed and is reflected by the vehicle.
+	vs.call("set_cruise_speed_modifier", 1.25)
+	var boosted := float(vs.call("get_effective_max_speed"))
+	if not is_equal_approx(boosted, 86.4 * 1.25):
+		push_error("drive_smoke: cruise_speed_modifier not applied to effective max")
+		quit(1)
+		return false
+	if not is_equal_approx(float(_vehicle.call("get_effective_max_speed_ms")), boosted / 3.6):
+		push_error("drive_smoke: PlayerVehicle did not pick up boosted VehicleState max")
+		quit(1)
+		return false
+
+	# Upgrade API — ids only, persist later.
+	if not bool(vs.call("install_upgrade", "engine_tune_1")):
+		push_error("drive_smoke: install_upgrade failed")
+		quit(1)
+		return false
+	if not bool(vs.call("has_upgrade", "engine_tune_1")):
+		push_error("drive_smoke: has_upgrade false after install")
+		quit(1)
+		return false
+	if bool(vs.call("install_upgrade", "engine_tune_1")):
+		push_error("drive_smoke: duplicate install_upgrade should fail")
+		quit(1)
+		return false
+	vs.call("install_upgrade", "cargo_rack_1")
+	vs.call("set_fuel_current", 42.5)
+	vs.call("set_condition_current", 77.0)
+
+	if save.has_method("delete_save"):
+		save.call("delete_save")
+	if not bool(save.call("save_game")):
+		push_error("drive_smoke: save_game failed in vehicle_state test")
+		quit(1)
+		return false
+
+	var path := str(save.call("get_save_path"))
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_error("drive_smoke: vehicle_state save JSON parse failed")
+		quit(1)
+		return false
+	var systems: Dictionary = parsed.get("systems", {})
+	if not systems.has("vehicle_state"):
+		push_error("drive_smoke: systems.vehicle_state missing")
+		quit(1)
+		return false
+	var payload: Dictionary = systems["vehicle_state"]
+	for key in [
+		"vehicle_id",
+		"display_name",
+		"fuel_capacity",
+		"fuel_current",
+		"condition_max",
+		"condition_current",
+		"storage_capacity",
+		"installed_upgrades",
+		"base_max_speed_kmh",
+		"cruise_speed_modifier",
+		"efficiency_modifier",
+	]:
+		if not payload.has(key):
+			push_error("drive_smoke: vehicle_state save missing '%s'" % key)
+			quit(1)
+			return false
+	# Must not persist runtime physics.
+	for banned in ["velocity", "transform", "position", "rotation", "speed"]:
+		if payload.has(banned):
+			push_error("drive_smoke: vehicle_state must not persist '%s'" % banned)
+			quit(1)
+			return false
+
+	var upgrades_saved: Array = payload.get("installed_upgrades", [])
+	if upgrades_saved.size() != 2:
+		push_error("drive_smoke: expected 2 upgrades in save, got %d" % upgrades_saved.size())
+		quit(1)
+		return false
+
+	# Wipe and reload.
+	vs.call("reset_for_tests")
+	if bool(vs.call("has_upgrade", "engine_tune_1")):
+		push_error("drive_smoke: upgrade survived reset_for_tests")
+		quit(1)
+		return false
+	if not bool(save.call("load_game")):
+		push_error("drive_smoke: load_game failed for vehicle_state")
+		quit(1)
+		return false
+	if str(vs.call("get_vehicle_id")) != "starter_car":
+		push_error("drive_smoke: vehicle_id not restored")
+		quit(1)
+		return false
+	if not bool(vs.call("has_upgrade", "engine_tune_1")) or not bool(vs.call("has_upgrade", "cargo_rack_1")):
+		push_error("drive_smoke: upgrades not restored")
+		quit(1)
+		return false
+	if not is_equal_approx(float(vs.call("get_fuel_current")), 42.5):
+		push_error("drive_smoke: fuel_current not restored")
+		quit(1)
+		return false
+	if not is_equal_approx(float(vs.call("get_condition_current")), 77.0):
+		push_error("drive_smoke: condition_current not restored")
+		quit(1)
+		return false
+	if not is_equal_approx(float(vs.call("get_cruise_speed_modifier")), 1.25):
+		push_error("drive_smoke: cruise_speed_modifier not restored")
+		quit(1)
+		return false
+	if not is_equal_approx(float(_vehicle.call("get_effective_max_speed_ms")), (86.4 * 1.25) / 3.6):
+		push_error("drive_smoke: PlayerVehicle effective max not restored from VehicleState")
+		quit(1)
+		return false
+
+	if not bool(vs.call("remove_upgrade", "engine_tune_1")):
+		push_error("drive_smoke: remove_upgrade failed")
+		quit(1)
+		return false
+	if bool(vs.call("has_upgrade", "engine_tune_1")):
+		push_error("drive_smoke: has_upgrade true after remove")
+		quit(1)
+		return false
+
+	# Cleanup — restore defaults so later drive feel stays stable.
+	save.call("delete_save")
+	vs.call("reset_for_tests")
+	print(
+		"drive_smoke: vehicle_state OK (attrs + upgrades + effective max + save round-trip)"
 	)
 	return true
 

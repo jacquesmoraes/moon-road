@@ -12,11 +12,13 @@ signal parking_state_changed(previous_state: MotionState, current_state: MotionS
 
 @export var acceleration: float = 18.0
 @export var braking: float = 32.0
+## Fallback max speed (m/s) if VehicleStateSystem is unavailable.
+## Authoritative cap lives in VehicleStateSystem (base_max_speed_kmh / upgrades).
 @export var max_speed: float = 24.0
 @export var steering_strength: float = 2.4
 @export var drag: float = 5.0
 
-## Target hold speed for cruise / travel mode (km/h). Clamped to max_speed in m/s.
+## Target hold speed for cruise / travel mode (km/h). Clamped to VehicleState effective max.
 @export var cruise_target_speed_kmh: float = 60.0
 ## Speed error (m/s) inside which cruise holds without correcting.
 @export var cruise_speed_deadzone: float = 0.25
@@ -36,6 +38,7 @@ var _cruise_active: bool = false
 var _steer_override_enabled: bool = false
 var _steer_override: float = 0.0
 var _mode_controller: Node
+var _vehicle_state: Node
 var _motion_state: MotionState = MotionState.DRIVING
 ## False while the player is on foot (occupancy). Parked physics still run.
 var _manual_control_enabled: bool = true
@@ -48,6 +51,7 @@ const MS_TO_KMH: float = 3.6
 
 func _ready() -> void:
 	_mode_controller = get_node_or_null("DrivingModeController")
+	_resolve_vehicle_state()
 	# Stick to gentle grades across strip joints; reduces brief airborne wall hits.
 	floor_snap_length = maxf(floor_snap_length, 0.35)
 	floor_max_angle = maxf(floor_max_angle, deg_to_rad(50.0))
@@ -323,8 +327,28 @@ func _apply_cruise_hold(delta: float) -> void:
 
 
 func _clamp_speed() -> void:
-	var min_speed := -max_speed * REVERSE_SPEED_FACTOR
-	_speed = clampf(_speed, min_speed, max_speed)
+	var cap := _get_max_speed_ms()
+	var min_speed := -cap * REVERSE_SPEED_FACTOR
+	_speed = clampf(_speed, min_speed, cap)
+
+
+func _get_max_speed_ms() -> float:
+	## Prefer VehicleStateSystem effective cap; fall back to local export.
+	_resolve_vehicle_state()
+	if _vehicle_state != null:
+		if _vehicle_state.has_method("get_effective_max_speed_ms"):
+			return maxf(float(_vehicle_state.call("get_effective_max_speed_ms")), 0.0)
+		if _vehicle_state.has_method("get_effective_max_speed"):
+			return maxf(float(_vehicle_state.call("get_effective_max_speed")) / MS_TO_KMH, 0.0)
+	return maxf(max_speed, 0.0)
+
+
+func _resolve_vehicle_state() -> void:
+	if _vehicle_state != null and is_instance_valid(_vehicle_state):
+		return
+	_vehicle_state = null
+	if get_tree() != null:
+		_vehicle_state = get_tree().root.get_node_or_null("VehicleStateSystem")
 
 
 func _apply_steering(steer_input: float, delta: float) -> void:
@@ -353,7 +377,15 @@ func get_cruise_target_speed_kmh() -> float:
 
 
 func get_cruise_target_speed_ms() -> float:
-	return clampf(cruise_target_speed_kmh / MS_TO_KMH, 0.0, max_speed)
+	return clampf(cruise_target_speed_kmh / MS_TO_KMH, 0.0, _get_max_speed_ms())
+
+
+func get_effective_max_speed_kmh() -> float:
+	return _get_max_speed_ms() * MS_TO_KMH
+
+
+func get_effective_max_speed_ms() -> float:
+	return _get_max_speed_ms()
 
 
 func set_cruise_control_active(active: bool) -> void:
