@@ -9,5 +9,6 @@ display_name = "Mira"
 role = "viewpoint_keeper"
 enabled = true
 presence_mode = 0
-dialogue_id = "mira_01"
+dialogue_id = "mira_quest_offer_01"
+linked_quest_id = "power_the_viewpoint"
 greeting_line = ""

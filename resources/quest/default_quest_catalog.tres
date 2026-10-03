@@ -1,0 +1,8 @@
+[gd_resource type="Resource" script_class="QuestCatalog" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/quest/quest_catalog.gd" id="1_script"]
+[ext_resource type="Resource" path="res://resources/quest/power_the_viewpoint.tres" id="2_quest"]
+
+[resource]
+script = ExtResource("1_script")
+entries = [ExtResource("2_quest")]

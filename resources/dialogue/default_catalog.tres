@@ -1,11 +1,15 @@
-[gd_resource type="Resource" script_class="DialogueCatalog" load_steps=6 format=3]
+[gd_resource type="Resource" script_class="DialogueCatalog" load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/dialogue/dialogue_catalog.gd" id="1_script"]
 [ext_resource type="Resource" path="res://resources/dialogue/mira_01.tres" id="2_mira1"]
 [ext_resource type="Resource" path="res://resources/dialogue/mira_02.tres" id="3_mira2"]
 [ext_resource type="Resource" path="res://resources/dialogue/rafa_01.tres" id="4_rafa1"]
 [ext_resource type="Resource" path="res://resources/dialogue/rafa_02.tres" id="5_rafa2"]
+[ext_resource type="Resource" path="res://resources/dialogue/mira_quest_offer_01.tres" id="6_offer1"]
+[ext_resource type="Resource" path="res://resources/dialogue/mira_quest_offer_02.tres" id="7_offer2"]
+[ext_resource type="Resource" path="res://resources/dialogue/mira_quest_active_01.tres" id="8_active"]
+[ext_resource type="Resource" path="res://resources/dialogue/mira_quest_done_01.tres" id="9_done"]
 
 [resource]
 script = ExtResource("1_script")
-entries = [ExtResource("2_mira1"), ExtResource("3_mira2"), ExtResource("4_rafa1"), ExtResource("5_rafa2")]
+entries = [ExtResource("2_mira1"), ExtResource("3_mira2"), ExtResource("4_rafa1"), ExtResource("5_rafa2"), ExtResource("6_offer1"), ExtResource("7_offer2"), ExtResource("8_active"), ExtResource("9_done")]

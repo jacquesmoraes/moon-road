@@ -1,8 +1,8 @@
 extends Area3D
 class_name ViewpointTerminal
-## Stateful viewpoint console. Starts OFF; first interact turns ON (one-shot).
-## State lives on the instance while the viewpoint scene is loaded — no disk save.
-## Duck-types the Interactable API; no coupling to PlayerCharacter.
+## Stateful viewpoint console. Duck-types Interactable.
+## When linked_quest_id is set, powering ON requires an ACTIVE quest turn-in
+## (consume required items via QuestSystem). Otherwise legacy one-shot OFF→ON.
 
 enum PowerState {
 	OFF,
@@ -11,10 +11,13 @@ enum PowerState {
 
 signal state_changed(previous_state: PowerState, current_state: PowerState)
 signal interacted(actor: Node)
+signal turn_in_failed(reason: String)
 
 @export var interaction_name: String = "Viewpoint Terminal"
 @export var interaction_priority: int = 1
 @export var enabled: bool = true
+## If set, interact attempts QuestSystem.try_turn_in before powering ON.
+@export var linked_quest_id: String = "power_the_viewpoint"
 
 @export_group("Feedback (placeholder)")
 @export var color_off: Color = Color(0.22, 0.24, 0.28, 1)
@@ -63,31 +66,80 @@ func get_interaction_name() -> String:
 
 
 func get_interaction_prompt() -> String:
-	## One-shot: only prompt while OFF.
 	if _state == PowerState.ON:
 		return ""
+	if not linked_quest_id.is_empty():
+		var qs := _quest_system()
+		if qs != null and qs.has_method("is_active") and bool(qs.call("is_active", linked_quest_id)):
+			return "E — Ligar: %s" % interaction_name
+		if qs != null and qs.has_method("is_completed") and bool(qs.call("is_completed", linked_quest_id)):
+			return ""
 	return "E — Interagir: %s" % interaction_name
 
 
 func can_interact(_actor: Node = null) -> bool:
 	if not enabled or not is_inside_tree() or not is_visible_in_tree():
 		return false
-	# One-shot ON — no further interacts after activation.
-	return _state == PowerState.OFF
+	if _state == PowerState.ON:
+		return false
+	if linked_quest_id.is_empty():
+		return true
+	var qs := _quest_system()
+	if qs == null:
+		return true
+	# Allow interact while OFF so the player can attempt turn-in / get feedback.
+	if qs.has_method("is_completed") and bool(qs.call("is_completed", linked_quest_id)):
+		return false
+	return true
 
 
 func interact(actor: Node = null) -> bool:
 	if not can_interact(actor):
 		return false
+
+	if not linked_quest_id.is_empty():
+		var qs := _quest_system()
+		if qs == null:
+			turn_in_failed.emit("no_quest_system")
+			return false
+		if qs.has_method("is_completed") and bool(qs.call("is_completed", linked_quest_id)):
+			return false
+		if qs.has_method("is_active") and not bool(qs.call("is_active", linked_quest_id)):
+			turn_in_failed.emit("not_active")
+			print("ViewpointTerminal: talk to Mira first (quest inactive)")
+			set_meta("last_interact_message", "Talk to Mira first")
+			return false
+		if qs.has_method("has_required_items") and not bool(qs.call("has_required_items", linked_quest_id)):
+			turn_in_failed.emit("missing_items")
+			print("ViewpointTerminal: missing scrap/wire for turn-in")
+			set_meta("last_interact_message", "Need 3 Scrap Metal + 1 Copper Wire")
+			return false
+		if not bool(qs.call("try_turn_in", linked_quest_id)):
+			turn_in_failed.emit("turn_in_failed")
+			print("ViewpointTerminal: turn-in failed")
+			return false
+		_set_state(PowerState.ON)
+		interacted.emit(actor)
+		print("ViewpointTerminal: powered ON via quest '%s'" % linked_quest_id)
+		set_meta("last_interact_message", "Terminal powered")
+		set_meta("interact_count", int(get_meta("interact_count", 0)) + 1)
+		return true
+
+	# Legacy one-shot (no linked quest).
 	_set_state(PowerState.ON)
 	interacted.emit(actor)
 	print("ViewpointTerminal: powered ON (actor=%s)" % (str(actor.name) if actor else "unknown"))
+	set_meta("interact_count", int(get_meta("interact_count", 0)) + 1)
 	return true
 
 
 ## Test helper — does not bypass one-shot rules for normal play.
 func force_state(state: PowerState) -> void:
 	_set_state(state)
+
+
+func _quest_system() -> Node:
+	return get_node_or_null("/root/QuestSystem")
 
 
 func _set_state(next: PowerState) -> void:

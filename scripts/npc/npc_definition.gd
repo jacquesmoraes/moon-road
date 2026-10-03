@@ -14,8 +14,10 @@ enum PresenceMode {
 @export var role: String = "traveler"
 @export var enabled: bool = true
 @export var presence_mode: PresenceMode = PresenceMode.STATIC
-## Starts this dialogue via DialogueSystem (data-driven — not hardcoded lines in the NPC script).
+## Default / fallback dialogue id. QuestSystem may override via linked_quest_id.
 @export var dialogue_id: String = ""
+## If set, dialogue resolves from QuestSystem state for this quest.
+@export var linked_quest_id: String = ""
 ## Legacy one-liner fallback when dialogue_id is empty (prefer dialogue_id).
 @export var greeting_line: String = ""
 

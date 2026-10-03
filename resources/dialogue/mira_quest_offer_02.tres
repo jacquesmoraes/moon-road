@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="DialogueDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/dialogue/dialogue_definition.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = "mira_quest_offer_02"
+speaker_name = "Mira"
+text = "Me traz 3 Scrap Metal e 1 Copper Wire, depois liga o terminal."
+next_dialogue_id = ""

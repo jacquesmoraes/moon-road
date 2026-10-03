@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **collectible world items** — `WorldItem` pickups (Scrap Metal / Copper Wire) at Sunset Viewpoint feed `InventorySystem` on interact.
+Current slice: **first side quest** — `QuestSystem` + “Power the Viewpoint” (Mira → gather scrap/wire → power terminal).
 
 ## Requirements
 
@@ -69,6 +69,18 @@ Data-driven linear talk — no choices, branching, VO, or quests yet.
 | `NpcDefinition.dialogue_id` | NPC only points at the first line id |
 
 **Authoring:** create `.tres` lines, chain with `next_dialogue_id`, add them to the catalog, set the NPC's `dialogue_id`. **Mira** (`mira_01`→`mira_02`) and **Rafa** (`rafa_01`→`rafa_02`) at Sunset Viewpoint prove reuse.
+
+### Quests (`QuestSystem`)
+
+Lightweight foundation — states `INACTIVE` / `ACTIVE` / `COMPLETED` by `quest_id`.
+
+| Piece | Role |
+|-------|------|
+| `QuestData` | Requirements, dialogue ids per state, giver NPC, turn-in target |
+| `QuestSystem` | Autoload; starts on offer dialogue finish; `try_turn_in` consumes items |
+| `power_the_viewpoint` | Mira asks for 3 Scrap Metal + 1 Copper Wire; terminal turn-in powers ON |
+
+No quest log UI, branching, or fail states yet.
 
 ### World pickups (`WorldItem`)
 
@@ -282,6 +294,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Dialogue: `DialogueSystem` + `DialogueDefinition` catalog + `DialogueUI` (linear sequences)
 - Inventory: `InventorySystem` + `ItemData` catalog + `InventoryDebugUI` (I to toggle)
 - Pickups: `WorldItem` at Sunset Viewpoint (Scrap Metal / Copper Wire) + `PickupFeedbackUI`
+- Quests: `QuestSystem` + `power_the_viewpoint` (Mira → terminal)
 - Interiors: `SmallInterior` Observation Booth (walk-in doorway) + `ObservationLog`
 - On-foot camera: `OnFootCameraController` — THIRD_PERSON (FIRST_PERSON-ready)
 - Driving modes: `DrivingModeController` — MANUAL / CRUISE / TRAVEL_MODE
@@ -293,4 +306,4 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - World: `WorldOriginRecenter` + `RoadsideScenery` + `RoadsideExitSystem` + `POISystem` / `ViewpointPOI`
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: dialogue choices/branching, NPC routines/pathfinding, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, quests/loot, crafting, final art, fuel, damage, upgrades, final UI, save
+- Not implemented yet: quest log UI, dialogue choices/branching, NPC routines/pathfinding, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, crafting, final art, fuel, damage, upgrades, final UI, save

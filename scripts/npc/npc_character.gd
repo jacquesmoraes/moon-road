@@ -15,6 +15,7 @@ signal dialogue_requested(dialogue_id: String, actor: Node)
 @export var role: String = "traveler"
 @export var enabled: bool = true
 @export var dialogue_id: String = ""
+@export var linked_quest_id: String = ""
 @export var greeting_line: String = ""
 @export var interaction_priority: int = 0
 
@@ -53,7 +54,28 @@ func is_npc_enabled() -> bool:
 
 func get_dialogue_id() -> String:
 	_apply_definition_to_exports()
-	return dialogue_id
+	var fallback := dialogue_id
+	var quest_id := linked_quest_id
+	if quest_id.is_empty():
+		var qs := get_node_or_null("/root/QuestSystem")
+		if qs != null and qs.has_method("find_quest_for_giver"):
+			quest_id = str(qs.call("find_quest_for_giver", get_npc_id()))
+	if quest_id.is_empty():
+		return fallback
+	var qs2 := get_node_or_null("/root/QuestSystem")
+	if qs2 != null and qs2.has_method("get_dialogue_for_quest"):
+		return str(qs2.call("get_dialogue_for_quest", quest_id, fallback))
+	return fallback
+
+
+func get_linked_quest_id() -> String:
+	_apply_definition_to_exports()
+	if not linked_quest_id.is_empty():
+		return linked_quest_id
+	var qs := get_node_or_null("/root/QuestSystem")
+	if qs != null and qs.has_method("find_quest_for_giver"):
+		return str(qs.call("find_quest_for_giver", get_npc_id()))
+	return ""
 
 
 func get_greeting_line() -> String:
@@ -156,6 +178,8 @@ func _apply_definition_to_exports() -> void:
 	enabled = definition.enabled
 	if not definition.dialogue_id.is_empty():
 		dialogue_id = definition.dialogue_id
+	if "linked_quest_id" in definition and not str(definition.linked_quest_id).is_empty():
+		linked_quest_id = str(definition.linked_quest_id)
 	if not definition.greeting_line.is_empty():
 		greeting_line = definition.greeting_line
 

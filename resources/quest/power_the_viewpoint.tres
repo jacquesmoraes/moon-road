@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="QuestData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/quest/quest_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+quest_id = "power_the_viewpoint"
+display_name = "Power the Viewpoint"
+description = "Gather scrap and wire, then power the Sunset Viewpoint terminal."
+giver_npc_id = "mira_viewpoint_keeper"
+start_dialogue_id = "mira_quest_offer_01"
+active_dialogue_id = "mira_quest_active_01"
+completed_dialogue_id = "mira_quest_done_01"
+required_item_ids = PackedStringArray("scrap_metal", "copper_wire")
+required_amounts = PackedInt32Array(3, 1)
+turn_in_target = "viewpoint_terminal"

@@ -884,7 +884,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK interior=OK pickups=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1394,6 +1394,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_world_items(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_side_quest(occupancy, character, foot_cam):
+		return false
+
 	# Origin recenter while on foot must shift character + vehicle together.
 	var saved_recenter_dist: float = float(_recenter.get("recenter_distance"))
 	_recenter.set("recenter_distance", 40.0)
@@ -1617,13 +1620,15 @@ func _verify_interaction_system(occupancy: Node, character: CharacterBody3D, foo
 
 
 func _verify_viewpoint_terminal(occupancy: Node, character: CharacterBody3D, foot_cam: Node3D) -> bool:
-	## One-shot OFF→ON world state on ViewpointTerminal inside Sunset Viewpoint.
-	## Persists across enter/exit while the viewpoint instance stays loaded.
+	## Terminal starts OFF and refuses to power without an active quest turn-in.
 	var poi_sys: Node = root.get_node_or_null("POISystem")
+	var qs: Node = root.get_node_or_null("QuestSystem")
 	if poi_sys == null:
 		push_error("drive_smoke: POISystem missing for viewpoint terminal")
 		quit(1)
 		return false
+	if qs != null and qs.has_method("reset_all"):
+		qs.call("reset_all")
 
 	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
 	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
@@ -1654,103 +1659,20 @@ func _verify_viewpoint_terminal(occupancy: Node, character: CharacterBody3D, foo
 		quit(1)
 		return false
 
-	var signal_count := {"n": 0}
-	var on_state := func(_prev, _cur) -> void:
-		signal_count["n"] = int(signal_count["n"]) + 1
-	terminal.state_changed.connect(on_state)
-
-	# Walk up and use the shared detector path (not a special-case call).
-	var term_pos: Vector3 = (terminal as Node3D).global_position
-	character.global_position = term_pos + Vector3(0.0, 0.05, 1.7)
-	var face := term_pos - character.global_position
-	var yaw := atan2(-face.x, -face.z)
-	character.rotation.y = yaw
-	if foot_cam.has_method("set_look_angles"):
-		foot_cam.call("set_look_angles", yaw, deg_to_rad(-12.0))
-	for _i in range(14):
-		await physics_frame
-
-	var detector: Node = character.get_node_or_null("InteractionDetector")
-	if detector == null or not bool(detector.call("has_focus")):
-		# Fallback: direct interact still proves world-state change.
-		if not bool(terminal.call("interact", character)):
-			push_error("drive_smoke: ViewpointTerminal interact failed")
-			quit(1)
-			return false
-	else:
-		var focus: Node = detector.call("get_focus")
-		if focus != terminal:
-			# Prefer terminal if detector focused something else nearby.
-			if not bool(terminal.call("interact", character)):
-				push_error("drive_smoke: ViewpointTerminal interact failed (focus=%s)" % focus)
-				quit(1)
-				return false
-		elif not bool(detector.call("try_interact")):
-			push_error("drive_smoke: detector try_interact failed on ViewpointTerminal")
-			quit(1)
-			return false
-
-	await physics_frame
-	if str(terminal.call("get_state_name")) != "ON":
-		push_error("drive_smoke: ViewpointTerminal did not turn ON")
-		quit(1)
-		return false
-	if int(signal_count["n"]) < 1:
-		push_error("drive_smoke: ViewpointTerminal state_changed did not fire")
-		quit(1)
-		return false
-	if bool(terminal.call("can_interact", character)):
-		push_error("drive_smoke: ViewpointTerminal still interactable after one-shot ON")
-		quit(1)
-		return false
-	var label := terminal.get_node_or_null("StatusLabel") as Label3D
-	if label != null and label.text != "ON":
-		push_error("drive_smoke: ViewpointTerminal StatusLabel not ON")
-		quit(1)
-		return false
-	var light := terminal.get_node_or_null("StatusLight") as OmniLight3D
-	if light != null and (not light.visible or light.light_energy <= 0.01):
-		push_error("drive_smoke: ViewpointTerminal light not lit when ON")
-		quit(1)
-		return false
-
-	# Enter / exit car in the same session — state must persist on the loaded instance.
-	var exit_xf: Transform3D = _vehicle.call("get_driver_exit_global_transform")
-	character.global_transform = exit_xf
-	for _j in range(6):
-		await physics_frame
-	if not bool(occupancy.call("try_enter_vehicle")):
-		push_error("drive_smoke: enter vehicle failed during viewpoint terminal persist check")
-		quit(1)
-		return false
-	await physics_frame
-	if str(terminal.call("get_state_name")) != "ON":
-		push_error("drive_smoke: ViewpointTerminal lost ON while in vehicle")
-		quit(1)
-		return false
-	if not bool(_vehicle.call("is_parked")):
-		# Keep parked for exit.
-		_vehicle.call("try_park")
-	if not bool(occupancy.call("try_exit_vehicle")):
-		push_error("drive_smoke: exit vehicle failed during viewpoint terminal persist check")
-		quit(1)
-		return false
-	await physics_frame
-	if str(terminal.call("get_state_name")) != "ON":
-		push_error("drive_smoke: ViewpointTerminal lost ON after re-exit")
-		quit(1)
-		return false
+	# Without quest / items, interact must fail and stay OFF.
 	if bool(terminal.call("interact", character)):
-		push_error("drive_smoke: ViewpointTerminal should reject interact while ON")
+		push_error("drive_smoke: terminal powered without quest turn-in")
+		quit(1)
+		return false
+	if str(terminal.call("get_state_name")) != "OFF":
+		push_error("drive_smoke: terminal left OFF expected after rejected interact")
 		quit(1)
 		return false
 
-	terminal.state_changed.disconnect(on_state)
 	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
-	# Stay near vehicle for later enter in parent flow.
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
-	print("drive_smoke: viewpoint terminal OK (OFF→ON one-shot, persist across enter/exit)")
+	print("drive_smoke: viewpoint terminal OK (gated OFF without quest)")
 	return true
 
 
@@ -1814,8 +1736,8 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 		push_error("drive_smoke: NPCs must duck-type Interactable")
 		quit(1)
 		return false
-	if str(mira.call("get_dialogue_id")) != "mira_01":
-		push_error("drive_smoke: Mira dialogue_id should be mira_01")
+	if str(mira.call("get_dialogue_id")) != "mira_quest_offer_01":
+		push_error("drive_smoke: Mira dialogue_id should be mira_quest_offer_01")
 		quit(1)
 		return false
 	if str(rafa.call("get_dialogue_id")) != "rafa_01":
@@ -1864,12 +1786,12 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 		push_error("drive_smoke: character still movable during dialogue")
 		quit(1)
 		return false
-	if str(dlg.call("get_current_id")) != "mira_01":
-		push_error("drive_smoke: expected mira_01, got %s" % str(dlg.call("get_current_id")))
+	if str(dlg.call("get_current_id")) != "mira_quest_offer_01":
+		push_error("drive_smoke: expected mira_quest_offer_01, got %s" % str(dlg.call("get_current_id")))
 		quit(1)
 		return false
-	if str(dlg.call("get_current_text")).find("horizonte") < 0:
-		push_error("drive_smoke: unexpected Mira line 1 text")
+	if str(dlg.call("get_current_text")).find("terminal") < 0:
+		push_error("drive_smoke: unexpected Mira offer line 1 text")
 		quit(1)
 		return false
 
@@ -1886,12 +1808,12 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 
 	dlg.call("advance")
 	await physics_frame
-	if str(dlg.call("get_current_id")) != "mira_02":
-		push_error("drive_smoke: expected mira_02 after advance")
+	if str(dlg.call("get_current_id")) != "mira_quest_offer_02":
+		push_error("drive_smoke: expected mira_quest_offer_02 after advance")
 		quit(1)
 		return false
-	if str(dlg.call("get_current_text")) != "Boa viagem.":
-		push_error("drive_smoke: expected 'Boa viagem.' on mira_02")
+	if str(dlg.call("get_current_text")).find("Scrap Metal") < 0:
+		push_error("drive_smoke: unexpected Mira offer line 2")
 		quit(1)
 		return false
 
@@ -1909,6 +1831,13 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 		push_error("drive_smoke: dialogue_finished did not fire for Mira")
 		quit(1)
 		return false
+	var qs: Node = root.get_node_or_null("QuestSystem")
+	if qs == null or not bool(qs.call("is_active", "power_the_viewpoint")):
+		push_error("drive_smoke: Power the Viewpoint should be ACTIVE after Mira offer")
+		quit(1)
+		return false
+	# Isolate later tests.
+	qs.call("reset_all")
 
 	# --- Rafa reuses the same DialogueSystem ---
 	var rafa_pos: Vector3 = (rafa as Node3D).global_position
@@ -2139,7 +2068,7 @@ func _verify_world_items(_occupancy: Node, character: CharacterBody3D, foot_cam:
 		quit(1)
 		return false
 	await physics_frame
-	if int(inv.call("get_quantity", "scrap_metal")) != before_scrap + 1:
+	if int(inv.call("get_quantity", "scrap_metal")) != before_scrap + 2:
 		push_error("drive_smoke: scrap_metal quantity not updated in inventory")
 		quit(1)
 		return false
@@ -2152,7 +2081,7 @@ func _verify_world_items(_occupancy: Node, character: CharacterBody3D, foot_cam:
 		quit(1)
 		return false
 	var scrap_msg := str(scrap.get_meta("last_interact_message", ""))
-	if scrap_msg.find("+1") < 0 or scrap_msg.find("Scrap") < 0:
+	if scrap_msg.find("+2") < 0 or scrap_msg.find("Scrap") < 0:
 		push_error("drive_smoke: bad scrap feedback '%s'" % scrap_msg)
 		quit(1)
 		return false
@@ -2166,7 +2095,7 @@ func _verify_world_items(_occupancy: Node, character: CharacterBody3D, foot_cam:
 		quit(1)
 		return false
 	var state: Dictionary = scrap.call("get_collected_state")
-	if not bool(state.get("collected", false)) or str(state.get("pickup_id", "")) != "sunset_scrap_metal":
+	if not bool(state.get("collected", false)) or str(state.get("pickup_id", "")) != "sunset_scrap_metal_a":
 		push_error("drive_smoke: scrap collected state snapshot invalid")
 		quit(1)
 		return false
@@ -2188,8 +2117,8 @@ func _verify_world_items(_occupancy: Node, character: CharacterBody3D, foot_cam:
 		quit(1)
 		return false
 	await physics_frame
-	if int(inv.call("get_quantity", "copper_wire")) != before_wire + 2:
-		push_error("drive_smoke: copper_wire quantity expected +2")
+	if int(inv.call("get_quantity", "copper_wire")) != before_wire + 1:
+		push_error("drive_smoke: copper_wire quantity expected +1")
 		quit(1)
 		return false
 	if not bool(wire.call("is_collected")) or bool(wire.call("interact", character)):
@@ -2197,7 +2126,7 @@ func _verify_world_items(_occupancy: Node, character: CharacterBody3D, foot_cam:
 		quit(1)
 		return false
 	var wire_msg := str(wire.get_meta("last_interact_message", ""))
-	if wire_msg.find("+2") < 0:
+	if wire_msg.find("+1") < 0:
 		push_error("drive_smoke: bad copper feedback '%s'" % wire_msg)
 		quit(1)
 		return false
@@ -2208,6 +2137,177 @@ func _verify_world_items(_occupancy: Node, character: CharacterBody3D, foot_cam:
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print("drive_smoke: world items OK (scrap + copper → inventory, no double-collect)")
+	return true
+
+
+func _verify_side_quest(occupancy: Node, character: CharacterBody3D, foot_cam: Node3D) -> bool:
+	## Power the Viewpoint: Mira offer → ACTIVE → gather → terminal turn-in → COMPLETED once.
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	var inv: Node = root.get_node_or_null("InventorySystem")
+	var qs: Node = root.get_node_or_null("QuestSystem")
+	if poi_sys == null or dlg == null or inv == null or qs == null:
+		push_error("drive_smoke: missing systems for side quest")
+		quit(1)
+		return false
+
+	qs.call("reset_all")
+	inv.call("clear_inventory")
+
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(9.0, 0.0, -3.0))
+	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	if vp == null:
+		push_error("drive_smoke: viewpoint spawn failed for quest")
+		quit(1)
+		return false
+
+	var mira: Node = vp.find_child("Mira", true, false)
+	var terminal: Node = vp.find_child("ViewpointTerminal", true, false)
+	var scrap_a: Node = vp.find_child("ScrapMetalPickup", true, false)
+	var scrap_b: Node = vp.find_child("ScrapMetalPickupB", true, false)
+	var wire: Node = vp.find_child("CopperWirePickup", true, false)
+	if mira == null or terminal == null or scrap_a == null or scrap_b == null or wire == null:
+		push_error("drive_smoke: quest scene nodes missing")
+		quit(1)
+		return false
+
+	if str(qs.call("get_state_name", "power_the_viewpoint")) != "INACTIVE":
+		push_error("drive_smoke: quest should start INACTIVE")
+		quit(1)
+		return false
+
+	# 1) Talk to Mira → activate quest.
+	var mira_pos: Vector3 = (mira as Node3D).global_position
+	character.global_position = mira_pos + Vector3(0.0, 0.05, 1.5)
+	var face := mira_pos - character.global_position
+	var yaw := atan2(-face.x, -face.z)
+	character.rotation.y = yaw
+	if foot_cam.has_method("set_look_angles"):
+		foot_cam.call("set_look_angles", yaw, deg_to_rad(-10.0))
+	for _i in range(10):
+		await physics_frame
+	if not bool(mira.call("interact", character)):
+		push_error("drive_smoke: Mira offer interact failed")
+		quit(1)
+		return false
+	await physics_frame
+	# Advance offer sequence to completion.
+	while bool(dlg.call("is_active")):
+		dlg.call("advance")
+		await physics_frame
+	if not bool(qs.call("is_active", "power_the_viewpoint")):
+		push_error("drive_smoke: quest not ACTIVE after Mira offer")
+		quit(1)
+		return false
+
+	# Terminal without items should fail.
+	if bool(terminal.call("interact", character)):
+		push_error("drive_smoke: terminal turn-in succeeded without items")
+		quit(1)
+		return false
+	if str(terminal.call("get_state_name")) != "OFF":
+		push_error("drive_smoke: terminal should stay OFF without items")
+		quit(1)
+		return false
+
+	# 2) Collect resources (3 scrap + 1 copper).
+	for pickup in [scrap_a, scrap_b, wire]:
+		var ppos: Vector3 = (pickup as Node3D).global_position
+		character.global_position = ppos + Vector3(0.0, 0.05, 1.15)
+		face = ppos - character.global_position
+		yaw = atan2(-face.x, -face.z)
+		character.rotation.y = yaw
+		if foot_cam.has_method("set_look_angles"):
+			foot_cam.call("set_look_angles", yaw, deg_to_rad(-12.0))
+		for _w in range(8):
+			await physics_frame
+		if not bool(pickup.call("interact", character)):
+			push_error("drive_smoke: quest pickup collect failed (%s)" % pickup.name)
+			quit(1)
+			return false
+		await physics_frame
+
+	if not bool(qs.call("has_required_items", "power_the_viewpoint")):
+		push_error(
+			"drive_smoke: missing required items after pickups (scrap=%d wire=%d)"
+			% [int(inv.call("get_quantity", "scrap_metal")), int(inv.call("get_quantity", "copper_wire"))]
+		)
+		quit(1)
+		return false
+
+	# 3) Turn in at terminal → ON + COMPLETED; consume items.
+	var term_pos: Vector3 = (terminal as Node3D).global_position
+	character.global_position = term_pos + Vector3(0.0, 0.05, 1.6)
+	face = term_pos - character.global_position
+	yaw = atan2(-face.x, -face.z)
+	character.rotation.y = yaw
+	if foot_cam.has_method("set_look_angles"):
+		foot_cam.call("set_look_angles", yaw, deg_to_rad(-12.0))
+	for _t in range(10):
+		await physics_frame
+
+	var completed_n := {"n": 0}
+	var on_done := func(_id: String) -> void:
+		completed_n["n"] = int(completed_n["n"]) + 1
+	qs.quest_completed.connect(on_done)
+
+	if not bool(terminal.call("interact", character)):
+		push_error("drive_smoke: terminal quest turn-in failed")
+		quit(1)
+		return false
+	await physics_frame
+	if str(terminal.call("get_state_name")) != "ON":
+		push_error("drive_smoke: terminal not ON after turn-in")
+		quit(1)
+		return false
+	if not bool(qs.call("is_completed", "power_the_viewpoint")):
+		push_error("drive_smoke: quest not COMPLETED after turn-in")
+		quit(1)
+		return false
+	if int(completed_n["n"]) < 1:
+		push_error("drive_smoke: quest_completed signal missing")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "scrap_metal")) != 0 or int(inv.call("get_quantity", "copper_wire")) != 0:
+		push_error("drive_smoke: resources not consumed on turn-in")
+		quit(1)
+		return false
+
+	# 4) Re-interact must not duplicate reward/consumption.
+	if bool(terminal.call("interact", character)):
+		push_error("drive_smoke: terminal interacted again after COMPLETED")
+		quit(1)
+		return false
+	if not bool(qs.call("try_turn_in", "power_the_viewpoint")):
+		pass  # expected false
+	else:
+		push_error("drive_smoke: try_turn_in succeeded twice")
+		quit(1)
+		return false
+	if int(inv.call("add_item", "scrap_metal", 3)) != 3:
+		push_error("drive_smoke: could not re-add scrap for duplicate check")
+		quit(1)
+		return false
+	# Even with items again, completed quest must not consume/re-complete.
+	if bool(qs.call("try_turn_in", "power_the_viewpoint")):
+		push_error("drive_smoke: completed quest consumed items again")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "scrap_metal")) != 3:
+		push_error("drive_smoke: duplicate turn-in changed inventory")
+		quit(1)
+		return false
+
+	qs.quest_completed.disconnect(on_done)
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	inv.call("clear_inventory")
+	qs.call("reset_all")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: side quest OK (offer → gather → turn-in → COMPLETED once)")
 	return true
 
 
