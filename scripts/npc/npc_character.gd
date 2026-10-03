@@ -2,10 +2,11 @@ extends Area3D
 class_name NpcCharacter
 ## Reusable placeholder NPC. Duck-types the Interactable API (same detector as terminals).
 ## Data comes from NpcDefinition — not hardcoded on PlayerCharacter.
-## No pathfinding, routines, dialogue trees, or coupling to the POI autoload.
+## On interact: starts DialogueSystem by dialogue_id (no lines authored in this script).
 
 signal interacted(actor: Node)
 signal line_spoken(line: String)
+signal dialogue_requested(dialogue_id: String, actor: Node)
 
 @export var definition: NpcDefinition
 ## Fallback exports when no Resource is assigned (editor convenience / tests).
@@ -13,12 +14,10 @@ signal line_spoken(line: String)
 @export var display_name: String = "NPC"
 @export var role: String = "traveler"
 @export var enabled: bool = true
-@export var greeting_line: String = "Boa viagem."
+@export var dialogue_id: String = ""
+@export var greeting_line: String = ""
 @export var interaction_priority: int = 0
-@export var line_display_seconds: float = 2.5
 
-var _line_label: Label3D
-var _line_timer: Timer
 var _name_label: Label3D
 
 
@@ -30,7 +29,6 @@ func _ready() -> void:
 	_apply_definition_to_exports()
 	_cache_nodes()
 	_refresh_name_label()
-	_hide_line()
 
 
 func get_npc_id() -> String:
@@ -51,6 +49,11 @@ func get_role() -> String:
 func is_npc_enabled() -> bool:
 	_apply_definition_to_exports()
 	return enabled
+
+
+func get_dialogue_id() -> String:
+	_apply_definition_to_exports()
+	return dialogue_id
 
 
 func get_greeting_line() -> String:
@@ -75,33 +78,70 @@ func get_interaction_prompt() -> String:
 func can_interact(_actor: Node = null) -> bool:
 	if not is_npc_enabled() or not is_inside_tree() or not is_visible_in_tree():
 		return false
-	return true
+	var dlg := get_node_or_null("/root/DialogueSystem")
+	if dlg != null and dlg.has_method("is_active") and bool(dlg.call("is_active")):
+		return false
+	return not get_dialogue_id().is_empty() or not get_greeting_line().is_empty()
 
 
 func interact(actor: Node = null) -> bool:
 	if not can_interact(actor):
 		return false
-	var line := get_greeting_line()
-	if line.is_empty():
-		line = "..."
-	_show_line(line)
-	var actor_name := str(actor.name) if actor != null else "unknown"
-	var msg := "Npc %s (%s): \"%s\" (actor=%s)" % [get_display_name(), get_role(), line, actor_name]
-	print(msg)
-	set_meta("last_interact_message", msg)
-	set_meta("last_spoken_line", line)
+
+	var started := false
+	var id := get_dialogue_id()
+	if not id.is_empty():
+		var dlg := get_node_or_null("/root/DialogueSystem")
+		if dlg != null and dlg.has_method("start_dialogue"):
+			started = bool(dlg.call("start_dialogue", id, actor))
+			if started:
+				dialogue_requested.emit(id, actor)
+				var text := str(dlg.call("get_current_text")) if dlg.has_method("get_current_text") else id
+				set_meta("last_spoken_line", text)
+				set_meta("last_interact_message", "NPC %s dialogue=%s" % [get_display_name(), id])
+				line_spoken.emit(text)
+
+	if not started:
+		# Fallback: one-shot line via DialogueSystem if possible, else meta only.
+		var line := get_greeting_line()
+		if line.is_empty():
+			return false
+		var dlg2 := get_node_or_null("/root/DialogueSystem")
+		if dlg2 != null and dlg2.has_method("start_from_definition"):
+			var fallback := _make_fallback_definition(line)
+			started = bool(dlg2.call("start_from_definition", fallback, actor))
+			if started:
+				dialogue_requested.emit(str(fallback.get("id")), actor)
+				set_meta("last_spoken_line", line)
+				set_meta("last_interact_message", "NPC %s fallback='%s'" % [get_display_name(), line])
+				line_spoken.emit(line)
+		if not started:
+			set_meta("last_spoken_line", line)
+			set_meta("last_interact_message", "NPC %s: \"%s\"" % [get_display_name(), line])
+			line_spoken.emit(line)
+			started = true
+
 	set_meta("interact_count", int(get_meta("interact_count", 0)) + 1)
-	line_spoken.emit(line)
 	interacted.emit(actor)
-	return true
+	print(
+		"Npc %s (%s): dialogue_id=%s (actor=%s)"
+		% [get_display_name(), get_role(), get_dialogue_id(), str(actor.name) if actor else "unknown"]
+	)
+	return started
 
 
 func get_last_spoken_line() -> String:
 	return str(get_meta("last_spoken_line", ""))
 
 
-func is_line_visible() -> bool:
-	return _line_label != null and _line_label.visible
+func _make_fallback_definition(line: String) -> Resource:
+	var script: Script = load("res://scripts/dialogue/dialogue_definition.gd") as Script
+	var def: Resource = script.new() if script != null else Resource.new()
+	def.set("id", "fallback_%s" % get_npc_id())
+	def.set("speaker_name", get_display_name())
+	def.set("text", line)
+	def.set("next_dialogue_id", "")
+	return def
 
 
 func _apply_definition_to_exports() -> void:
@@ -114,41 +154,17 @@ func _apply_definition_to_exports() -> void:
 	if not definition.role.is_empty():
 		role = definition.role
 	enabled = definition.enabled
+	if not definition.dialogue_id.is_empty():
+		dialogue_id = definition.dialogue_id
 	if not definition.greeting_line.is_empty():
 		greeting_line = definition.greeting_line
 
 
 func _cache_nodes() -> void:
-	_line_label = get_node_or_null("SpeechLabel") as Label3D
 	_name_label = get_node_or_null("NameLabel") as Label3D
-	_line_timer = get_node_or_null("SpeechTimer") as Timer
-	if _line_timer == null:
-		_line_timer = Timer.new()
-		_line_timer.name = "SpeechTimer"
-		_line_timer.one_shot = true
-		add_child(_line_timer)
-	if not _line_timer.timeout.is_connected(_hide_line):
-		_line_timer.timeout.connect(_hide_line)
 
 
 func _refresh_name_label() -> void:
 	if _name_label == null:
 		return
 	_name_label.text = get_display_name()
-
-
-func _show_line(line: String) -> void:
-	_cache_nodes()
-	if _line_label != null:
-		_line_label.text = line
-		_line_label.visible = true
-	if _line_timer != null:
-		_line_timer.stop()
-		_line_timer.wait_time = maxf(line_display_seconds, 0.2)
-		_line_timer.start()
-
-
-func _hide_line() -> void:
-	if _line_label != null:
-		_line_label.visible = false
-		_line_label.text = ""

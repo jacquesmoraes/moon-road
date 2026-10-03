@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **NPC foundation** — reusable `NPC.tscn` + `NpcDefinition` at Sunset Viewpoint (Mira); interact shows a temporary “Boa viagem.” line via the generic Interactable system.
+Current slice: **data-driven dialogue** — `DialogueSystem` + `DialogueDefinition` catalog; Mira/Rafa at Sunset Viewpoint open linear sequences that lock on-foot control until finished.
 
 ## Requirements
 
@@ -32,6 +32,7 @@ Current slice: **NPC foundation** — reusable `NPC.tscn` + `NpcDefinition` at S
 | `player_move_forward` / `backward` / `left` / `right` | WASD / arrows — camera-relative walk |
 | `player_run` | Shift — run while on foot |
 | `player_interact` | E — world interact when focused; else enter vehicle (see Occupancy) |
+| `dialogue_continue` | Space / E / Enter — advance or close active dialogue |
 
 Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`, plus cruise `cruise_target_speed_kmh`, `cruise_speed_deadzone`, `cruise_control_gain`, and parking `max_parking_speed`, `require_valid_surface`.
 
@@ -50,21 +51,23 @@ Reusable world-object interaction — terminals, logs, and NPCs share the same d
 | `ViewpointTerminal` | Sunset Viewpoint console — **one-shot OFF→ON** (session state, color + light + label) |
 | `Npc` / `NpcDefinition` | Placeholder person — data Resource + temporary spoken line |
 
-**E key UX:** On foot, a focused interactable wins (`player_interact`). If none, E enters the parked vehicle. In vehicle (parked), E still exits. Prompt only shows while a valid object is in range/front cone.
+**E key UX:** On foot, a focused interactable wins (`player_interact`). If none, E enters the parked vehicle. In vehicle (parked), E still exits. Prompt only shows while a valid object is in range/front cone. During dialogue, movement is locked and `dialogue_continue` advances lines.
 
 **ViewpointTerminal choice:** one-shot **ON** (not a toggle). First successful interact powers it; `can_interact` becomes false; state persists while that viewpoint instance stays loaded (survives enter/exit car). No disk save yet.
 
-### NPCs (`Npc` + `NpcDefinition`)
+### NPCs + Dialogue (`DialogueSystem`)
 
-Foundation only — no dialogue tree, pathfinding, routines, quests, or shops.
+Data-driven linear talk — no choices, branching, VO, or quests yet.
 
 | Piece | Role |
 |-------|------|
-| `NpcDefinition` | Resource: `npc_id`, `display_name`, `role`, `enabled`, `presence_mode`, `greeting_line` |
-| `NPC.tscn` / `NpcCharacter` | Duck-typed Interactable; shows a temporary Label3D line on interact |
-| `PresenceMode` | `STATIC` now; `ROUTINE` / `TRAVELING` reserved for later |
+| `DialogueDefinition` | `id`, `speaker_name`, `text`, `next_dialogue_id` (+ reserved flags/choices) |
+| `DialogueCatalog` | Flat registry (`resources/dialogue/default_catalog.tres`) |
+| `DialogueSystem` | Autoload — start / advance / end; locks on-foot control |
+| `DialogueUI` | Placeholder bottom dialogue box |
+| `NpcDefinition.dialogue_id` | NPC only points at the first line id |
 
-Sunset Viewpoint places **Mira** (`viewpoint_keeper`) with greeting `"Boa viagem."`. Data lives in `resources/npc/` — not on `PlayerCharacter`. No dependency on `POISystem` (viewpoint scene just instances the NPC).
+**Authoring:** create `.tres` lines, chain with `next_dialogue_id`, add them to the catalog, set the NPC's `dialogue_id`. **Mira** (`mira_01`→`mira_02`) and **Rafa** (`rafa_01`→`rafa_02`) at Sunset Viewpoint prove reuse.
 
 ### Small interiors (`SmallInterior`)
 
@@ -248,7 +251,8 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Motion: `PlayerVehicle` — DRIVING / PARKED (`vehicle_park`, `parking_state_changed`)
 - Occupancy: `PlayerOccupancyController` — IN_VEHICLE / ON_FOOT + `PlayerCharacter` (walk/run)
 - Interaction: `Interactable` + `InteractionDetector` + `TestTerminal` / `ViewpointTerminal` (stateful OFF→ON)
-- NPCs: `NPC.tscn` + `NpcDefinition` (Mira at Sunset Viewpoint — temporary greeting line)
+- NPCs: `NPC.tscn` + `NpcDefinition` (Mira / Rafa at Sunset Viewpoint)
+- Dialogue: `DialogueSystem` + `DialogueDefinition` catalog + `DialogueUI` (linear sequences)
 - Interiors: `SmallInterior` Observation Booth (walk-in doorway) + `ObservationLog`
 - On-foot camera: `OnFootCameraController` — THIRD_PERSON (FIRST_PERSON-ready)
 - Driving modes: `DrivingModeController` — MANUAL / CRUISE / TRAVEL_MODE
@@ -260,4 +264,4 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - World: `WorldOriginRecenter` + `RoadsideScenery` + `RoadsideExitSystem` + `POISystem` / `ViewpointPOI`
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: dialogue trees, NPC routines/pathfinding, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, quests/loot, final art, fuel, damage, upgrades, final UI, inventory, save
+- Not implemented yet: dialogue choices/branching, NPC routines/pathfinding, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, quests/loot, final art, fuel, damage, upgrades, final UI, inventory, save

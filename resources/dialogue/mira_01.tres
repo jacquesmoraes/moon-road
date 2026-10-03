@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="DialogueDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/dialogue/dialogue_definition.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = "mira_01"
+speaker_name = "Mira"
+text = "Parei aqui só pra ver o horizonte."
+next_dialogue_id = "mira_02"

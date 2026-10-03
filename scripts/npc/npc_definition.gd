@@ -14,8 +14,10 @@ enum PresenceMode {
 @export var role: String = "traveler"
 @export var enabled: bool = true
 @export var presence_mode: PresenceMode = PresenceMode.STATIC
-## Single temporary line on interact — no dialogue tree yet.
-@export var greeting_line: String = "Boa viagem."
+## Starts this dialogue via DialogueSystem (data-driven — not hardcoded lines in the NPC script).
+@export var dialogue_id: String = ""
+## Legacy one-liner fallback when dialogue_id is empty (prefer dialogue_id).
+@export var greeting_line: String = ""
 
 
 func get_presence_mode_name() -> String:

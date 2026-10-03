@@ -33,6 +33,7 @@ display_name = "NPC"
 role = "traveler"
 enabled = true
 greeting_line = "Boa viagem."
+interaction_priority = 0
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0)

@@ -1,10 +1,11 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/viewpoint_poi.gd" id="1_viewpoint"]
 [ext_resource type="PackedScene" uid="uid://bterra_viewpoint_terminal" path="res://scenes/interaction/ViewpointTerminal.tscn" id="2_terminal"]
 [ext_resource type="PackedScene" uid="uid://bterra_small_interior" path="res://scenes/world/SmallInterior.tscn" id="3_interior"]
 [ext_resource type="PackedScene" uid="uid://bterra_npc" path="res://scenes/npc/NPC.tscn" id="4_npc"]
 [ext_resource type="Resource" path="res://resources/npc/mira_viewpoint_keeper.tres" id="5_mira"]
+[ext_resource type="Resource" path="res://resources/npc/rafa_road_traveler.tres" id="6_rafa"]
 
 [node name="ViewpointPOI" type="Node3D"]
 script = ExtResource("1_viewpoint")
@@ -41,3 +42,7 @@ building_title = "Observation Booth"
 [node name="Mira" parent="." instance=ExtResource("4_npc")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.5, 0.0, -2.2)
 definition = ExtResource("5_mira")
+
+[node name="Rafa" parent="." instance=ExtResource("4_npc")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.2, 0.0, 2.5)
+definition = ExtResource("6_rafa")

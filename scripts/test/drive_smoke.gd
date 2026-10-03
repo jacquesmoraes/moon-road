@@ -881,7 +881,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK interior=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK interior=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1631,30 +1631,40 @@ func _verify_viewpoint_terminal(occupancy: Node, character: CharacterBody3D, foo
 
 
 func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_cam: Node3D) -> bool:
-	## Placeholder NPC at Sunset Viewpoint via generic Interactable infra (no dialogue tree).
+	## Data-driven DialogueSystem via Mira + Rafa (shared Interactable + catalog).
 	var poi_sys: Node = root.get_node_or_null("POISystem")
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
 	if poi_sys == null:
-		push_error("drive_smoke: POISystem missing for NPC test")
+		push_error("drive_smoke: POISystem missing for dialogue test")
+		quit(1)
+		return false
+	if dlg == null:
+		push_error("drive_smoke: DialogueSystem autoload missing")
 		quit(1)
 		return false
 
 	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
 	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
-	var def_res: Resource = load("res://resources/npc/mira_viewpoint_keeper.tres")
-	if poi_res == null or vp_scene == null or def_res == null:
-		push_error("drive_smoke: could not load NPC / viewpoint resources")
+	if poi_res == null or vp_scene == null:
+		push_error("drive_smoke: could not load viewpoint resources for dialogue")
 		quit(1)
 		return false
 
-	# NPC scripts must not import the POI autoload (no circular dependency).
+	# NPC must not hardcode dialogue text — only dialogue_id / definition.
 	var npc_script: Script = load("res://scripts/npc/npc_character.gd") as Script
-	if npc_script == null:
-		push_error("drive_smoke: npc_character.gd missing")
-		quit(1)
-		return false
-	var npc_src := npc_script.source_code
-	if npc_src.find("/root/POISystem") >= 0 or npc_src.find("poi_system.gd") >= 0:
-		push_error("drive_smoke: NpcCharacter must not reference POI autoload")
+	if npc_script != null:
+		var src := npc_script.source_code
+		if src.find("Boa viagem.") >= 0 or src.find("Parei aqui") >= 0:
+			push_error("drive_smoke: dialogue text must not be hardcoded in NpcCharacter")
+			quit(1)
+			return false
+		if src.find("/root/POISystem") >= 0 or src.find("poi_system.gd") >= 0:
+			push_error("drive_smoke: NpcCharacter must not reference POI autoload")
+			quit(1)
+			return false
+
+	if not bool(dlg.call("has_dialogue", "mira_01")) or not bool(dlg.call("has_dialogue", "rafa_01")):
+		push_error("drive_smoke: DialogueSystem catalog missing mira/rafa entries")
 		quit(1)
 		return false
 
@@ -1662,52 +1672,42 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
 	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
 	if vp == null:
-		push_error("drive_smoke: failed to spawn viewpoint for NPC")
+		push_error("drive_smoke: failed to spawn viewpoint for dialogue")
 		quit(1)
 		return false
 
-	var npc: Node = vp.find_child("Mira", true, false)
-	if npc == null:
-		npc = vp.find_child("NPC", true, false)
-	if npc == null or not npc.has_method("interact"):
-		push_error("drive_smoke: Mira NPC missing on ViewpointPOI")
+	var mira: Node = vp.find_child("Mira", true, false)
+	var rafa: Node = vp.find_child("Rafa", true, false)
+	if mira == null or not mira.has_method("interact"):
+		push_error("drive_smoke: Mira NPC missing")
 		quit(1)
 		return false
-	if not InteractionDetector.is_interactable_node(npc):
-		push_error("drive_smoke: NPC is not duck-typed interactable")
+	if rafa == null or not rafa.has_method("interact"):
+		push_error("drive_smoke: Rafa NPC missing (reuse proof)")
 		quit(1)
 		return false
-	if str(npc.call("get_npc_id")) != "mira_viewpoint_keeper":
-		push_error("drive_smoke: NPC id mismatch (%s)" % str(npc.call("get_npc_id")))
+	if not InteractionDetector.is_interactable_node(mira) or not InteractionDetector.is_interactable_node(rafa):
+		push_error("drive_smoke: NPCs must duck-type Interactable")
 		quit(1)
 		return false
-	if str(npc.call("get_display_name")) != "Mira":
-		push_error("drive_smoke: NPC display_name mismatch")
+	if str(mira.call("get_dialogue_id")) != "mira_01":
+		push_error("drive_smoke: Mira dialogue_id should be mira_01")
 		quit(1)
 		return false
-	if str(npc.call("get_role")) != "viewpoint_keeper":
-		push_error("drive_smoke: NPC role mismatch")
-		quit(1)
-		return false
-	if not bool(npc.call("is_npc_enabled")):
-		push_error("drive_smoke: NPC should be enabled")
-		quit(1)
-		return false
-	if str(npc.call("get_presence_mode_name")) != "STATIC":
-		push_error("drive_smoke: expected STATIC presence mode for foundation NPC")
+	if str(rafa.call("get_dialogue_id")) != "rafa_01":
+		push_error("drive_smoke: Rafa dialogue_id should be rafa_01")
 		quit(1)
 		return false
 
-	var line_signals := {"n": 0, "line": ""}
-	var on_line := func(line: String) -> void:
-		line_signals["n"] = int(line_signals["n"]) + 1
-		line_signals["line"] = line
-	if npc.has_signal("line_spoken"):
-		npc.line_spoken.connect(on_line)
+	var finished := {"n": 0}
+	var on_finished := func(_id: String) -> void:
+		finished["n"] = int(finished["n"]) + 1
+	dlg.dialogue_finished.connect(on_finished)
 
-	var npc_pos: Vector3 = (npc as Node3D).global_position
-	character.global_position = npc_pos + Vector3(0.0, 0.05, 1.6)
-	var face := npc_pos - character.global_position
+	# --- Mira sequence ---
+	var mira_pos: Vector3 = (mira as Node3D).global_position
+	character.global_position = mira_pos + Vector3(0.0, 0.05, 1.6)
+	var face := mira_pos - character.global_position
 	var yaw := atan2(-face.x, -face.z)
 	character.rotation.y = yaw
 	if foot_cam.has_method("set_look_angles"):
@@ -1715,69 +1715,123 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 	for _i in range(14):
 		await physics_frame
 
-	var detector: Node = character.get_node_or_null("InteractionDetector")
-	if detector == null:
-		push_error("drive_smoke: InteractionDetector missing for NPC test")
+	if not bool(character.call("is_control_enabled")):
+		push_error("drive_smoke: character should have control before dialogue")
 		quit(1)
 		return false
 
-	var prompt := ""
-	if bool(detector.call("has_focus")):
-		var focus: Node = detector.call("get_focus")
-		if focus == npc:
-			prompt = str(detector.call("get_focus_prompt"))
-		elif character.has_method("get_interaction_prompt"):
-			# Another nearby object may win; still require prompt path + direct interact.
-			prompt = str(npc.call("get_interaction_prompt"))
-	else:
-		prompt = str(npc.call("get_interaction_prompt"))
-	if prompt.find("Mira") < 0 and prompt.find("Falar") < 0:
-		push_error("drive_smoke: bad NPC prompt '%s'" % prompt)
+	var prompt := str(mira.call("get_interaction_prompt"))
+	if prompt.find("Mira") < 0:
+		push_error("drive_smoke: bad Mira prompt '%s'" % prompt)
 		quit(1)
 		return false
 
-	if bool(detector.call("has_focus")) and detector.call("get_focus") == npc:
-		if not bool(detector.call("try_interact")):
-			push_error("drive_smoke: detector try_interact failed on NPC")
-			quit(1)
-			return false
-	else:
-		if not bool(npc.call("interact", character)):
-			push_error("drive_smoke: NPC interact failed")
-			quit(1)
-			return false
-
+	if not bool(mira.call("interact", character)):
+		push_error("drive_smoke: Mira interact failed to start dialogue")
+		quit(1)
+		return false
 	await physics_frame
-	if int(npc.get_meta("interact_count", 0)) < 1:
-		push_error("drive_smoke: NPC interact_count not updated")
+
+	if not bool(dlg.call("is_active")):
+		push_error("drive_smoke: DialogueSystem not active after Mira interact")
 		quit(1)
 		return false
-	var spoken := str(npc.call("get_last_spoken_line"))
-	if spoken != "Boa viagem.":
-		push_error("drive_smoke: expected greeting 'Boa viagem.' got '%s'" % spoken)
+	if bool(character.call("is_control_enabled")):
+		push_error("drive_smoke: character still movable during dialogue")
 		quit(1)
 		return false
-	if int(line_signals["n"]) < 1 or str(line_signals["line"]) != "Boa viagem.":
-		push_error("drive_smoke: line_spoken did not fire with greeting")
+	if str(dlg.call("get_current_id")) != "mira_01":
+		push_error("drive_smoke: expected mira_01, got %s" % str(dlg.call("get_current_id")))
 		quit(1)
 		return false
-	if npc.has_method("is_line_visible") and not bool(npc.call("is_line_visible")):
-		push_error("drive_smoke: NPC speech label not visible after interact")
+	if str(dlg.call("get_current_text")).find("horizonte") < 0:
+		push_error("drive_smoke: unexpected Mira line 1 text")
 		quit(1)
 		return false
 
-	# Data lives on NpcDefinition / NPC exports — not PlayerCharacter.
-	if "mira_viewpoint_keeper" in str(character.get_script().source_code if character.get_script() else ""):
-		push_error("drive_smoke: NPC id must not be hardcoded in PlayerCharacter")
+	# Player cannot move while dialogue is active.
+	var locked_pos := character.global_position
+	Input.action_press("player_move_forward")
+	for _m in range(10):
+		await physics_frame
+	Input.action_release("player_move_forward")
+	if locked_pos.distance_to(character.global_position) > 0.05:
+		push_error("drive_smoke: character moved during dialogue")
 		quit(1)
 		return false
 
-	if npc.has_signal("line_spoken"):
-		npc.line_spoken.disconnect(on_line)
+	dlg.call("advance")
+	await physics_frame
+	if str(dlg.call("get_current_id")) != "mira_02":
+		push_error("drive_smoke: expected mira_02 after advance")
+		quit(1)
+		return false
+	if str(dlg.call("get_current_text")) != "Boa viagem.":
+		push_error("drive_smoke: expected 'Boa viagem.' on mira_02")
+		quit(1)
+		return false
+
+	dlg.call("advance")
+	await physics_frame
+	if bool(dlg.call("is_active")):
+		push_error("drive_smoke: dialogue still active after final advance")
+		quit(1)
+		return false
+	if not bool(character.call("is_control_enabled")):
+		push_error("drive_smoke: control not restored after Mira dialogue")
+		quit(1)
+		return false
+	if int(finished["n"]) < 1:
+		push_error("drive_smoke: dialogue_finished did not fire for Mira")
+		quit(1)
+		return false
+
+	# --- Rafa reuses the same DialogueSystem ---
+	var rafa_pos: Vector3 = (rafa as Node3D).global_position
+	character.global_position = rafa_pos + Vector3(0.0, 0.05, 1.6)
+	face = rafa_pos - character.global_position
+	yaw = atan2(-face.x, -face.z)
+	character.rotation.y = yaw
+	if foot_cam.has_method("set_look_angles"):
+		foot_cam.call("set_look_angles", yaw, deg_to_rad(-10.0))
+	for _j in range(10):
+		await physics_frame
+
+	if not bool(rafa.call("interact", character)):
+		push_error("drive_smoke: Rafa interact failed")
+		quit(1)
+		return false
+	await physics_frame
+	if not bool(dlg.call("is_active")) or str(dlg.call("get_current_id")) != "rafa_01":
+		push_error("drive_smoke: Rafa did not open rafa_01")
+		quit(1)
+		return false
+	if bool(character.call("is_control_enabled")):
+		push_error("drive_smoke: control not blocked during Rafa dialogue")
+		quit(1)
+		return false
+	dlg.call("advance")
+	await physics_frame
+	if str(dlg.call("get_current_text")) != "Cuida do carro.":
+		push_error("drive_smoke: unexpected Rafa line 2")
+		quit(1)
+		return false
+	dlg.call("advance")
+	await physics_frame
+	if bool(dlg.call("is_active")):
+		push_error("drive_smoke: Rafa dialogue did not end")
+		quit(1)
+		return false
+	if not bool(character.call("is_control_enabled")):
+		push_error("drive_smoke: control not restored after Rafa")
+		quit(1)
+		return false
+
+	dlg.dialogue_finished.disconnect(on_finished)
 	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
-	print("drive_smoke: NPC foundation OK (prompt → Boa viagem. via Interactable)")
+	print("drive_smoke: dialogue OK (Mira sequence + Rafa reuse, control locked/restored)")
 	return true
 
 

@@ -4,10 +4,10 @@
 
 [resource]
 script = ExtResource("1_script")
-npc_id = "mira_viewpoint_keeper"
-display_name = "Mira"
-role = "viewpoint_keeper"
+npc_id = "rafa_road_traveler"
+display_name = "Rafa"
+role = "traveler"
 enabled = true
 presence_mode = 0
-dialogue_id = "mira_01"
+dialogue_id = "rafa_01"
 greeting_line = ""
