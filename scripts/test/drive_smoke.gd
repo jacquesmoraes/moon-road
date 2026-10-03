@@ -1240,7 +1240,7 @@ func _verify_enter_exit_vehicle() -> bool:
 	await physics_frame
 
 	if not await _verify_interaction_system(occupancy, character, foot_cam):
-		return
+		return false
 
 	# Origin recenter while on foot must shift character + vehicle together.
 	var saved_recenter_dist: float = float(_recenter.get("recenter_distance"))

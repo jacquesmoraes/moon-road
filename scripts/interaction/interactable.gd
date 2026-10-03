@@ -32,7 +32,7 @@ func get_interaction_prompt() -> String:
 func can_interact(actor: Node = null) -> bool:
 	if not enabled or not is_inside_tree():
 		return false
-	if not visible_in_tree():
+	if not is_visible_in_tree():
 		return false
 	return _can_interact(actor)
 

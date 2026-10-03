@@ -31,10 +31,26 @@ Current slice: **generic interaction system** — duck-typed Interactable + Area
 | `player_enter_vehicle` | E — re-enter when near the parked vehicle |
 | `player_move_forward` / `backward` / `left` / `right` | WASD / arrows — camera-relative walk |
 | `player_run` | Shift — run while on foot |
+| `player_interact` | E — world interact when focused; else enter vehicle (see Occupancy) |
 
 Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`, plus cruise `cruise_target_speed_kmh`, `cruise_speed_deadzone`, `cruise_control_gain`, and parking `max_parking_speed`, `require_valid_surface`.
 
 On-foot feel on `PlayerCharacter`: `walk_speed`, `run_speed`, `acceleration`, `deceleration`, `gravity`, `max_step_height`.
+
+### Interaction (`Interactable` + `InteractionDetector`)
+
+Reusable world-object interaction — no inventory / NPC / quest logic yet.
+
+| Piece | Role |
+|-------|------|
+| `Interactable` | Base Area3D API: `interaction_name`, `interaction_prompt`, `can_interact()`, `interact(actor)` |
+| `InteractionDetector` | Child Area3D on the character; duck-types targets (no concrete-class dependency) |
+| `InteractionPromptUI` | Bottom-center debug prompt when focused |
+| `TestTerminal` | Sample object — prints a log message on interact |
+
+**E key UX:** On foot, a focused interactable wins (`player_interact`). If none, E enters the parked vehicle. In vehicle (parked), E still exits. Prompt only shows while a valid object is in range/front cone.
+
+Detection: Area3D proximity + forward cone ranking (stable, simple). Future NPCs/doors/benches/shops/items can subclass `Interactable` or duck-type the same methods.
 
 ### Occupancy (`PlayerOccupancyController`)
 
@@ -203,6 +219,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Dev main: `scenes/test/DrivingSandbox.tscn` — road pool, recenter, `PlayerVehicle`, `DrivingDebugHUD`
 - Motion: `PlayerVehicle` — DRIVING / PARKED (`vehicle_park`, `parking_state_changed`)
 - Occupancy: `PlayerOccupancyController` — IN_VEHICLE / ON_FOOT + `PlayerCharacter` (walk/run)
+- Interaction: `Interactable` + `InteractionDetector` + `TestTerminal` (E priority over enter)
 - On-foot camera: `OnFootCameraController` — THIRD_PERSON (FIRST_PERSON-ready)
 - Driving modes: `DrivingModeController` — MANUAL / CRUISE / TRAVEL_MODE
 - Vehicle: cruise speed hold + `RoadFollowAutopilot` (steering under Travel Mode)
