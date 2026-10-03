@@ -18,6 +18,8 @@ enum PresenceMode {
 @export var dialogue_id: String = ""
 ## If set, dialogue resolves from QuestSystem state for this quest.
 @export var linked_quest_id: String = ""
+## Condition-gated dialogue overrides (checked before quest helper). First match wins.
+@export var conditional_dialogues: Array = []
 ## Legacy one-liner fallback when dialogue_id is empty (prefer dialogue_id).
 @export var greeting_line: String = ""
 

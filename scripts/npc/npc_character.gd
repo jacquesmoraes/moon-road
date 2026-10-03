@@ -55,6 +55,12 @@ func is_npc_enabled() -> bool:
 func get_dialogue_id() -> String:
 	_apply_definition_to_exports()
 	var fallback := dialogue_id
+
+	# Extension point: ConditionSystem-gated overrides (e.g. Mira after quest complete).
+	var gated := _resolve_conditional_dialogue()
+	if not gated.is_empty():
+		return gated
+
 	var quest_id := linked_quest_id
 	if quest_id.is_empty():
 		var qs := get_node_or_null("/root/QuestSystem")
@@ -66,6 +72,31 @@ func get_dialogue_id() -> String:
 	if qs2 != null and qs2.has_method("get_dialogue_for_quest"):
 		return str(qs2.call("get_dialogue_for_quest", quest_id, fallback))
 	return fallback
+
+
+func _resolve_conditional_dialogue() -> String:
+	var entries: Array = []
+	if definition != null and "conditional_dialogues" in definition:
+		entries = definition.conditional_dialogues
+	if entries.is_empty():
+		return ""
+	var dlg := get_node_or_null("/root/DialogueSystem")
+	if dlg != null and dlg.has_method("resolve_dialogue_id"):
+		return str(dlg.call("resolve_dialogue_id", entries))
+	# Fallback: evaluate via ConditionSystem directly.
+	var cond_sys := get_node_or_null("/root/ConditionSystem")
+	for entry in entries:
+		if entry == null:
+			continue
+		var dlg_id := str(entry.get("dialogue_id"))
+		if dlg_id.is_empty():
+			continue
+		var condition: Resource = entry.get("condition") as Resource
+		if condition == null:
+			return dlg_id
+		if cond_sys != null and cond_sys.has_method("evaluate") and bool(cond_sys.call("evaluate", condition)):
+			return dlg_id
+	return ""
 
 
 func get_linked_quest_id() -> String:

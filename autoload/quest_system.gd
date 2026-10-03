@@ -82,17 +82,26 @@ func complete_quest(quest_id: String) -> bool:
 
 
 ## Resolve which dialogue an NPC should open for a linked quest.
+## Prefer ConditionSystem-gated ConditionalDialogue on the NPC for new gates
+## (see Mira + power_the_viewpoint COMPLETED). This helper remains for
+## start/active/completed ids authored on QuestData.
 func get_dialogue_for_quest(quest_id: String, fallback_dialogue_id: String = "") -> String:
 	var data: Resource = get_quest(quest_id)
 	if data == null:
 		return fallback_dialogue_id
+	# Extension: when COMPLETED, verify via ConditionSystem if available (shared gate).
+	if is_completed(quest_id):
+		var cond_sys := get_node_or_null("/root/ConditionSystem")
+		if cond_sys != null and cond_sys.has_method("make_quest_state") and cond_sys.has_method("evaluate"):
+			var gate: Resource = cond_sys.call("make_quest_state", quest_id, "COMPLETED")
+			if not bool(cond_sys.call("evaluate", gate)):
+				return fallback_dialogue_id
+		var done_id := str(data.get("completed_dialogue_id"))
+		return done_id if not done_id.is_empty() else fallback_dialogue_id
 	match get_state(quest_id):
 		QuestDataScript.State.ACTIVE:
 			var active_id := str(data.get("active_dialogue_id"))
 			return active_id if not active_id.is_empty() else fallback_dialogue_id
-		QuestDataScript.State.COMPLETED:
-			var done_id := str(data.get("completed_dialogue_id"))
-			return done_id if not done_id.is_empty() else fallback_dialogue_id
 		_:
 			var start_id := str(data.get("start_dialogue_id"))
 			return start_id if not start_id.is_empty() else fallback_dialogue_id

@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **first vehicle upgrade loop** — craft Cruise Module Mk I → install → +10 km/h effective speed.
+Current slice: **gameplay conditions + flags** — ConditionSystem evaluates gates; Mira switches dialogue when `power_the_viewpoint` is COMPLETED.
 
 ## Requirements
 
@@ -70,11 +70,25 @@ Data-driven linear talk — no choices, branching, VO, or quests yet.
 |-------|------|
 | `DialogueDefinition` | `id`, `speaker_name`, `text`, `next_dialogue_id` (+ reserved flags/choices) |
 | `DialogueCatalog` | Flat registry (`resources/dialogue/default_catalog.tres`) |
-| `DialogueSystem` | Autoload — start / advance / end; locks on-foot control |
+| `DialogueSystem` | Autoload — start / advance / end; locks on-foot control; `resolve_dialogue_id` for condition gates |
 | `DialogueUI` | Placeholder bottom dialogue box |
-| `NpcDefinition.dialogue_id` | NPC only points at the first line id |
+| `ConditionalDialogue` | `condition` + `dialogue_id` — first match wins |
+| `NpcDefinition.dialogue_id` | Fallback / offer line id |
+| `NpcDefinition.conditional_dialogues` | ConditionSystem-gated overrides |
 
-**Authoring:** create `.tres` lines, chain with `next_dialogue_id`, add them to the catalog, set the NPC's `dialogue_id`. **Mira** (`mira_01`→`mira_02`) and **Rafa** (`rafa_01`→`rafa_02`) at Sunset Viewpoint prove reuse.
+**Authoring:** create `.tres` lines, chain with `next_dialogue_id`, add them to the catalog, set the NPC's `dialogue_id`. **Mira** uses a `QUEST_STATE` gate: when `power_the_viewpoint` is `COMPLETED`, she opens `mira_quest_done_01` via ConditionSystem (before the quest helper). **Rafa** stays linear (`rafa_01`→`rafa_02`).
+
+### Conditions + flags (`ConditionSystem` / `GameFlags`)
+
+Generic gate layer — no quest/NPC-specific ifs inside ConditionSystem.
+
+| Piece | Role |
+|-------|------|
+| `ConditionData` | Typed condition resource (`FLAG_EQUALS`, `QUEST_STATE`, `HAS_ITEM`, …) |
+| `ConditionSystem` | `evaluate` / `evaluate_all` / `evaluate_any` |
+| `GameFlags` | `set_flag` / `get_flag` / `has_flag` — persisted via SaveSystem |
+
+Extension points: `DialogueSystem.resolve_dialogue_id(entries)`, NPC `conditional_dialogues`, QuestSystem completed path also consults ConditionSystem.
 
 ### Save (`SaveSystem`)
 
@@ -83,7 +97,7 @@ Versioned JSON at `user://savegame.json`. SaveSystem only coordinates — each s
 | Piece | Role |
 |-------|------|
 | `save_version` / `created_at` / `updated_at` | Header on every file |
-| Providers | `JourneySystem`, `InventorySystem`, `QuestSystem`, `POISystem`, `WorldStateSystem`, `GameTimeSystem`, `VehicleStateSystem` |
+| Providers | `JourneySystem`, `InventorySystem`, `QuestSystem`, `POISystem`, `WorldStateSystem`, `GameTimeSystem`, `VehicleStateSystem`, `GameFlags` |
 | API | `save_game`, `load_game`, `has_save`, `delete_save`, `get_save_version` |
 | Backup | `user://savegame.json.bak` before overwrite |
 | Debug | **F5** save · **F9** load · **F6** delete |
@@ -367,7 +381,7 @@ godot --path . --headless -s res://scripts/test/drive_smoke.gd
 | `scripts/{core,player,vehicles,road,world,ui,test}` | GDScript by domain |
 | `resources/{vehicles,road,world}` | Shared resources / configs |
 | `assets/{models,materials,textures,audio}` | Art and audio |
-| `autoload/` | Autoload scripts (`JourneySystem`, `WorldRegionSystem`, `POISystem`, `DialogueSystem`, `InventorySystem`, `QuestSystem`, `CraftingSystem`, `SaveSystem`, `WorldStateSystem`, `GameTimeSystem`, `VehicleStateSystem`) |
+| `autoload/` | Autoload scripts (… `VehicleStateSystem`, `GameFlags`, `ConditionSystem`) |
 | `data/` | Static data files |
 
 Empty directories keep a `.gdkeep` placeholder so Git tracks them.
@@ -379,7 +393,8 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Occupancy: `PlayerOccupancyController` — IN_VEHICLE / ON_FOOT + `PlayerCharacter` (walk/run)
 - Interaction: `Interactable` + `InteractionDetector` + `TestTerminal` / `ViewpointTerminal` (stateful OFF→ON)
 - NPCs: `NPC.tscn` + `NpcDefinition` (Mira / Rafa at Sunset Viewpoint)
-- Dialogue: `DialogueSystem` + `DialogueDefinition` catalog + `DialogueUI` (linear sequences)
+- Dialogue: `DialogueSystem` + `ConditionalDialogue` gates + `DialogueUI`
+- Conditions: `ConditionSystem` + `GameFlags` (persist)
 - Inventory: `InventorySystem` + `ItemData` catalog + `InventoryDebugUI` (I to toggle)
 - Crafting: `CraftingSystem` + `RecipeData` + Workbench + `CraftingDebugUI`
 - Save: `SaveSystem` → `user://savegame.json` (F5/F9/F6 debug)

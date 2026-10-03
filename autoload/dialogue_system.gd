@@ -75,6 +75,36 @@ func get_dialogue(dialogue_id: String) -> Resource:
 	return _by_id.get(dialogue_id, null)
 
 
+## Extension point: first entry whose ConditionData passes (null condition = always).
+## entries: Array of ConditionalDialogue / Dictionary {dialogue_id, condition}.
+func resolve_dialogue_id(entries: Array) -> String:
+	var cond_sys := get_node_or_null("/root/ConditionSystem")
+	for entry in entries:
+		if entry == null:
+			continue
+		var dlg_id := ""
+		var condition: Resource = null
+		if typeof(entry) == TYPE_DICTIONARY:
+			dlg_id = str(entry.get("dialogue_id", ""))
+			var raw: Variant = entry.get("condition", null)
+			if raw is Resource:
+				condition = raw
+		elif entry is Resource:
+			dlg_id = str(entry.get("dialogue_id"))
+			var raw_c: Variant = entry.get("condition")
+			if raw_c is Resource:
+				condition = raw_c
+		if dlg_id.is_empty():
+			continue
+		if condition == null:
+			return dlg_id
+		if cond_sys != null and cond_sys.has_method("evaluate"):
+			if bool(cond_sys.call("evaluate", condition)):
+				return dlg_id
+		# Without ConditionSystem, only ungated entries resolve.
+	return ""
+
+
 ## Registers / replaces a definition at runtime (tests, optional local overrides).
 func register_dialogue(def: Resource) -> void:
 	if def == null:

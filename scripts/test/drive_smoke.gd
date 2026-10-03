@@ -900,13 +900,16 @@ func _finish() -> void:
 	if not _verify_vehicle_upgrade_loop():
 		return
 
+	if not await _verify_condition_system():
+		return
+
 	if not await _verify_enter_exit_vehicle():
 		return
 
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -2325,6 +2328,275 @@ func _verify_vehicle_upgrade_loop() -> bool:
 	print(
 		"drive_smoke: upgrade OK (craft → install +10 km/h → persist once, no duplicate)"
 	)
+	return true
+
+
+func _verify_condition_system() -> bool:
+	## ConditionSystem + GameFlags: all types, ALL/ANY, flag save, Mira COMPLETED dialogue gate.
+	var cond: Node = root.get_node_or_null("ConditionSystem")
+	var flags: Node = root.get_node_or_null("GameFlags")
+	var save: Node = root.get_node_or_null("SaveSystem")
+	var qs: Node = root.get_node_or_null("QuestSystem")
+	var inv: Node = root.get_node_or_null("InventorySystem")
+	var poi: Node = root.get_node_or_null("POISystem")
+	var ws: Node = root.get_node_or_null("WorldStateSystem")
+	var vs: Node = root.get_node_or_null("VehicleStateSystem")
+	var journey: Node = root.get_node_or_null("JourneySystem")
+	var regions: Node = root.get_node_or_null("WorldRegionSystem")
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	if cond == null or flags == null or save == null:
+		push_error("drive_smoke: ConditionSystem/GameFlags/SaveSystem missing")
+		quit(1)
+		return false
+
+	# No quest-specific branching inside ConditionSystem.
+	var cond_script: Script = load("res://autoload/condition_system.gd") as Script
+	if cond_script != null:
+		var src := cond_script.source_code
+		for banned in ["power_the_viewpoint", "mira_quest", "Mira"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: ConditionSystem must not hardcode '%s'" % banned)
+				quit(1)
+				return false
+
+	flags.call("reset_for_tests")
+	if qs != null and qs.has_method("reset_all"):
+		qs.call("reset_all")
+	if inv != null:
+		inv.call("clear_inventory")
+	if vs != null and vs.has_method("reset_for_tests"):
+		vs.call("reset_for_tests")
+	if journey != null:
+		journey.call("reset_journey")
+	_clear_world_state()
+
+	# FLAG_EQUALS
+	flags.call("set_flag", "smoke_flag_a", true)
+	if not bool(cond.call("evaluate", cond.call("make_flag_equals", "smoke_flag_a", true))):
+		push_error("drive_smoke: FLAG_EQUALS true failed")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate", cond.call("make_flag_equals", "smoke_flag_a", false))):
+		push_error("drive_smoke: FLAG_EQUALS expected false should fail")
+		quit(1)
+		return false
+
+	# QUEST_STATE
+	if qs != null:
+		if bool(cond.call("evaluate", cond.call("make_quest_state", "power_the_viewpoint", "COMPLETED"))):
+			push_error("drive_smoke: QUEST_STATE COMPLETED should be false initially")
+			quit(1)
+			return false
+		qs.call("start_quest", "power_the_viewpoint")
+		if not bool(cond.call("evaluate", cond.call("make_quest_state", "power_the_viewpoint", "ACTIVE"))):
+			push_error("drive_smoke: QUEST_STATE ACTIVE failed")
+			quit(1)
+			return false
+
+	# HAS_ITEM / ITEM_QUANTITY
+	if inv != null:
+		inv.call("add_item", "scrap_metal", 3)
+		if not bool(cond.call("evaluate", cond.call("make_has_item", "scrap_metal", 1))):
+			push_error("drive_smoke: HAS_ITEM failed")
+			quit(1)
+			return false
+		if not bool(cond.call("evaluate", cond.call("make_item_quantity", "scrap_metal", 3))):
+			push_error("drive_smoke: ITEM_QUANTITY >=3 failed")
+			quit(1)
+			return false
+		if bool(cond.call("evaluate", cond.call("make_item_quantity", "scrap_metal", 4))):
+			push_error("drive_smoke: ITEM_QUANTITY >=4 should fail")
+			quit(1)
+			return false
+
+	# POI_DISCOVERED
+	if poi != null:
+		if poi.has_method("clear_discovery_for_tests"):
+			poi.call("clear_discovery_for_tests")
+		if bool(cond.call("evaluate", cond.call("make_poi_discovered", "sunset_viewpoint"))):
+			push_error("drive_smoke: POI_DISCOVERED should be false after clear")
+			quit(1)
+			return false
+		poi.call("mark_discovered", "sunset_viewpoint", "Sunset Viewpoint")
+		if not bool(cond.call("evaluate", cond.call("make_poi_discovered", "sunset_viewpoint"))):
+			push_error("drive_smoke: POI_DISCOVERED failed")
+			quit(1)
+			return false
+
+	# WORLD_STATE_EQUALS
+	if ws != null:
+		ws.call("set_value", "smoke.entity", "powered", true)
+		if not bool(
+			cond.call(
+				"evaluate",
+				cond.call("make_world_state_equals", "smoke.entity", "powered", "true")
+			)
+		):
+			push_error("drive_smoke: WORLD_STATE_EQUALS failed")
+			quit(1)
+			return false
+
+	# VEHICLE_HAS_UPGRADE
+	if vs != null:
+		if bool(cond.call("evaluate", cond.call("make_vehicle_has_upgrade", "cruise_module_mk1"))):
+			push_error("drive_smoke: VEHICLE_HAS_UPGRADE should be false after reset")
+			quit(1)
+			return false
+		vs.call("install_upgrade", "cruise_module_mk1")
+		if not bool(cond.call("evaluate", cond.call("make_vehicle_has_upgrade", "cruise_module_mk1"))):
+			push_error("drive_smoke: VEHICLE_HAS_UPGRADE failed")
+			quit(1)
+			return false
+
+	# REGION_IS
+	if regions != null:
+		var region_id := str(regions.call("get_current_region_id"))
+		if region_id.is_empty():
+			push_error("drive_smoke: current region id empty")
+			quit(1)
+			return false
+		if not bool(cond.call("evaluate", cond.call("make_region_is", region_id))):
+			push_error("drive_smoke: REGION_IS failed for %s" % region_id)
+			quit(1)
+			return false
+		if bool(cond.call("evaluate", cond.call("make_region_is", "NOT_A_REAL_REGION"))):
+			push_error("drive_smoke: REGION_IS should fail for unknown region")
+			quit(1)
+			return false
+
+	# JOURNEY_DISTANCE_MIN / MAX
+	if journey != null:
+		journey.call("set_current_distance_km", 50.0)
+		if not bool(cond.call("evaluate", cond.call("make_journey_distance_min", 40.0))):
+			push_error("drive_smoke: JOURNEY_DISTANCE_MIN failed")
+			quit(1)
+			return false
+		if bool(cond.call("evaluate", cond.call("make_journey_distance_min", 60.0))):
+			push_error("drive_smoke: JOURNEY_DISTANCE_MIN 60 should fail at 50")
+			quit(1)
+			return false
+		if not bool(cond.call("evaluate", cond.call("make_journey_distance_max", 60.0))):
+			push_error("drive_smoke: JOURNEY_DISTANCE_MAX failed")
+			quit(1)
+			return false
+		if bool(cond.call("evaluate", cond.call("make_journey_distance_max", 40.0))):
+			push_error("drive_smoke: JOURNEY_DISTANCE_MAX 40 should fail at 50")
+			quit(1)
+			return false
+
+	# ALL / ANY composites
+	var pass_a: Resource = cond.call("make_flag_equals", "smoke_flag_a", true)
+	var pass_b: Resource = cond.call("make_journey_distance_min", 10.0)
+	var fail_c: Resource = cond.call("make_flag_equals", "missing_flag", true)
+	if not bool(cond.call("evaluate_all", [pass_a, pass_b])):
+		push_error("drive_smoke: evaluate_all should pass")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate_all", [pass_a, fail_c])):
+		push_error("drive_smoke: evaluate_all should fail when one fails")
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate_all", [])):
+		push_error("drive_smoke: evaluate_all empty should be true")
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate_any", [fail_c, pass_a])):
+		push_error("drive_smoke: evaluate_any should pass if one passes")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate_any", [fail_c])):
+		push_error("drive_smoke: evaluate_any should fail when all fail")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate_any", [])):
+		push_error("drive_smoke: evaluate_any empty should be false")
+		quit(1)
+		return false
+
+	# Flags persist via SaveSystem.
+	flags.call("set_flag", "persist_me", true)
+	flags.call("set_flag", "persist_false", false)
+	if save.has_method("delete_save"):
+		save.call("delete_save")
+	if not bool(save.call("save_game")):
+		push_error("drive_smoke: save_game failed for flags")
+		quit(1)
+		return false
+	flags.call("reset_for_tests")
+	if bool(flags.call("has_flag", "persist_me")):
+		push_error("drive_smoke: flags should clear on reset")
+		quit(1)
+		return false
+	if not bool(save.call("load_game")):
+		push_error("drive_smoke: load_game failed for flags")
+		quit(1)
+		return false
+	if not bool(flags.call("get_flag", "persist_me", false)):
+		push_error("drive_smoke: persist_me flag not restored")
+		quit(1)
+		return false
+	if bool(flags.call("get_flag", "persist_false", true)):
+		push_error("drive_smoke: persist_false should restore as false")
+		quit(1)
+		return false
+
+	# Mira contextual dialogue via ConditionSystem gate when quest COMPLETED.
+	if qs != null:
+		qs.call("reset_all")
+		qs.call("start_quest", "power_the_viewpoint")
+		qs.call("complete_quest", "power_the_viewpoint")
+		if not bool(cond.call("evaluate", cond.call("make_quest_state", "power_the_viewpoint", "COMPLETED"))):
+			push_error("drive_smoke: QUEST_STATE COMPLETED after complete_quest")
+			quit(1)
+			return false
+
+	# Ensure Mira definition has the condition gate and resolve uses it.
+	var mira_def: Resource = load("res://resources/npc/mira_viewpoint_keeper.tres")
+	if mira_def == null or not ("conditional_dialogues" in mira_def):
+		push_error("drive_smoke: Mira missing conditional_dialogues")
+		quit(1)
+		return false
+	var gates: Array = mira_def.conditional_dialogues
+	if gates.is_empty():
+		push_error("drive_smoke: Mira conditional_dialogues empty")
+		quit(1)
+		return false
+	if dlg == null or not dlg.has_method("resolve_dialogue_id"):
+		push_error("drive_smoke: DialogueSystem.resolve_dialogue_id missing")
+		quit(1)
+		return false
+	var resolved := str(dlg.call("resolve_dialogue_id", gates))
+	if resolved != "mira_quest_done_01":
+		push_error("drive_smoke: expected mira_quest_done_01 from condition gate, got %s" % resolved)
+		quit(1)
+		return false
+
+	# Live NPC in scene (if present) should also report completed dialogue.
+	var mira: Node = root.find_child("Mira", true, false)
+	if mira != null and mira.has_method("get_dialogue_id"):
+		if str(mira.call("get_dialogue_id")) != "mira_quest_done_01":
+			push_error(
+				"drive_smoke: Mira get_dialogue_id should be mira_quest_done_01 when COMPLETED (got %s)"
+				% str(mira.call("get_dialogue_id"))
+			)
+			quit(1)
+			return false
+
+	# Cleanup
+	save.call("delete_save")
+	flags.call("reset_for_tests")
+	if qs != null:
+		qs.call("reset_all")
+	if inv != null:
+		inv.call("clear_inventory")
+	if vs != null:
+		vs.call("reset_for_tests")
+	if journey != null:
+		journey.call("reset_journey")
+	if poi != null and poi.has_method("clear_discovery_for_tests"):
+		poi.call("clear_discovery_for_tests")
+	_clear_world_state()
+	print("drive_smoke: conditions OK (types + ALL/ANY + flags save + Mira COMPLETED gate)")
 	return true
 
 
