@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **stateful ViewpointTerminal** — one-shot OFF→ON console inside Sunset Viewpoint; proves interaction can change world state (session lifetime, no disk save).
+Current slice: **explorable Observation Booth** — reusable walk-in `SmallInterior` at Sunset Viewpoint (doorway entry, interior interactable, camera collision pull-in).
 
 ## Requirements
 
@@ -52,6 +52,18 @@ Reusable world-object interaction — no inventory / NPC / quest logic yet.
 **E key UX:** On foot, a focused interactable wins (`player_interact`). If none, E enters the parked vehicle. In vehicle (parked), E still exits. Prompt only shows while a valid object is in range/front cone.
 
 **ViewpointTerminal choice:** one-shot **ON** (not a toggle). First successful interact powers it; `can_interact` becomes false; state persists while that viewpoint instance stays loaded (survives enter/exit car). No disk save yet.
+
+### Small interiors (`SmallInterior`)
+
+Reusable single-room building used as the **Observation Booth** on Sunset Viewpoint.
+
+| Piece | Role |
+|-------|------|
+| `SmallInterior` | Floor / walls / ceiling / doorway gap + light |
+| `InteriorVolume` | Detects walk-in / walk-out; tightens on-foot camera |
+| `ObservationLog` | Interactable inside the booth |
+
+**Enter/exit:** walk through the open doorway — no teleport, no loading screen. On-foot camera uses shorter follow distance indoors and raycasts against walls to reduce clipping. Parked car is untouched.
 
 Detection: Area3D proximity + forward cone ranking (stable, simple). Future NPCs/doors/benches/shops/items can subclass `Interactable` or duck-type the same methods.
 
@@ -223,6 +235,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Motion: `PlayerVehicle` — DRIVING / PARKED (`vehicle_park`, `parking_state_changed`)
 - Occupancy: `PlayerOccupancyController` — IN_VEHICLE / ON_FOOT + `PlayerCharacter` (walk/run)
 - Interaction: `Interactable` + `InteractionDetector` + `TestTerminal` / `ViewpointTerminal` (stateful OFF→ON)
+- Interiors: `SmallInterior` Observation Booth (walk-in doorway) + `ObservationLog`
 - On-foot camera: `OnFootCameraController` — THIRD_PERSON (FIRST_PERSON-ready)
 - Driving modes: `DrivingModeController` — MANUAL / CRUISE / TRAVEL_MODE
 - Vehicle: cruise speed hold + `RoadFollowAutopilot` (steering under Travel Mode)

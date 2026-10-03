@@ -26,6 +26,14 @@ signal active_changed(active: bool)
 @export var follow_smoothing: float = 10.0
 @export var look_at_height: float = 1.35
 @export var fov_third: float = 70.0
+## Pull camera in when a wall sits between pivot and desired pose.
+@export var collision_avoidance: bool = true
+@export var collision_margin: float = 0.25
+@export var collision_mask: int = 1
+
+@export_group("Interior (small rooms)")
+@export var interior_follow_distance: float = 1.75
+@export var interior_follow_height: float = 1.35
 
 @export_group("First person (future)")
 @export var first_person_offset: Vector3 = Vector3(0.0, 1.55, 0.12)
@@ -44,9 +52,18 @@ var _active: bool = false
 var _yaw: float = 0.0
 var _pitch: float = deg_to_rad(-12.0)
 var _initialized: bool = false
+var _interior_active: bool = false
+var _interior_distance: float = 1.75
+var _interior_height: float = 1.35
+var _exterior_follow_distance: float = 4.2
+var _exterior_follow_height: float = 1.65
 
 
 func _ready() -> void:
+	_exterior_follow_distance = follow_distance
+	_exterior_follow_height = follow_height
+	_interior_distance = interior_follow_distance
+	_interior_height = interior_follow_height
 	_resolve_target()
 	if _camera:
 		_camera.current = false
@@ -106,6 +123,7 @@ func set_active(active: bool) -> void:
 		if capture_mouse_when_active:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	else:
+		_interior_active = false
 		if _camera:
 			_camera.current = false
 		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -155,6 +173,20 @@ func set_look_angles(yaw: float, pitch: float = deg_to_rad(-12.0)) -> void:
 	_initialized = false
 
 
+## Called by InteriorVolume when the player walks into / out of a small room.
+func set_interior_active(active: bool, distance: float = -1.0, height: float = -1.0) -> void:
+	_interior_active = active
+	if distance > 0.0:
+		_interior_distance = distance
+	if height > 0.0:
+		_interior_height = height
+	_initialized = false
+
+
+func is_interior_active() -> bool:
+	return _interior_active
+
+
 func get_camera() -> Camera3D:
 	return _camera
 
@@ -186,15 +218,25 @@ func _update_pose(delta: float) -> void:
 			_update_third_person(delta)
 
 
+func _effective_follow_distance() -> float:
+	return _interior_distance if _interior_active else _exterior_follow_distance
+
+
+func _effective_follow_height() -> float:
+	return _interior_height if _interior_active else _exterior_follow_height
+
+
 func _update_third_person(delta: float) -> void:
 	var pivot := _target.global_position + Vector3(0.0, look_at_height, 0.0)
-	# Orbit: yaw around up, pitch up/down; camera sits behind the look direction.
+	var dist := _effective_follow_distance()
+	var height := _effective_follow_height()
 	var orbit := Vector3(
 		sin(_yaw) * cos(_pitch),
 		sin(_pitch),
 		cos(_yaw) * cos(_pitch)
 	)
-	var desired := pivot + orbit * follow_distance + Vector3(0.0, follow_height - look_at_height, 0.0)
+	var desired := pivot + orbit * dist + Vector3(0.0, height - look_at_height, 0.0)
+	desired = _avoid_wall_clip(pivot, desired)
 
 	if _initialized:
 		var t := 1.0 - exp(-follow_smoothing * delta)
@@ -208,6 +250,25 @@ func _update_third_person(delta: float) -> void:
 		_camera.fov = fov_third
 		_camera.rotation = Vector3.ZERO
 	_initialized = true
+
+
+func _avoid_wall_clip(pivot: Vector3, desired: Vector3) -> Vector3:
+	if not collision_avoidance:
+		return desired
+	var space := get_world_3d().direct_space_state if get_world_3d() != null else null
+	if space == null:
+		return desired
+	var query := PhysicsRayQueryParameters3D.create(pivot, desired)
+	query.collision_mask = collision_mask
+	query.exclude = []
+	if _target != null:
+		query.exclude = [_target.get_rid()]
+	var hit := space.intersect_ray(query)
+	if hit.is_empty():
+		return desired
+	var hit_pos: Vector3 = hit.get("position", desired)
+	var normal: Vector3 = hit.get("normal", Vector3.UP)
+	return hit_pos + normal * collision_margin
 
 
 func _update_first_person(delta: float) -> void:

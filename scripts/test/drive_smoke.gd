@@ -395,6 +395,14 @@ func _verify_sunset_viewpoint_reachable() -> bool:
 		quit(1)
 		return false
 
+	var booth: Node = vp.find_child("ObservationBooth", true, false)
+	if booth == null:
+		booth = vp.find_child("SmallInterior", true, false)
+	if booth == null:
+		push_error("drive_smoke: ObservationBooth / SmallInterior missing on Sunset Viewpoint")
+		quit(1)
+		return false
+
 	# Unload viewpoint; discovery must remain in logical POISystem.
 	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
 	await physics_frame
@@ -873,7 +881,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK interior=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1256,6 +1264,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_viewpoint_terminal(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_small_interior(occupancy, character, foot_cam):
+		return false
+
 	# Origin recenter while on foot must shift character + vehicle together.
 	var saved_recenter_dist: float = float(_recenter.get("recenter_distance"))
 	_recenter.set("recenter_distance", 40.0)
@@ -1613,6 +1624,119 @@ func _verify_viewpoint_terminal(occupancy: Node, character: CharacterBody3D, foo
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print("drive_smoke: viewpoint terminal OK (OFF→ON one-shot, persist across enter/exit)")
+	return true
+
+
+func _verify_small_interior(occupancy: Node, character: CharacterBody3D, foot_cam: Node3D) -> bool:
+	## Walk-in Observation Booth: enter, interact inside, exit; parked car stays put.
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	if poi_sys == null:
+		push_error("drive_smoke: POISystem missing for interior test")
+		quit(1)
+		return false
+
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	if poi_res == null or vp_scene == null:
+		push_error("drive_smoke: could not load viewpoint resources for interior")
+		quit(1)
+		return false
+
+	var parked_origin: Vector3 = _vehicle.global_position
+	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(8.0, 0.0, -2.0))
+	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	if vp == null:
+		push_error("drive_smoke: failed to spawn viewpoint for interior")
+		quit(1)
+		return false
+
+	var booth: Node3D = vp.find_child("ObservationBooth", true, false) as Node3D
+	if booth == null:
+		booth = vp.find_child("SmallInterior", true, false) as Node3D
+	if booth == null or not booth.has_method("get_interior_stand_position"):
+		push_error("drive_smoke: ObservationBooth missing methods")
+		quit(1)
+		return false
+
+	var enter_signals := {"n": 0}
+	var exit_signals := {"n": 0}
+	var on_enter := func(_body) -> void:
+		enter_signals["n"] = int(enter_signals["n"]) + 1
+	var on_exit := func(_body) -> void:
+		exit_signals["n"] = int(exit_signals["n"]) + 1
+	booth.player_entered_interior.connect(on_enter)
+	booth.player_exited_interior.connect(on_exit)
+
+	# Walk in through doorway (place just inside interior volume).
+	character.global_position = booth.call("get_interior_stand_position")
+	character.rotation.y = 0.0
+	if foot_cam.has_method("set_look_angles"):
+		foot_cam.call("set_look_angles", 0.0, deg_to_rad(-8.0))
+	for _i in range(16):
+		await physics_frame
+
+	if not bool(booth.call("is_player_inside")):
+		push_error("drive_smoke: player not detected inside ObservationBooth")
+		quit(1)
+		return false
+	if int(enter_signals["n"]) < 1:
+		push_error("drive_smoke: player_entered_interior did not fire")
+		quit(1)
+		return false
+	if foot_cam.has_method("is_interior_active") and not bool(foot_cam.call("is_interior_active")):
+		push_error("drive_smoke: on-foot camera not in interior mode")
+		quit(1)
+		return false
+
+	# Interact with Observation Log inside.
+	var obs_log: Node = booth.call("get_observation_log")
+	if obs_log == null or not obs_log.has_method("interact"):
+		push_error("drive_smoke: ObservationLog missing inside booth")
+		quit(1)
+		return false
+	if not bool(obs_log.call("interact", character)):
+		push_error("drive_smoke: ObservationLog interact failed")
+		quit(1)
+		return false
+	if int(obs_log.get_meta("interact_count", 0)) < 1:
+		push_error("drive_smoke: ObservationLog interact_count not updated")
+		quit(1)
+		return false
+
+	# Walk out.
+	character.global_position = booth.call("get_doorway_exterior_position")
+	for _j in range(16):
+		await physics_frame
+	if bool(booth.call("is_player_inside")):
+		push_error("drive_smoke: player still inside after walking out")
+		quit(1)
+		return false
+	if int(exit_signals["n"]) < 1:
+		push_error("drive_smoke: player_exited_interior did not fire")
+		quit(1)
+		return false
+	if foot_cam.has_method("is_interior_active") and bool(foot_cam.call("is_interior_active")):
+		push_error("drive_smoke: camera still in interior mode outdoors")
+		quit(1)
+		return false
+
+	# Parked car must not have moved.
+	if parked_origin.distance_to(_vehicle.global_position) > 0.5:
+		push_error("drive_smoke: parked vehicle moved during interior explore")
+		quit(1)
+		return false
+	if not bool(_vehicle.call("is_parked")):
+		push_error("drive_smoke: vehicle left PARKED during interior explore")
+		quit(1)
+		return false
+
+	booth.player_entered_interior.disconnect(on_enter)
+	booth.player_exited_interior.disconnect(on_exit)
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: small interior OK (walk-in → interact → walk-out, car stayed)")
 	return true
 
 
