@@ -382,7 +382,7 @@ Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later w
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
-# Expect: … dlg_actions=OK … cond_dlg=OK … choices=OK … drive_smoke: OK
+# Expect: … dlg_memory=OK … dlg_actions=OK … drive_smoke: OK
 ```
 
 Architecture snapshot: [`docs/architecture-status.md`](docs/architecture-status.md).

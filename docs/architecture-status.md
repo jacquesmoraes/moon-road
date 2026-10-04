@@ -15,7 +15,8 @@ This document describes the **current implemented foundation**, not the full des
 | `JourneySystem` | Logical Earth→Moon distance (km), physical→journey scale | Vehicle physics, road mesh |
 | `WorldRegionSystem` | Region band from journey distance | Visuals/audio of regions |
 | `POISystem` | Discovery flags + spawn/despawn of viewpoint scenes | Quest/terminal logic |
-| `DialogueSystem` | Linear + choice runner; gates via ConditionSystem; effects via DialogueActionExecutor | Action type dispatch, NPC placement |
+| `DialogueSystem` | Linear + choice runner; gates via ConditionSystem; effects via Executor; records memory | Action type dispatch, NPC placement |
+| `DialogueMemorySystem` | Seen/completed/choice memory + timestamps | Dialogue text, NPC names |
 | `InventorySystem` | Item quantities by id + catalog | World pickups, UI layout |
 | `QuestSystem` | Quest state by id; dialogue_finished → start; turn-in API | Condition evaluation, UI log |
 | `CraftingSystem` | Recipes; consume→output via Inventory | Workbench UX beyond debug UI |
@@ -42,8 +43,9 @@ InventorySystem ← CraftingSystem, QuestSystem, VehicleStateSystem (install con
 POISystem / WorldStateSystem / VehicleStateSystem / GameFlags / JourneySystem / WorldRegionSystem
     ↑ queried by ConditionSystem (no reverse writes)
 
-DialogueSystem → ConditionSystem (gates) + DialogueActionExecutor (effects)
+DialogueSystem → ConditionSystem (gates) + DialogueActionExecutor (effects) + DialogueMemorySystem (record)
 DialogueActionExecutor → GameFlags / QuestSystem / InventorySystem / WorldStateSystem / POISystem
+ConditionSystem → DialogueMemorySystem (DIALOGUE_* queries)
 NpcCharacter → DialogueSystem / QuestSystem / ConditionSystem (via resolve)
 
 QuestSystem → InventorySystem (requirements)
@@ -72,6 +74,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 | `game_time` | play/travel totals, session/save/exit unix stamps |
 | `vehicle_state` | fuel, condition, upgrades[], speed/economy fields, `was_traveling_at_save`, `stopped_reason` |
 | `game_flags` | `flags` {id→bool} |
+| `dialogue_memory` | `dialogues` {id→seen/counts/timestamps}, `choices` {id→count} |
 
 **Not persisted:** vehicle transform/velocity, road pool, camera mode, dialogue UI, occupancy pose (sandbox respawns).
 
@@ -91,6 +94,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 | Dialogue | `mira_quest_offer_01`, `mira_moon_ask`, `mira_quest_done_01`, … |
 | DialogueChoice | `accept_help`, `refuse_help`, `moon_yes`, `buy_part`, … |
 | DialogueAction | `SET_FLAG` / `START_QUEST` / `ADD_ITEM` / … via `target_id` + value fields |
+| Dialogue memory | conversation start id (`rafa_01`); choice ids (`rafa_far`, `rafa_pass`) |
 | Flags | `npc.mira.met`, `slice_mid_marker`, … |
 | Regions | `CLOUDLINE`, `ENDLESS_SUMMER`, … |
 
@@ -130,7 +134,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time without duplication → limited offline progress respects fuel.
 
 Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `dlg_actions=OK`, `cond_dlg=OK`, `choices=OK`, `mid_save=OK`, and the full `drive_smoke: OK …` line.
+Look for `dlg_memory=OK`, `dlg_actions=OK`, `mid_save=OK`, and the full `drive_smoke: OK …` line.
 
 ---
 
