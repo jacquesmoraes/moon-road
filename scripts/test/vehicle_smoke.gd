@@ -61,7 +61,6 @@ var _initial_exit_nodes: int = 0
 var _max_exit_nodes: int = 0
 var _saw_exit_active: bool = false
 var _exit_active_during_travel: bool = false
-var _poi_reach_ok: bool = false
 
 func _initialize() -> void:
 	suite_name = "vehicle_smoke"
@@ -99,7 +98,6 @@ func _begin() -> void:
 		return
 	# Exit activity is observed during the long drive via _track_exits.
 	# POI reach coverage lives in journey_world_smoke.
-	_poi_reach_ok = true
 	if _vehicle.has_method("get_cruise_target_speed_ms"):
 		_cruise_target_ms = float(_vehicle.call("get_cruise_target_speed_ms"))
 	_set_phase(PHASE_ACCEL)

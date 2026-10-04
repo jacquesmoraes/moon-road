@@ -9,6 +9,7 @@ Current slice: **Dialogue & NPC System Pass closed** — data-driven talk, state
 | [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) | Product vision (canonical) |
 | [`docs/architecture-status.md`](docs/architecture-status.md) | Implemented architecture |
 | [`docs/dialogue-npc-system-status.md`](docs/dialogue-npc-system-status.md) | Dialogue & NPC pass status |
+| [`docs/hardening-status.md`](docs/hardening-status.md) | Hardening Pass status |
 | [`docs/testing.md`](docs/testing.md) | Headless smoke suites + runners |
 
 ## Requirements

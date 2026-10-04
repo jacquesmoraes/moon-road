@@ -1,12 +1,13 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** domain smoke suites + docs/test workflow (`docs: fix project references and document test workflow`)  
+**As of:** Hardening Pass closed (`test: complete core systems hardening pass`)  
 **Engine:** Godot 4.7 Forward Plus  
-**Pass:** Dialogue & NPC System Pass — **closed**
+**Pass:** Dialogue & NPC System Pass — **closed** · Hardening Pass — **closed**
 
 This document describes the **current implemented foundation**, not the full design vision in [`docs/GAME_DESIGN.md`](GAME_DESIGN.md).  
 Pass status detail: [`docs/dialogue-npc-system-status.md`](dialogue-npc-system-status.md).  
+Hardening tags: [`docs/hardening-status.md`](hardening-status.md).  
 Testing: [`docs/testing.md`](testing.md).
 
 ---
@@ -346,9 +347,63 @@ No portraits/VO/localization/cinematics/facial/romance/crowds/quest log UI/tree 
 
 ---
 
-## 10. Recommended next systems (design order)
+## 10. Hardening Pass
 
-Dialogue & NPC System Pass is **closed** (data-driven foundation + smoke). Next priorities:
+Closed after autoload late-init, fail-closed conditions, domain smoke split, and docs/test workflow. **No new gameplay features** in this pass. Tag detail: [`hardening-status.md`](hardening-status.md).
+
+### Init strategy
+
+- Autoloads must not assume peer order in `_ready()`.
+- Pattern: local setup → `call_deferred("_initialize_dependencies")` → idempotent binds (`is_connected` / `AutoloadBootstrap.try_connect`) → finite retries → `READY` / `FAILED`.
+- `project.godot` order reduces retries but **must not be required** for correctness.
+- Smoke: `autoload_init_smoke` (deep) + shared `scripts/test/autoload_checks.gd`; vertical slice uses a lite gate only.
+
+### Fail-closed conditions
+
+- `ConditionSystem`: missing peer, empty/unknown id, unknown type, null entries → evaluate **`false`** and warn.
+- Do not treat “fail-closed false” the same as “peer present and value is false”.
+- Covered in `poi_worldstate_smoke` (expected fail-closed warnings during probes).
+
+### Test structure
+
+| Piece | Role |
+|-------|------|
+| `scripts/test/test_helpers.gd` | Sandbox boot, physics awaits, input clear, autoload/save reset, road snap |
+| `scripts/test/autoload_checks.gd` | Shared READY / bind / provider / no-dupe asserts |
+| Domain `*_smoke.gd` | Isolated SceneTree suites (vehicle, journey, save, inventory/crafting, dialogue, NPC, POI/worldstate, vertical slice) |
+| `drive_smoke.gd` | Full regression via **subprocess** isolation (no shared process state) |
+| `run_tests.ps1` / `run_tests.sh` | Local runners (`GODOT_BIN` / `--godot` / `-GodotBin`) |
+
+Domain suites have **no required order**. A single suite can catch a domain regression without the 90s Travel drive.
+
+### Runner
+
+```bash
+./run_tests.sh                 # full
+./run_tests.sh dialogue_smoke  # one suite
+```
+
+```powershell
+.\run_tests.ps1
+.\run_tests.ps1 -Suite npc_smoke
+$env:GODOT_BIN = "C:\Path\To\Godot_v4.7-stable_win64.exe"
+```
+
+### Known risks (summary)
+
+See also §9 and [`hardening-status.md`](hardening-status.md) **KNOWN_RISK** / **DEFERRED**.
+
+- Occupancy / vehicle world pose not saved.
+- Offline rewrite on load (intentional).
+- Fail-closed vs value-false semantics for authors.
+- Travel Mode does not auto-take exits.
+- Expected headless warnings from negative probes (fail-closed, unknown item, corrupt save).
+
+---
+
+## 11. Recommended next systems (design order)
+
+Dialogue & NPC System Pass and Hardening Pass are **closed**. Next priorities:
 
 1. **Gas / service stop POI** — refuel interaction (fuel is already functional).
 2. **Offline policy UI** — expose capped offline window from [`GAME_DESIGN.md`](GAME_DESIGN.md) §8.
@@ -362,7 +417,7 @@ Dialogue & NPC System Pass is **closed** (data-driven foundation + smoke). Next 
 
 ---
 
-## 11. Doc map
+## 12. Doc map
 
 | Doc | Role |
 |-----|------|
@@ -370,4 +425,5 @@ Dialogue & NPC System Pass is **closed** (data-driven foundation + smoke). Next 
 | [`docs/GAME_DESIGN.md`](GAME_DESIGN.md) | Product vision (Portuguese) — **canonical in-repo** |
 | [`docs/architecture-status.md`](architecture-status.md) | This file — implemented architecture |
 | [`docs/dialogue-npc-system-status.md`](dialogue-npc-system-status.md) | Dialogue/NPC pass READY/PARTIAL/NOT_IMPLEMENTED |
+| [`docs/hardening-status.md`](hardening-status.md) | Hardening Pass READY / KNOWN_RISK / DEFERRED |
 | [`docs/testing.md`](testing.md) | Smoke suites, runners, exit codes, how to add tests |

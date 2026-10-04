@@ -1,6 +1,10 @@
 extends "res://scripts/test/test_helpers.gd"
-## High-level cross-system vertical slice (mid-save + autoload readiness).
+## High-level cross-system vertical slice (mid-save + autoload readiness gate).
+## Deep autoload coverage lives in autoload_init_smoke.gd (shared AutoloadChecks).
 ## Run: godot --path . --headless -s res://scripts/test/vertical_slice_smoke.gd
+
+const AutoloadChecks = preload("res://scripts/test/autoload_checks.gd")
+
 
 func _initialize() -> void:
 	suite_name = "vertical_slice_smoke"
@@ -11,76 +15,15 @@ func _initialize() -> void:
 func _run() -> void:
 	if not await bootstrap_sandbox(0.5, true):
 		return
-	if not await _verify_autoload_init():
+	for _i in range(8):
+		await physics_frame
+	if not await AutoloadChecks.verify_lite_gate(self, suite_name):
+		quit(1)
 		return
+	print("%s: autoload_init OK (READY + Schedule/Travel↔GameTime + Save providers)" % suite_name)
 	if not await _verify_vertical_slice_mid_save():
 		return
 	pass_suite("autoload_init+mid_save")
-
-func _verify_autoload_init() -> bool:
-	## Deferred peer binds must be READY; Schedule/Travel ↔ GameTime connected; Save providers present.
-	for _i in range(8):
-		await physics_frame
-	var critical := [
-		"GameTimeSystem",
-		"GameFlags",
-		"NpcStateSystem",
-		"NpcScheduleSystem",
-		"NpcTravelSystem",
-		"DialogueSystem",
-		"SaveSystem",
-		"ConditionSystem",
-		"BarkSystem",
-		"RelationshipSystem",
-	]
-	for name in critical:
-		var node: Node = root.get_node_or_null(str(name))
-		if node == null:
-			push_error("vertical_slice_smoke: autoload missing %s" % name)
-			quit(1)
-			return false
-		if node.has_method("is_system_ready") and not bool(node.call("is_system_ready")):
-			push_error(
-				"vertical_slice_smoke: %s not READY (%s)"
-				% [name, str(node.call("get_init_state")) if node.has_method("get_init_state") else "?"]
-			)
-			quit(1)
-			return false
-
-	var gt: Node = root.get_node_or_null("GameTimeSystem")
-	var sched: Node = root.get_node_or_null("NpcScheduleSystem")
-	var travel: Node = root.get_node_or_null("NpcTravelSystem")
-	var save: Node = root.get_node_or_null("SaveSystem")
-	var flags: Node = root.get_node_or_null("GameFlags")
-	if not gt.narrative_time_changed.is_connected(sched._on_narrative_time_changed):
-		push_error("vertical_slice_smoke: NpcScheduleSystem missing GameTime bind")
-		quit(1)
-		return false
-	if not gt.narrative_time_changed.is_connected(travel._on_narrative_time_changed):
-		push_error("vertical_slice_smoke: NpcTravelSystem missing GameTime bind")
-		quit(1)
-		return false
-	if flags != null and not flags.flag_changed.is_connected(travel._on_flag_changed):
-		push_error("vertical_slice_smoke: NpcTravelSystem missing GameFlags bind")
-		quit(1)
-		return false
-	for id in ["game_time", "game_flags", "npc_state", "dialogue_memory", "relationship"]:
-		if not bool(save.call("has_provider", id)):
-			push_error("vertical_slice_smoke: SaveSystem missing provider '%s'" % id)
-			quit(1)
-			return false
-	# Idempotent re-init must not grow GameTime listeners.
-	var before: int = gt.narrative_time_changed.get_connections().size()
-	sched.call("_initialize_dependencies")
-	travel.call("_initialize_dependencies")
-	await physics_frame
-	if int(gt.narrative_time_changed.get_connections().size()) != before:
-		push_error("vertical_slice_smoke: autoload re-init duplicated signal connections")
-		quit(1)
-		return false
-	print("vertical_slice_smoke: autoload_init OK (READY + Schedule/Travel↔GameTime + Save providers)")
-	return true
-
 
 
 func _verify_vertical_slice_mid_save() -> bool:

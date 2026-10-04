@@ -84,13 +84,15 @@ godot --path . --headless -s res://scripts/test/dialogue_smoke.gd
 
 ```
 scripts/test/
-  test_helpers.gd          # shared SceneTree base
+  test_helpers.gd          # shared SceneTree base (sandbox / input / save cleanup)
+  autoload_checks.gd       # shared READY / bind / provider / no-dupe assertions
   *_smoke.gd               # domain suites (extends helpers or SceneTree)
   drive_smoke.gd           # full regression orchestrator
   vehicle_halt_repro.gd    # optional debug repro (not in full suite list)
 run_tests.ps1              # Windows runner
 run_tests.sh               # Unix runner
 docs/testing.md            # this file
+docs/hardening-status.md   # Hardening Pass READY / KNOWN_RISK / DEFERRED
 ```
 
 Each domain suite:
