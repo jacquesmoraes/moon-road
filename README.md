@@ -447,7 +447,8 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Save: `SaveSystem` → `user://savegame.json` (F5/F9/F6 debug)
 - Game time: `GameTimeSystem` (play/travel + independent narrative world clock + system stamps)
 - NPC time window: `NpcDefinition.available_hour_*` (Mira 08–18 narrative; hide outside)
-- NPC schedules: `NpcScheduleSystem` + `NpcScheduleData` / `NpcScheduleEntry` (logical routine; no pathfinding)
+- NPC schedules: `NpcScheduleSystem` + `NpcScheduleData` / `NpcScheduleEntry` (logical routine)
+- NPC movement: `NpcMovementController` + `NpcDestinationResolver` + POI `Destinations` markers / `NavigationRegion3D`
 - Vehicle state: `VehicleStateSystem` (`starter_car` attrs / upgrades / fuel; drives max speed)
 - Upgrades: `UpgradeData` + Cruise Module Mk I (+10 km/h via Workbench Install)
 - World state: `WorldStateSystem` (terminal powered / pickup collected)
@@ -465,4 +466,4 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - World: `WorldOriginRecenter` + `RoadsideScenery` + `RoadsideExitSystem` + `POISystem` / `ViewpointPOI`
 - Dev HUD: full debug, or minimal essentials in Travel Mode
 - Empty entry: `scenes/core/Main.tscn`
-- Not implemented yet: quest log UI, dialogue choices/branching, NPC routines/pathfinding, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, craft time/quality/tech tree, autosave/multi-slot, final art, gas stations, damage visuals, garage/multi-vehicle, full offline sim caps, final UI
+- Not implemented yet: quest log UI, NPC final anim / crowds / inter-city nav, weight/equipment UI, region-driven visuals/audio, multi-intersections/cities/traffic/GPS, craft time/quality/tech tree, autosave/multi-slot, final art, gas stations, damage visuals, garage/multi-vehicle, full offline sim caps, final UI
