@@ -4742,6 +4742,8 @@ func _verify_npc_state(_occupancy: Node, character: CharacterBody3D, _foot_cam: 
 		return false
 
 	# Spawn syncs location from parent POI (no schedule/pathfinding).
+	# POI setup is deferred relative to NPC _ready — wait a frame.
+	await physics_frame
 	await physics_frame
 	if str(ns.call("get_location_id", MIRA_ID)) != "sunset_viewpoint":
 		push_error(

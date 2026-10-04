@@ -29,6 +29,8 @@ func _ready() -> void:
 	monitorable = true
 	_apply_definition_to_exports()
 	_sync_with_state_system()
+	# POISystem calls ViewpointPOI.setup after add_child; defer so get_poi_id is available.
+	call_deferred("_sync_spawn_location")
 	_cache_nodes()
 	_refresh_name_label()
 
@@ -239,12 +241,22 @@ func _sync_with_state_system() -> void:
 		id,
 		{"enabled": enabled, "current_state": "DEFAULT"}
 	)
-	# Scene presence updates logical location when parent POI is known.
-	var location := _resolve_spawn_location_id()
-	if not location.is_empty() and ns.has_method("set_location_id"):
-		ns.call("set_location_id", id, location)
 	if ns.has_method("is_enabled"):
 		enabled = bool(ns.call("is_enabled", id))
+	_sync_spawn_location()
+
+
+func _sync_spawn_location() -> void:
+	## Updates logical location when this scene is parented under a POI (or similar).
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns == null or not ns.has_method("set_location_id"):
+		return
+	var id := get_npc_id()
+	if id.is_empty():
+		return
+	var location := _resolve_spawn_location_id()
+	if not location.is_empty():
+		ns.call("set_location_id", id, location)
 
 
 func _resolve_spawn_location_id() -> String:
