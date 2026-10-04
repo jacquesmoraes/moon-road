@@ -225,6 +225,16 @@ func get_motion_state_name() -> String:
 			return "DRIVING"
 
 
+## Headless smoke helper: clear residual speed after teleports / long drives.
+func reset_motion_for_tests() -> void:
+	_speed = 0.0
+	velocity = Vector3.ZERO
+	_cruise_active = false
+	_steer_override = 0.0
+	_steer_override_enabled = false
+	_motion_state = MotionState.DRIVING
+
+
 ## Occupancy: disable while ON_FOOT so WASD / park do not affect the parked car.
 func set_manual_control_enabled(enabled: bool) -> void:
 	_manual_control_enabled = enabled

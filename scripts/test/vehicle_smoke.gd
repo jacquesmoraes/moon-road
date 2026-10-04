@@ -16,19 +16,12 @@ const LONG_DRIVE_TOTAL_SEC := 90.0
 var _phase: int = PHASE_ACCEL
 var _phase_time: float = 0.0
 var _elapsed: float = 0.0
-var _vehicle: CharacterBody3D
-var _mode_controller: Node
-var _autopilot: Node
-var _camera_rig: Node3D
-var _road_manager: Node
-var _recenter: Node
 var _samples: int = 0
 var _camera_follow_ok: bool = false
 var _camera_modes_ok: bool = false
 var _camera_mode_names: PackedStringArray = []
 var _saw_speed_kmh: bool = false
 var _max_speed_kmh: float = 0.0
-var _journey: Node
 var _max_planar: float = 0.0
 var _initial_pool_count: int = 0
 var _max_pool_count: int = 0
@@ -51,7 +44,6 @@ var _max_vehicle_y: float = -9999.0
 var _max_height_above_road: float = 0.0
 var _last_road_y: float = 0.0
 var _has_road_sample: bool = false
-var _scenery: Node
 var _initial_scenery_props: int = 0
 var _max_scenery_nodes: int = 0
 var _initial_scenery_nodes: int = 0
@@ -65,7 +57,6 @@ var _cinematic_last_mode: String = ""
 var _cinematic_started: bool = false
 var _cinematic_cancel_checked: bool = false
 var _autopilot_ok_during_cine: bool = true
-var _exit_system: Node
 var _initial_exit_nodes: int = 0
 var _max_exit_nodes: int = 0
 var _saw_exit_active: bool = false
@@ -83,6 +74,7 @@ func _initialize() -> void:
 func _begin() -> void:
 	if not resolve_sandbox_nodes(true):
 		return
+	await await_physics_frames(30)
 	_initial_pool_count = int(_road_manager.call("get_pool_node_count"))
 	_max_pool_count = _initial_pool_count
 	if _scenery.has_method("get_total_prop_count"):
@@ -94,9 +86,17 @@ func _begin() -> void:
 		fail("scenery pool too small (%d)" % _initial_scenery_props)
 		return
 	_journey.call("reset_journey")
+	# Match monolithic smoke: snapshot exit budget after viewpoint unload baseline.
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	if poi_sys != null and poi_sys.has_method("despawn_viewpoint"):
+		poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+		await await_physics_frames(4)
 	if _exit_system.has_method("get_total_node_budget"):
 		_initial_exit_nodes = int(_exit_system.call("get_total_node_budget"))
 		_max_exit_nodes = _initial_exit_nodes
+	if _initial_exit_nodes < 4:
+		fail("exit/detour pool too small (%d)" % _initial_exit_nodes)
+		return
 	# Exit activity is observed during the long drive via _track_exits.
 	# POI reach coverage lives in journey_world_smoke.
 	_poi_reach_ok = true
@@ -567,7 +567,7 @@ func _finish_travel() -> bool:
 		if bool(_camera_rig.call("is_cinematic_active")):
 			push_error("vehicle_smoke: cinematic still active after Travel cancel")
 			quit(1)
-			return
+			return false
 
 	if not _saw_exit_active:
 		push_error("vehicle_smoke: Sunset Viewpoint exit never activated")
@@ -1066,6 +1066,10 @@ func _verify_vehicle_fuel_system() -> bool:
 	# Driving consumes; parked does not.
 	vs.call("set_liters_per_100km", 50.0)
 	vs.call("set_fuel_current", 50.0)
+	if not await snap_vehicle_to_road():
+		push_error("vehicle_smoke: could not snap vehicle to road before fuel drive")
+		quit(1)
+		return false
 	clear_vehicle_input()
 	_mode_controller.call("set_mode", MODE_MANUAL)
 	if _vehicle.has_method("try_unpark"):
@@ -1093,18 +1097,24 @@ func _verify_vehicle_fuel_system() -> bool:
 		return false
 
 	# Stopped — fuel must not keep draining (brake to rest; park if possible).
+	# After the long Travel drive the vehicle may sit on a descent; allow a longer stop.
+	_mode_controller.call("set_mode", MODE_MANUAL)
+	clear_vehicle_input()
 	Input.action_press("vehicle_brake")
-	for _i in range(300):
+	for _i in range(720):
 		await physics_frame
 		if absf(float(_vehicle.call("get_signed_speed"))) <= 0.05 and _vehicle.is_on_floor():
 			break
 	Input.action_release("vehicle_brake")
 	clear_vehicle_input()
-	for _i in range(10):
+	for _i in range(15):
 		await physics_frame
 
 	if absf(float(_vehicle.call("get_signed_speed"))) > float(_vehicle.get("max_parking_speed")):
-		push_error("vehicle_smoke: could not slow for fuel idle check")
+		push_error(
+			"vehicle_smoke: could not slow for fuel idle check (speed=%.2f on_floor=%s)"
+			% [absf(float(_vehicle.call("get_signed_speed"))), str(_vehicle.is_on_floor())]
+		)
 		quit(1)
 		return false
 	if _vehicle.is_on_floor() and _vehicle.has_method("try_park"):

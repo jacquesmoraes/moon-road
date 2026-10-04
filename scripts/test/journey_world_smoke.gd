@@ -2,6 +2,10 @@ extends "res://scripts/test/test_helpers.gd"
 ## Journey/world smoke: regions, Sunset Viewpoint reach, game time.
 ## Run: godot --path . --headless -s res://scripts/test/journey_world_smoke.gd
 
+var _poi_reach_ok: bool = false
+var _saw_exit_active: bool = false
+
+
 func _initialize() -> void:
 	suite_name = "journey_world_smoke"
 	start_suite_timeout(240.0)

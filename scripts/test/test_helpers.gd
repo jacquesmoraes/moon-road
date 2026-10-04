@@ -195,6 +195,46 @@ func choice_ids(choices: Array) -> PackedStringArray:
 	return out
 
 
+func snap_vehicle_to_road() -> bool:
+	## Recover a stable on-road pose after long Travel drives (airborne / steep descent).
+	if _vehicle == null or _road_manager == null:
+		return false
+	clear_vehicle_input()
+	_mode_controller.call("set_mode", MODE_MANUAL)
+	if _vehicle.has_method("try_unpark"):
+		_vehicle.call("try_unpark")
+	var sample: Dictionary = {}
+	if _road_manager.has_method("sample_road"):
+		sample = _road_manager.call("sample_road", _vehicle.global_position, 14.0)
+	if sample.is_empty():
+		sample = _road_manager.call("sample_road", Vector3.ZERO, 14.0)
+	if sample.is_empty():
+		return false
+	var point: Vector3 = sample.get("point", _vehicle.global_position)
+	var forward: Vector3 = sample.get("forward", -_vehicle.global_transform.basis.z)
+	if forward.length_squared() < 0.0001:
+		forward = Vector3(0.0, 0.0, -1.0)
+	forward = Vector3(forward.x, 0.0, forward.z)
+	if forward.length_squared() < 0.0001:
+		forward = Vector3(0.0, 0.0, -1.0)
+	forward = forward.normalized()
+	var xform := Transform3D(Basis.looking_at(forward, Vector3.UP), point + Vector3(0.0, 0.35, 0.0))
+	_vehicle.global_transform = xform
+	if _vehicle.has_method("reset_motion_for_tests"):
+		_vehicle.call("reset_motion_for_tests")
+	else:
+		_vehicle.velocity = Vector3.ZERO
+	for _i in range(90):
+		await physics_frame
+		if _vehicle.has_method("reset_motion_for_tests") and absf(float(_vehicle.call("get_signed_speed"))) > 0.05:
+			_vehicle.call("reset_motion_for_tests")
+		if _vehicle.is_on_floor() and absf(float(_vehicle.call("get_signed_speed"))) <= 0.05:
+			break
+	clear_vehicle_input()
+	await await_physics_frames(6)
+	return _vehicle.is_on_floor() and absf(float(_vehicle.call("get_signed_speed"))) <= 0.2
+
+
 func ensure_in_vehicle_manual() -> bool:
 	var occupancy: Node = root.find_child("PlayerOccupancyController", true, false)
 	if occupancy != null and occupancy.has_method("is_on_foot") and bool(occupancy.call("is_on_foot")):
@@ -218,21 +258,33 @@ func park_and_exit_to_foot() -> Dictionary:
 		fail("occupancy/character/foot camera missing for on-foot setup")
 		return result
 	await ensure_in_vehicle_manual()
-	# Settle onto the road: brief accel then brake so is_on_floor() is reliable.
-	Input.action_press("vehicle_accelerate")
-	for _a in range(20):
-		await physics_frame
-		if _vehicle.is_on_floor() and absf(float(_vehicle.call("get_signed_speed"))) > 0.2:
-			break
-	Input.action_release("vehicle_accelerate")
+	if not await snap_vehicle_to_road():
+		fail("could not snap vehicle to road before on-foot setup")
+		return result
+	# Prefer a settled snap; only nudge if still airborne after snap.
+	if not _vehicle.is_on_floor():
+		Input.action_press("vehicle_accelerate")
+		for _a in range(12):
+			await physics_frame
+			if _vehicle.is_on_floor():
+				break
+		Input.action_release("vehicle_accelerate")
 	Input.action_press("vehicle_brake")
-	for _j in range(240):
+	for _j in range(300):
 		await physics_frame
 		if absf(float(_vehicle.call("get_signed_speed"))) <= 0.05 and _vehicle.is_on_floor():
 			break
 	Input.action_release("vehicle_brake")
 	clear_vehicle_input()
 	await await_physics_frames(12)
+	if not _vehicle.is_on_floor() or absf(float(_vehicle.call("get_signed_speed"))) > 0.2:
+		# Last recovery: re-snap and hold.
+		if not await snap_vehicle_to_road():
+			fail(
+				"vehicle not on floor before park (speed=%.3f)"
+				% absf(float(_vehicle.call("get_signed_speed")))
+			)
+			return result
 	if not _vehicle.is_on_floor():
 		fail(
 			"vehicle not on floor before park (speed=%.3f)"
