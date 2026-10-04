@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -3206,6 +3206,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_dialogue_choices(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_conditional_dialogue(occupancy, character, foot_cam):
+		return false
+
 	if not await _verify_small_interior(occupancy, character, foot_cam):
 		return false
 
@@ -3723,7 +3726,19 @@ func _verify_dialogue_choices(_occupancy: Node, character: CharacterBody3D, _foo
 	var dlg_script: Script = load("res://autoload/dialogue_system.gd") as Script
 	if dlg_script != null:
 		var src := dlg_script.source_code
-		for banned in ["Mira", "mira_moon", "Lua", "viewpoint_keeper"]:
+		for banned in [
+			"Mira",
+			"mira_moon",
+			"Lua",
+			"viewpoint_keeper",
+			"InventorySystem",
+			"QuestSystem",
+			"VehicleStateSystem",
+			"WorldRegionSystem",
+			"GameFlags",
+			"power_the_viewpoint",
+			"scrap_metal",
+		]:
 			if src.find(banned) >= 0:
 				push_error("drive_smoke: DialogueSystem must not hardcode '%s'" % banned)
 				quit(1)
@@ -3762,6 +3777,14 @@ func _verify_dialogue_choices(_occupancy: Node, character: CharacterBody3D, _foo
 		quit(1)
 		return false
 
+	# Isolate Mira moon ask from quest/inventory gates for baseline choice nav.
+	var qs: Node = root.get_node_or_null("QuestSystem")
+	var inv: Node = root.get_node_or_null("InventorySystem")
+	if qs != null:
+		qs.call("reset_all")
+	if inv != null:
+		inv.call("clear_inventory")
+
 	# --- Mira branching sample ---
 	var finished := {"id": ""}
 	var on_finished := func(id: String) -> void:
@@ -3789,12 +3812,18 @@ func _verify_dialogue_choices(_occupancy: Node, character: CharacterBody3D, _foo
 		quit(1)
 		return false
 	if not bool(dlg.call("has_available_choices")):
-		push_error("drive_smoke: mira_moon_ask should expose choices")
+		push_error("drive_smoke: mira_moon_ask should expose selectable choices")
 		quit(1)
 		return false
-	var choices: Array = dlg.call("get_available_choices")
-	if choices.size() != 3:
-		push_error("drive_smoke: expected 3 Mira choices, got %d" % choices.size())
+	# Quest incomplete + no scrap: 3 moon selectable; buy visible-but-disabled; repaired hidden.
+	var selectable: Array = dlg.call("get_available_choices")
+	var visible: Array = dlg.call("get_visible_choices")
+	if selectable.size() != 3:
+		push_error("drive_smoke: expected 3 selectable Mira choices, got %d" % selectable.size())
+		quit(1)
+		return false
+	if visible.size() != 4:
+		push_error("drive_smoke: expected 4 visible Mira choices (incl. disabled buy), got %d" % visible.size())
 		quit(1)
 		return false
 
@@ -3812,7 +3841,7 @@ func _verify_dialogue_choices(_occupancy: Node, character: CharacterBody3D, _foo
 	dlg.call("select_next_choice")
 	await physics_frame
 	if int(dlg.call("get_choice_index")) != 2:
-		push_error("drive_smoke: select_next_choice should wrap/move to index 2")
+		push_error("drive_smoke: select_next_choice should move to index 2")
 		quit(1)
 		return false
 	dlg.call("select_previous_choice")
@@ -3906,7 +3935,7 @@ func _verify_dialogue_choices(_occupancy: Node, character: CharacterBody3D, _foo
 		quit(1)
 		return false
 
-	# Disabled / failed-condition choices are hidden.
+	# Authoring enabled=false hides the choice.
 	var gated: DialogueChoice = ChoiceScript.new() as DialogueChoice
 	gated.id = "gated"
 	gated.text = "Hidden"
@@ -3939,6 +3968,259 @@ func _verify_dialogue_choices(_occupancy: Node, character: CharacterBody3D, _foo
 	await physics_frame
 	print("drive_smoke: choices OK (Mira moon ask navigate/confirm + linear still works)")
 	return true
+
+
+func _verify_conditional_dialogue(_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D) -> bool:
+	## show_conditions / enable_conditions via ConditionSystem only (quest, item, ALL/ANY, fallback).
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	var qs: Node = root.get_node_or_null("QuestSystem")
+	var inv: Node = root.get_node_or_null("InventorySystem")
+	var cond: Node = root.get_node_or_null("ConditionSystem")
+	if dlg == null or qs == null or inv == null or cond == null:
+		push_error("drive_smoke: systems missing for conditional dialogue")
+		quit(1)
+		return false
+
+	qs.call("reset_all")
+	inv.call("clear_inventory")
+	dlg.call("reload_catalog")
+
+	# --- Mira: quest COMPLETED reveals repaired choice; scrap enables buy ---
+	if not bool(dlg.call("start_dialogue", "mira_moon_ask", character)):
+		push_error("drive_smoke: cond_dlg mira_moon_ask failed (quest inactive)")
+		quit(1)
+		return false
+	await physics_frame
+	var ids_before := _choice_ids(dlg.call("get_visible_choices"))
+	if ids_before.has("terminal_repaired"):
+		push_error("drive_smoke: repaired choice must stay hidden before COMPLETED")
+		quit(1)
+		return false
+	if not ids_before.has("buy_part"):
+		push_error("drive_smoke: buy choice should be visible (disabled) without scrap")
+		quit(1)
+		return false
+	# Highlight buy and refuse confirm while disabled.
+	var buy_idx := ids_before.find("buy_part")
+	dlg.call("set_choice_index", buy_idx)
+	await physics_frame
+	if bool(dlg.call("is_selected_choice_enabled")):
+		push_error("drive_smoke: buy choice should be disabled without scrap")
+		quit(1)
+		return false
+	var confirmed_n := {"n": 0}
+	var on_choice := func(_a: String, _b: String) -> void:
+		confirmed_n["n"] = int(confirmed_n["n"]) + 1
+	dlg.choice_confirmed.connect(on_choice)
+	dlg.call("confirm_choice")
+	await physics_frame
+	if int(confirmed_n["n"]) != 0 or str(dlg.call("get_current_id")) != "mira_moon_ask":
+		push_error("drive_smoke: disabled buy choice must not confirm")
+		quit(1)
+		return false
+	dlg.call("end_dialogue", false)
+	await physics_frame
+
+	# Complete quest → repaired becomes visible.
+	qs.call("start_quest", "power_the_viewpoint")
+	qs.call("complete_quest", "power_the_viewpoint")
+	if not bool(dlg.call("start_dialogue", "mira_moon_ask", character)):
+		push_error("drive_smoke: mira_moon_ask failed after COMPLETED")
+		quit(1)
+		return false
+	await physics_frame
+	var ids_after_quest := _choice_ids(dlg.call("get_visible_choices"))
+	if not ids_after_quest.has("terminal_repaired"):
+		push_error("drive_smoke: repaired choice should appear when quest COMPLETED")
+		quit(1)
+		return false
+	var repaired_idx := ids_after_quest.find("terminal_repaired")
+	dlg.call("set_choice_index", repaired_idx)
+	await physics_frame
+	dlg.call("confirm_choice")
+	await physics_frame
+	if str(dlg.call("get_current_id")) != "mira_repaired_ack":
+		push_error("drive_smoke: repaired branch should open mira_repaired_ack")
+		quit(1)
+		return false
+	dlg.call("end_dialogue", false)
+	await physics_frame
+
+	# Give scrap → buy becomes selectable.
+	inv.call("add_item", "scrap_metal", 3)
+	if not bool(dlg.call("start_dialogue", "mira_moon_ask", character)):
+		push_error("drive_smoke: mira_moon_ask failed with scrap")
+		quit(1)
+		return false
+	await physics_frame
+	var ids_with_scrap := _choice_ids(dlg.call("get_visible_choices"))
+	var buy_i := ids_with_scrap.find("buy_part")
+	if buy_i < 0:
+		push_error("drive_smoke: buy choice missing with scrap")
+		quit(1)
+		return false
+	dlg.call("set_choice_index", buy_i)
+	await physics_frame
+	if not bool(dlg.call("is_selected_choice_enabled")):
+		push_error("drive_smoke: buy choice should enable with scrap_metal x3")
+		quit(1)
+		return false
+	dlg.call("confirm_choice")
+	await physics_frame
+	if str(dlg.call("get_current_id")) != "mira_buy_ack":
+		push_error("drive_smoke: buy branch should open mira_buy_ack")
+		quit(1)
+		return false
+	dlg.call("end_dialogue", false)
+	await physics_frame
+	dlg.choice_confirmed.disconnect(on_choice)
+
+	# --- Line show_conditions + fallback ---
+	var DefScript: Script = load("res://scripts/dialogue/dialogue_definition.gd") as Script
+	var ChoiceScript: Script = load("res://scripts/dialogue/dialogue_choice.gd") as Script
+	var gated_line: DialogueDefinition = DefScript.new() as DialogueDefinition
+	gated_line.id = "cond_line_gated"
+	gated_line.speaker_name = "Test"
+	gated_line.text = "Should not show"
+	gated_line.show_conditions = [cond.call("make_quest_state", "power_the_viewpoint", "ACTIVE")]
+	gated_line.show_require_all = true
+	gated_line.fallback_dialogue_id = "cond_line_fallback"
+	var fallback_line: DialogueDefinition = DefScript.new() as DialogueDefinition
+	fallback_line.id = "cond_line_fallback"
+	fallback_line.speaker_name = "Test"
+	fallback_line.text = "Fallback line ok"
+	fallback_line.next_dialogue_id = ""
+	dlg.call("register_dialogue", gated_line)
+	dlg.call("register_dialogue", fallback_line)
+	# Quest is COMPLETED, not ACTIVE → gated fails → fallback.
+	if not bool(dlg.call("start_dialogue", "cond_line_gated", character)):
+		push_error("drive_smoke: gated line should start via fallback")
+		quit(1)
+		return false
+	await physics_frame
+	if str(dlg.call("get_current_id")) != "cond_line_fallback":
+		push_error("drive_smoke: expected fallback line, got %s" % str(dlg.call("get_current_id")))
+		quit(1)
+		return false
+	dlg.call("end_dialogue", false)
+	await physics_frame
+
+	# Loop guard: A fallback B fallback A.
+	var loop_a: DialogueDefinition = DefScript.new() as DialogueDefinition
+	loop_a.id = "cond_loop_a"
+	loop_a.speaker_name = "Test"
+	loop_a.text = "A"
+	loop_a.show_conditions = [cond.call("make_flag_equals", "never_set_flag", true)]
+	loop_a.fallback_dialogue_id = "cond_loop_b"
+	var loop_b: DialogueDefinition = DefScript.new() as DialogueDefinition
+	loop_b.id = "cond_loop_b"
+	loop_b.speaker_name = "Test"
+	loop_b.text = "B"
+	loop_b.show_conditions = [cond.call("make_flag_equals", "never_set_flag", true)]
+	loop_b.fallback_dialogue_id = "cond_loop_a"
+	dlg.call("register_dialogue", loop_a)
+	dlg.call("register_dialogue", loop_b)
+	if bool(dlg.call("start_dialogue", "cond_loop_a", character)):
+		push_error("drive_smoke: fallback loop should fail to start safely")
+		quit(1)
+		return false
+
+	# --- ALL / ANY on choice show_conditions ---
+	var any_choice: DialogueChoice = ChoiceScript.new() as DialogueChoice
+	any_choice.id = "any_ok"
+	any_choice.text = "ANY pass"
+	any_choice.next_dialogue_id = ""
+	any_choice.show_conditions = [
+		cond.call("make_quest_state", "power_the_viewpoint", "ACTIVE"),
+		cond.call("make_has_item", "scrap_metal", 1),
+	]
+	any_choice.show_require_all = false  # ANY — scrap present → show
+	var all_choice: DialogueChoice = ChoiceScript.new() as DialogueChoice
+	all_choice.id = "all_fail"
+	all_choice.text = "ALL fail"
+	all_choice.next_dialogue_id = ""
+	all_choice.show_conditions = [
+		cond.call("make_quest_state", "power_the_viewpoint", "ACTIVE"),
+		cond.call("make_has_item", "scrap_metal", 1),
+	]
+	all_choice.show_require_all = true  # ALL — ACTIVE missing → hide
+	var always: DialogueChoice = ChoiceScript.new() as DialogueChoice
+	always.id = "always"
+	always.text = "Always"
+	always.next_dialogue_id = ""
+	var logic_line: DialogueDefinition = DefScript.new() as DialogueDefinition
+	logic_line.id = "cond_logic_line"
+	logic_line.speaker_name = "Test"
+	logic_line.text = "Logic"
+	var logic_choices: Array[DialogueChoice] = [any_choice, all_choice, always]
+	logic_line.choices = logic_choices
+	# All choices hidden path: only all_fail-like — use a line with one hidden choice + fallback.
+	dlg.call("start_from_definition", logic_line, character)
+	await physics_frame
+	var logic_ids := _choice_ids(dlg.call("get_visible_choices"))
+	if not logic_ids.has("any_ok") or not logic_ids.has("always") or logic_ids.has("all_fail"):
+		push_error("drive_smoke: ANY/ALL show_conditions wrong (%s)" % str(logic_ids))
+		quit(1)
+		return false
+	dlg.call("end_dialogue", false)
+	await physics_frame
+
+	# All choices hidden → fallback_dialogue_id.
+	var hidden_only: DialogueChoice = ChoiceScript.new() as DialogueChoice
+	hidden_only.id = "hidden_only"
+	hidden_only.text = "Nope"
+	hidden_only.show_conditions = [cond.call("make_quest_state", "power_the_viewpoint", "ACTIVE")]
+	hidden_only.show_require_all = true
+	var empty_choices_line: DialogueDefinition = DefScript.new() as DialogueDefinition
+	empty_choices_line.id = "cond_all_hidden"
+	empty_choices_line.speaker_name = "Test"
+	empty_choices_line.text = "Should skip"
+	empty_choices_line.fallback_dialogue_id = "cond_line_fallback"
+	var hidden_arr: Array[DialogueChoice] = [hidden_only]
+	empty_choices_line.choices = hidden_arr
+	dlg.call("register_dialogue", empty_choices_line)
+	if not bool(dlg.call("start_dialogue", "cond_all_hidden", character)):
+		push_error("drive_smoke: all-hidden choices should fallback")
+		quit(1)
+		return false
+	await physics_frame
+	if str(dlg.call("get_current_id")) != "cond_line_fallback":
+		push_error("drive_smoke: all-hidden should land on fallback")
+		quit(1)
+		return false
+	dlg.call("end_dialogue", false)
+	await physics_frame
+
+	# Ungated dialogues still work after conditional tests.
+	if not bool(dlg.call("start_dialogue", "rafa_01", character)):
+		push_error("drive_smoke: unconditional rafa_01 should still work")
+		quit(1)
+		return false
+	await physics_frame
+	dlg.call("advance")
+	await physics_frame
+	dlg.call("advance")
+	await physics_frame
+	if bool(dlg.call("is_active")):
+		push_error("drive_smoke: rafa linear should end")
+		quit(1)
+		return false
+
+	qs.call("reset_all")
+	inv.call("clear_inventory")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: cond_dlg OK (quest show + item enable + ALL/ANY + fallback/loop)")
+	return true
+
+
+func _choice_ids(choices: Array) -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	for entry in choices:
+		if entry == null:
+			continue
+		out.append(str(entry.get("id")))
+	return out
 
 
 func _verify_small_interior(occupancy: Node, character: CharacterBody3D, foot_cam: Node3D) -> bool:

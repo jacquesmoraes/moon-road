@@ -1,7 +1,9 @@
-[gd_resource type="Resource" script_class="DialogueDefinition" load_steps=6 format=3]
+[gd_resource type="Resource" script_class="DialogueDefinition" load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/dialogue/dialogue_definition.gd" id="1_script"]
 [ext_resource type="Script" path="res://scripts/dialogue/dialogue_choice.gd" id="2_choice"]
+[ext_resource type="Resource" path="res://resources/conditions/mira_viewpoint_completed.tres" id="3_quest_done"]
+[ext_resource type="Resource" path="res://resources/conditions/has_scrap_metal_3.tres" id="4_scrap"]
 
 [sub_resource type="Resource" id="choice_yes"]
 script = ExtResource("2_choice")
@@ -24,10 +26,28 @@ text = "Só estou passando."
 next_dialogue_id = "mira_moon_passing"
 enabled = true
 
+[sub_resource type="Resource" id="choice_repaired"]
+script = ExtResource("2_choice")
+id = "terminal_repaired"
+text = "Eu consertei o terminal."
+next_dialogue_id = "mira_repaired_ack"
+enabled = true
+show_conditions = [ExtResource("3_quest_done")]
+show_require_all = true
+
+[sub_resource type="Resource" id="choice_buy"]
+script = ExtResource("2_choice")
+id = "buy_part"
+text = "Posso comprar essa peça?"
+next_dialogue_id = "mira_buy_ack"
+enabled = true
+enable_conditions = [ExtResource("4_scrap")]
+enable_require_all = true
+
 [resource]
 script = ExtResource("1_script")
 id = "mira_moon_ask"
 speaker_name = "Mira"
 text = "Você está indo até a Lua?"
 next_dialogue_id = ""
-choices = [SubResource("choice_yes"), SubResource("choice_unsure"), SubResource("choice_passing")]
+choices = [SubResource("choice_yes"), SubResource("choice_unsure"), SubResource("choice_passing"), SubResource("choice_repaired"), SubResource("choice_buy")]

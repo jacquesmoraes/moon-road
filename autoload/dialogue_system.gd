@@ -1,7 +1,8 @@
 extends Node
 ## Data-driven dialogue runner. Autoload — no NPC-specific logic.
 ## Linear: advance on dialogue_continue via next_dialogue_id.
-## Branching: when a line has available choices, ↑/↓ select and continue confirms.
+## Branching: visible choices (↑/↓); confirm only when enable conditions pass.
+## All gameplay gates go through ConditionSystem — never inventory/quests/etc.
 
 signal dialogue_started(dialogue_id: String)
 signal line_changed(def: Resource)
@@ -11,6 +12,7 @@ signal dialogue_finished(dialogue_id: String)
 signal dialogue_cancelled
 
 const DEFAULT_CATALOG_PATH := "res://resources/dialogue/default_catalog.tres"
+const MAX_RESOLVE_HOPS: int = 12
 
 @export_file("*.tres") var catalog_path: String = DEFAULT_CATALOG_PATH
 
@@ -33,7 +35,7 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not _active:
 		return
-	if not get_available_choices().is_empty():
+	if not get_visible_choices().is_empty():
 		if event.is_action_pressed("ui_up"):
 			select_previous_choice()
 			get_viewport().set_input_as_handled()
@@ -91,27 +93,29 @@ func get_dialogue(dialogue_id: String) -> Resource:
 	return _by_id.get(dialogue_id, null)
 
 
-## Enabled choices whose conditions pass (or have no conditions).
-func get_available_choices() -> Array:
+## Choices that pass show_conditions (may still be unselectable).
+func get_visible_choices() -> Array:
 	if _current == null:
 		return []
 	var raw: Variant = _current.get("choices")
 	if typeof(raw) != TYPE_ARRAY:
 		return []
-	var cond_sys := get_node_or_null("/root/ConditionSystem")
 	var out: Array = []
 	for entry in raw:
 		if entry == null:
 			continue
-		if "enabled" in entry and not bool(entry.get("enabled")):
+		if not _choice_passes_show(entry):
 			continue
-		var conditions: Variant = entry.get("conditions") if "conditions" in entry else []
-		if typeof(conditions) == TYPE_ARRAY and not conditions.is_empty():
-			if cond_sys == null or not cond_sys.has_method("evaluate_all"):
-				continue
-			if not bool(cond_sys.call("evaluate_all", conditions)):
-				continue
 		out.append(entry)
+	return out
+
+
+## Visible choices that can be confirmed (enable_conditions pass).
+func get_available_choices() -> Array:
+	var out: Array = []
+	for entry in get_visible_choices():
+		if _choice_passes_enable(entry):
+			out.append(entry)
 	return out
 
 
@@ -119,8 +123,26 @@ func has_available_choices() -> bool:
 	return not get_available_choices().is_empty()
 
 
+func has_visible_choices() -> bool:
+	return not get_visible_choices().is_empty()
+
+
+func is_choice_enabled(choice: Variant) -> bool:
+	if choice == null:
+		return false
+	return _choice_passes_enable(choice)
+
+
+func is_selected_choice_enabled() -> bool:
+	var visible := get_visible_choices()
+	if visible.is_empty():
+		return false
+	var idx := clampi(_choice_index, 0, visible.size() - 1)
+	return _choice_passes_enable(visible[idx])
+
+
 func select_next_choice() -> void:
-	var choices := get_available_choices()
+	var choices := get_visible_choices()
 	if choices.is_empty():
 		return
 	_choice_index = (_choice_index + 1) % choices.size()
@@ -128,7 +150,7 @@ func select_next_choice() -> void:
 
 
 func select_previous_choice() -> void:
-	var choices := get_available_choices()
+	var choices := get_visible_choices()
 	if choices.is_empty():
 		return
 	_choice_index = (_choice_index - 1 + choices.size()) % choices.size()
@@ -136,7 +158,7 @@ func select_previous_choice() -> void:
 
 
 func set_choice_index(index: int) -> void:
-	var choices := get_available_choices()
+	var choices := get_visible_choices()
 	if choices.is_empty():
 		_choice_index = 0
 		return
@@ -144,28 +166,24 @@ func set_choice_index(index: int) -> void:
 	choice_selection_changed.emit(_choice_index)
 
 
-## Confirms the highlighted choice and follows its next_dialogue_id.
+## Confirms the highlighted choice when it is enabled; no-op if disabled.
 func confirm_choice() -> void:
 	if not _active or _current == null:
 		return
-	var choices := get_available_choices()
-	if choices.is_empty():
+	var visible := get_visible_choices()
+	if visible.is_empty():
 		return
-	_choice_index = clampi(_choice_index, 0, choices.size() - 1)
-	var choice: Variant = choices[_choice_index]
+	_choice_index = clampi(_choice_index, 0, visible.size() - 1)
+	var choice: Variant = visible[_choice_index]
+	if not _choice_passes_enable(choice):
+		return
 	var choice_id := str(choice.get("id"))
 	var next_id := str(choice.get("next_dialogue_id"))
 	choice_confirmed.emit(choice_id, next_id)
 	if next_id.is_empty():
 		end_dialogue(true)
 		return
-	_ensure_index()
-	var nxt: Resource = _by_id.get(next_id, null)
-	if nxt == null:
-		push_warning("DialogueSystem: missing choice next_dialogue_id '%s'" % next_id)
-		end_dialogue(true)
-		return
-	_show_line(nxt)
+	_goto_dialogue_id(next_id)
 
 
 ## Extension point: first entry whose ConditionData passes (null condition = always).
@@ -219,13 +237,21 @@ func start_dialogue(dialogue_id: String, actor: Node = null) -> bool:
 		push_warning("DialogueSystem: unknown dialogue_id '%s'" % dialogue_id)
 		return false
 
+	var resolved := _resolve_showable_line(def)
+	if resolved == null:
+		push_warning("DialogueSystem: no showable line for '%s'" % dialogue_id)
+		return false
+
 	_actor = actor
 	_start_id = dialogue_id
 	_lines_shown = 0
 	_choice_index = 0
 	_active = true
 	_lock_actor(true)
-	_show_line(def)
+	_present_line(resolved)
+	if not _active:
+		# Presented line redirected to an empty dead-end and ended.
+		return false
 	dialogue_started.emit(dialogue_id)
 	return true
 
@@ -241,21 +267,19 @@ func start_from_definition(def: Resource, actor: Node = null) -> bool:
 func advance() -> void:
 	if not _active or _current == null:
 		return
-	# Branching lines: continue confirms the selection (does not skip via next_dialogue_id).
+	# Selectable choices: continue confirms the current highlight.
 	if has_available_choices():
 		confirm_choice()
+		return
+	# Visible but all disabled → leave the choice UI via next / end (safe escape).
+	if has_visible_choices():
+		_leave_choice_line_without_selection()
 		return
 	var next_id := str(_current.get("next_dialogue_id"))
 	if next_id.is_empty():
 		end_dialogue(true)
 		return
-	_ensure_index()
-	var nxt: Resource = _by_id.get(next_id, null)
-	if nxt == null:
-		push_warning("DialogueSystem: missing next_dialogue_id '%s'" % next_id)
-		end_dialogue(true)
-		return
-	_show_line(nxt)
+	_goto_dialogue_id(next_id)
 
 
 func end_dialogue(completed: bool = true) -> void:
@@ -279,13 +303,158 @@ func reload_catalog() -> void:
 	_load_catalog()
 
 
-func _show_line(def: Resource) -> void:
+func _leave_choice_line_without_selection() -> void:
+	## All visible choices are disabled: prefer line fallback, then next, then end.
+	var fallback := str(_current.get("fallback_dialogue_id")) if _current != null else ""
+	if not fallback.is_empty():
+		_goto_dialogue_id(fallback)
+		return
+	var next_id := str(_current.get("next_dialogue_id")) if _current != null else ""
+	if not next_id.is_empty():
+		_goto_dialogue_id(next_id)
+		return
+	end_dialogue(true)
+
+
+func _goto_dialogue_id(dialogue_id: String) -> void:
+	if dialogue_id.is_empty():
+		end_dialogue(true)
+		return
+	_ensure_index()
+	var nxt: Resource = _by_id.get(dialogue_id, null)
+	if nxt == null:
+		push_warning("DialogueSystem: missing dialogue_id '%s'" % dialogue_id)
+		end_dialogue(true)
+		return
+	var resolved := _resolve_showable_line(nxt)
+	if resolved == null:
+		end_dialogue(true)
+		return
+	_present_line(resolved)
+
+
+func _present_line(def: Resource) -> void:
 	_current = def
 	_lines_shown += 1
 	_choice_index = 0
+
+	# Authored choices but none visible → fallback or end (avoid empty dead-end UI).
+	if _has_authored_choices(def) and get_visible_choices().is_empty():
+		var fallback := str(def.get("fallback_dialogue_id"))
+		var self_id := str(def.get("id"))
+		if not fallback.is_empty() and fallback != self_id:
+			_goto_dialogue_id(fallback)
+			return
+		end_dialogue(true)
+		return
+
+	_choice_index = _first_selectable_visible_index()
 	line_changed.emit(def)
-	if has_available_choices():
+	if has_visible_choices():
 		choice_selection_changed.emit(_choice_index)
+
+
+func _first_selectable_visible_index() -> int:
+	var visible := get_visible_choices()
+	for i in range(visible.size()):
+		if _choice_passes_enable(visible[i]):
+			return i
+	return 0
+
+
+func _has_authored_choices(def: Resource) -> bool:
+	if def == null:
+		return false
+	var raw: Variant = def.get("choices")
+	return typeof(raw) == TYPE_ARRAY and not raw.is_empty()
+
+
+func _resolve_showable_line(def: Resource) -> Resource:
+	## Follow fallback_dialogue_id while show_conditions fail. Guards loops / hops.
+	var current := def
+	var seen: Dictionary = {}
+	var hops := 0
+	while current != null and hops < MAX_RESOLVE_HOPS:
+		hops += 1
+		var key := str(current.get("id"))
+		if key.is_empty():
+			return null
+		if seen.has(key):
+			push_warning("DialogueSystem: show_conditions fallback loop at '%s'" % key)
+			return null
+		seen[key] = true
+		if _line_passes_show(current):
+			return current
+		var fallback := str(current.get("fallback_dialogue_id"))
+		if fallback.is_empty():
+			return null
+		_ensure_index()
+		current = _by_id.get(fallback, null)
+		if current == null:
+			push_warning("DialogueSystem: missing fallback_dialogue_id '%s'" % fallback)
+			return null
+	push_warning("DialogueSystem: show_conditions resolve exceeded hop limit")
+	return null
+
+
+func _line_passes_show(def: Resource) -> bool:
+	if def == null:
+		return false
+	var conditions: Array = _read_condition_list(def, "show_conditions")
+	var require_all := bool(def.get("show_require_all")) if "show_require_all" in def else true
+	return _passes_conditions(conditions, require_all)
+
+
+func _choice_passes_show(choice: Variant) -> bool:
+	if choice == null:
+		return false
+	if "enabled" in choice and not bool(choice.get("enabled")):
+		return false
+	var conditions: Array = _read_condition_list(choice, "show_conditions")
+	# Legacy field from earlier choice gating.
+	if conditions.is_empty():
+		conditions = _read_condition_list(choice, "conditions")
+	var require_all := true
+	if "show_require_all" in choice:
+		require_all = bool(choice.get("show_require_all"))
+	return _passes_conditions(conditions, require_all)
+
+
+func _choice_passes_enable(choice: Variant) -> bool:
+	if choice == null:
+		return false
+	if not _choice_passes_show(choice):
+		return false
+	var conditions: Array = _read_condition_list(choice, "enable_conditions")
+	var require_all := true
+	if "enable_require_all" in choice:
+		require_all = bool(choice.get("enable_require_all"))
+	return _passes_conditions(conditions, require_all)
+
+
+func _read_condition_list(owner: Variant, property: String) -> Array:
+	if owner == null or not (property in owner):
+		return []
+	var raw: Variant = owner.get(property)
+	if typeof(raw) != TYPE_ARRAY:
+		return []
+	return raw
+
+
+func _passes_conditions(conditions: Array, require_all: bool) -> bool:
+	## Empty list always passes. Non-empty lists require ConditionSystem.
+	if conditions.is_empty():
+		return true
+	var cond_sys := get_node_or_null("/root/ConditionSystem")
+	if cond_sys == null:
+		return false
+	if require_all:
+		if cond_sys.has_method("evaluate_all"):
+			return bool(cond_sys.call("evaluate_all", conditions))
+		return false
+	if cond_sys.has_method("evaluate_any"):
+		return bool(cond_sys.call("evaluate_any", conditions))
+	return false
 
 
 func _lock_actor(lock: bool) -> void:
@@ -297,7 +466,6 @@ func _lock_actor(lock: bool) -> void:
 			_restore_control = bool(_actor.call("is_control_enabled"))
 		if _actor.has_method("set_control_enabled"):
 			_actor.call("set_control_enabled", false)
-		# Ensure detector is off even if actor API differs.
 		if _actor.has_method("get_interaction_detector"):
 			var det: Node = _actor.call("get_interaction_detector")
 			if det != null and det.has_method("set_detector_active"):

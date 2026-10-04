@@ -56,54 +56,76 @@ func _rebuild_choices() -> void:
 	_clear_choice_labels()
 	if _choices == null or _system == null:
 		return
-	if not _system.has_method("get_available_choices"):
-		_choices.visible = false
-		return
-	var available: Array = _system.call("get_available_choices")
-	if available.is_empty():
+	var visible: Array = []
+	if _system.has_method("get_visible_choices"):
+		visible = _system.call("get_visible_choices")
+	elif _system.has_method("get_available_choices"):
+		visible = _system.call("get_available_choices")
+	if visible.is_empty():
 		_choices.visible = false
 		return
 	_choices.visible = true
 	var selected := int(_system.call("get_choice_index")) if _system.has_method("get_choice_index") else 0
-	for i in range(available.size()):
-		var choice: Variant = available[i]
+	for i in range(visible.size()):
+		var choice: Variant = visible[i]
+		var selectable := true
+		if _system.has_method("is_choice_enabled"):
+			selectable = bool(_system.call("is_choice_enabled", choice))
 		var label := Label.new()
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		label.add_theme_font_size_override("font_size", 18)
-		var prefix := ">" if i == selected else " "
-		label.text = "%s %s" % [prefix, str(choice.get("text"))]
-		label.add_theme_color_override(
-			"font_color",
-			Color(0.98, 0.86, 0.42, 1.0) if i == selected else Color(0.78, 0.8, 0.74, 1.0)
-		)
+		label.text = _format_choice_text(choice, i == selected, selectable)
+		label.add_theme_color_override("font_color", _choice_color(i == selected, selectable))
 		_choices.add_child(label)
 		_choice_labels.append(label)
 
 
 func _refresh_choice_highlight() -> void:
-	if _system == null or not _system.has_method("get_available_choices"):
+	if _system == null:
 		return
-	var available: Array = _system.call("get_available_choices")
-	if available.is_empty() or _choice_labels.is_empty():
+	var visible: Array = []
+	if _system.has_method("get_visible_choices"):
+		visible = _system.call("get_visible_choices")
+	elif _system.has_method("get_available_choices"):
+		visible = _system.call("get_available_choices")
+	if visible.is_empty() or _choice_labels.is_empty():
 		return
 	var selected := int(_system.call("get_choice_index")) if _system.has_method("get_choice_index") else 0
 	for i in range(_choice_labels.size()):
-		var label := _choice_labels[i]
-		if i >= available.size():
+		if i >= visible.size():
 			break
-		var prefix := ">" if i == selected else " "
-		label.text = "%s %s" % [prefix, str(available[i].get("text"))]
-		label.add_theme_color_override(
-			"font_color",
-			Color(0.98, 0.86, 0.42, 1.0) if i == selected else Color(0.78, 0.8, 0.74, 1.0)
-		)
+		var choice: Variant = visible[i]
+		var selectable := true
+		if _system.has_method("is_choice_enabled"):
+			selectable = bool(_system.call("is_choice_enabled", choice))
+		var label := _choice_labels[i]
+		label.text = _format_choice_text(choice, i == selected, selectable)
+		label.add_theme_color_override("font_color", _choice_color(i == selected, selectable))
+
+
+func _format_choice_text(choice: Variant, selected: bool, selectable: bool) -> String:
+	var body := str(choice.get("text"))
+	if not selectable:
+		var marker := ">" if selected else " "
+		return "%s [indisponível] %s" % [marker, body]
+	var prefix := ">" if selected else " "
+	return "%s %s" % [prefix, body]
+
+
+func _choice_color(selected: bool, selectable: bool) -> Color:
+	if not selectable:
+		return Color(0.55, 0.56, 0.52, 1.0) if selected else Color(0.42, 0.43, 0.4, 1.0)
+	return Color(0.98, 0.86, 0.42, 1.0) if selected else Color(0.78, 0.8, 0.74, 1.0)
 
 
 func _update_hint() -> void:
 	if _hint == null or _system == null:
 		return
-	if _system.has_method("has_available_choices") and bool(_system.call("has_available_choices")):
-		_hint.text = "↑/↓ — Escolher · Enter / E — Confirmar"
+	if _system.has_method("has_visible_choices") and bool(_system.call("has_visible_choices")):
+		if _system.has_method("is_selected_choice_enabled") and not bool(_system.call("is_selected_choice_enabled")):
+			_hint.text = "↑/↓ — Escolher · opção indisponível"
+		else:
+			_hint.text = "↑/↓ — Escolher · Enter / E — Confirmar"
 		return
 	var def: Resource = _system.call("get_current") if _system.has_method("get_current") else null
 	var terminal := true

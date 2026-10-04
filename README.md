@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **branching dialogue choices** — DialogueChoice + Mira moon-ask sample. See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **conditional dialogue lines/choices** — show/enable gates via ConditionSystem. See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -68,19 +68,19 @@ Data-driven talk with optional player choices. No VO, relationship effects, or t
 
 | Piece | Role |
 |-------|------|
-| `DialogueDefinition` | `id`, `speaker_name`, `text`, `next_dialogue_id`, `choices[]` |
-| `DialogueChoice` | `id`, `text`, `next_dialogue_id`, `enabled`, optional `conditions` |
+| `DialogueDefinition` | `id`, `speaker_name`, `text`, `next_dialogue_id`, `choices[]`, `show_conditions`, `fallback_dialogue_id` |
+| `DialogueChoice` | `id`, `text`, `next_dialogue_id`, `enabled`, `show_conditions`, `enable_conditions` (+ ALL/ANY flags) |
 | `DialogueCatalog` | Flat registry (`resources/dialogue/default_catalog.tres`) |
-| `DialogueSystem` | Autoload — start / advance / confirm choice; locks on-foot control; `resolve_dialogue_id` for condition gates |
-| `DialogueUI` | Bottom box + selectable choice list (↑/↓, Enter/E) |
+| `DialogueSystem` | Autoload — start / advance / confirm; gates only via ConditionSystem; locks on-foot control |
+| `DialogueUI` | Bottom box + choices; `[indisponível]` for failed enable_conditions |
 | `ConditionalDialogue` | `condition` + `dialogue_id` — first match wins |
 | `NpcDefinition.dialogue_id` | Fallback / offer line id |
 | `NpcDefinition.conditional_dialogues` | ConditionSystem-gated overrides |
 
 **Linear:** empty `choices` → `dialogue_continue` follows `next_dialogue_id` (empty ends).  
-**Branching:** available choices shown; ↑/↓ select; Enter/E/`dialogue_continue` confirms and follows that choice’s `next_dialogue_id` (empty ends). Disabled / failed-condition choices are hidden. DialogueSystem has no NPC-specific branches.
+**Branching:** visible choices shown; ↑/↓ select; Enter/E confirms only if `enable_conditions` pass. Failed `show_conditions` hide a choice; failed `enable_conditions` keep it visible as `[indisponível]`. Line `show_conditions` use `fallback_dialogue_id` (loop-guarded) or skip. All gates evaluate through ConditionSystem only.
 
-**Authoring:** create `.tres` lines, chain with `next_dialogue_id` or attach `DialogueChoice`s, add them to the catalog, set the NPC's `dialogue_id`. **Mira** quest offer stays linear (`mira_quest_offer_01`→`02`). After quest **COMPLETED**, `mira_quest_done_01` continues into branching sample `mira_moon_ask` (“Você está indo até a Lua?” / three replies). **Rafa** stays linear (`rafa_01`→`rafa_02`).
+**Authoring:** create `.tres` lines / choices with ConditionData lists, add to the catalog. **Mira** `mira_moon_ask`: moon replies + “Eu consertei o terminal.” (`QUEST_STATE` COMPLETED) + “Posso comprar essa peça?” (visible; needs `scrap_metal`×3 to enable). Quest offer stays linear. **Rafa** stays linear.
 
 ### Conditions + flags (`ConditionSystem` / `GameFlags`)
 
@@ -375,7 +375,7 @@ Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later w
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
-# Expect: … choices=OK … mid_save=OK … conditions=OK … drive_smoke: OK
+# Expect: … choices=OK … cond_dlg=OK … mid_save=OK … drive_smoke: OK
 ```
 
 Architecture snapshot: [`docs/architecture-status.md`](docs/architecture-status.md).
