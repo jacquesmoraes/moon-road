@@ -2,7 +2,14 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **Dialogue & NPC System Pass closed** — data-driven talk, state, schedules, movement, travel, barks, debug/validation. Status: [`docs/dialogue-npc-system-status.md`](docs/dialogue-npc-system-status.md) · architecture: [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **Dialogue & NPC System Pass closed** — data-driven talk, state, schedules, movement, travel, barks, debug/validation.
+
+| Doc | Role |
+|-----|------|
+| [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) | Product vision (canonical) |
+| [`docs/architecture-status.md`](docs/architecture-status.md) | Implemented architecture |
+| [`docs/dialogue-npc-system-status.md`](docs/dialogue-npc-system-status.md) | Dialogue & NPC pass status |
+| [`docs/testing.md`](docs/testing.md) | Headless smoke suites + runners |
 
 ## Requirements
 
@@ -13,6 +20,24 @@ Current slice: **Dialogue & NPC System Pass closed** — data-driven talk, state
 1. Open this folder in the Godot editor (`project.godot`).
 2. Press **Play** (editor F5). Dev main scene: `scenes/test/DrivingSandbox.tscn`.
    In-game **F5/F9/F6** are temporary save debug hotkeys (not the editor Play shortcut).
+
+### Tests
+
+Full details: [`docs/testing.md`](docs/testing.md).
+
+```powershell
+# Windows
+.\run_tests.ps1
+.\run_tests.ps1 -Suite dialogue_smoke
+$env:GODOT_BIN = "C:\Path\To\Godot_v4.7-stable_win64.exe"
+```
+
+```bash
+# Linux / macOS
+./run_tests.sh
+./run_tests.sh dialogue_smoke
+export GODOT_BIN=/path/to/godot
+```
 
 ### Drive controls
 
@@ -447,30 +472,7 @@ Example: **Sunset Viewpoint** (`resources/world/exits/sunset_viewpoint_exit.tres
 
 Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later without changing discovery.
 
-```bash
-godot --path . --headless --quit-after 3
-
-# Full regression (isolated domain suites via subprocesses)
-godot --path . --headless -s res://scripts/test/drive_smoke.gd
-# Expect: drive_smoke: SUMMARY passed=9 failed=0 … drive_smoke: OK
-
-# Individual domain suites (any order; each boots its own sandbox)
-godot --path . --headless -s res://scripts/test/autoload_init_smoke.gd
-godot --path . --headless -s res://scripts/test/vehicle_smoke.gd
-godot --path . --headless -s res://scripts/test/journey_world_smoke.gd
-godot --path . --headless -s res://scripts/test/save_smoke.gd
-godot --path . --headless -s res://scripts/test/inventory_crafting_smoke.gd
-godot --path . --headless -s res://scripts/test/dialogue_smoke.gd
-godot --path . --headless -s res://scripts/test/npc_smoke.gd
-godot --path . --headless -s res://scripts/test/poi_worldstate_smoke.gd
-godot --path . --headless -s res://scripts/test/vertical_slice_smoke.gd
-```
-
-Shared helpers: `scripts/test/test_helpers.gd`. Suites exit nonzero on failure and print a final `*: OK …` summary line.
-
-
-
-Architecture snapshot: [`docs/architecture-status.md`](docs/architecture-status.md).
+Smoke / regression commands live in [`docs/testing.md`](docs/testing.md) (`run_tests.ps1` / `run_tests.sh`, or raw `godot --path . --headless -s …`).
 
 ## Layout (`res://`)
 

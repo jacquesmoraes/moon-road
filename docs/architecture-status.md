@@ -1,11 +1,13 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** fail-closed conditions (`fix: enforce fail-closed gameplay conditions`)  
-**Engine:** Godot 4.7 Forward Plus
+**As of:** domain smoke suites + docs/test workflow (`docs: fix project references and document test workflow`)  
+**Engine:** Godot 4.7 Forward Plus  
+**Pass:** Dialogue & NPC System Pass — **closed**
 
-This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.  
-Pass status detail: [`docs/dialogue-npc-system-status.md`](dialogue-npc-system-status.md).
+This document describes the **current implemented foundation**, not the full design vision in [`docs/GAME_DESIGN.md`](GAME_DESIGN.md).  
+Pass status detail: [`docs/dialogue-npc-system-status.md`](dialogue-npc-system-status.md).  
+Testing: [`docs/testing.md`](testing.md).
 
 ---
 
@@ -217,9 +219,8 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 
 Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira (`met_player`) → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → talk to Rafa (`rafa_far` → `BUSY`) → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time/dialogue memory/NPC state without duplication → limited offline progress respects fuel (+ narrative when applied).
 
-Full regression: `godot --path . --headless -s res://scripts/test/drive_smoke.gd` (orchestrates isolated domain suites).  
-Look for `drive_smoke: SUMMARY passed=9 failed=0` and `drive_smoke: OK suites=…`.  
-Domain suites: `autoload_init_smoke`, `vehicle_smoke`, `journey_world_smoke`, `save_smoke`, `inventory_crafting_smoke`, `dialogue_smoke`, `npc_smoke`, `poi_worldstate_smoke`, `vertical_slice_smoke` under `scripts/test/` (shared `test_helpers.gd`).
+Full regression / domain suites: see [`docs/testing.md`](testing.md) (`./run_tests.sh` / `.\run_tests.ps1`, or `drive_smoke.gd`).  
+Expect `drive_smoke: SUMMARY passed=9 failed=0` on a green full run.
 
 ### NPC / dialogue debug tools
 
@@ -350,7 +351,7 @@ No portraits/VO/localization/cinematics/facial/romance/crowds/quest log UI/tree 
 Dialogue & NPC System Pass is **closed** (data-driven foundation + smoke). Next priorities:
 
 1. **Gas / service stop POI** — refuel interaction (fuel is already functional).
-2. **Offline policy UI** — expose capped offline window from GAME_DESIGN §8.
+2. **Offline policy UI** — expose capped offline window from [`GAME_DESIGN.md`](GAME_DESIGN.md) §8.
 3. **Second physical city/POI** — travelers already land on logical ids (`debug_waystation`).
 4. **NPC animation + avoidance** — walk/snap/pause exist; final anim next.
 5. **Quest log UI** — more content gates can stay data-driven.
@@ -365,8 +366,8 @@ Dialogue & NPC System Pass is **closed** (data-driven foundation + smoke). Next 
 
 | Doc | Role |
 |-----|------|
-| `README.md` | How to run, controls, feature summaries |
-| `docs/GAME_DESIGN.md` | Product vision (Portuguese) |
-| `docs/architecture-status.md` | This file — implemented architecture |
-| `docs/dialogue-npc-system-status.md` | Dialogue/NPC pass READY/PARTIAL/NOT_IMPLEMENTED |
-| Store copy | `/cursor/stores/…/docs/` |
+| [`README.md`](../README.md) | How to run, controls, feature summaries |
+| [`docs/GAME_DESIGN.md`](GAME_DESIGN.md) | Product vision (Portuguese) — **canonical in-repo** |
+| [`docs/architecture-status.md`](architecture-status.md) | This file — implemented architecture |
+| [`docs/dialogue-npc-system-status.md`](dialogue-npc-system-status.md) | Dialogue/NPC pass READY/PARTIAL/NOT_IMPLEMENTED |
+| [`docs/testing.md`](testing.md) | Smoke suites, runners, exit codes, how to add tests |

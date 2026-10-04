@@ -1,11 +1,11 @@
 # Dialogue & NPC System — Status Report
 
 **Branch:** `cursor/godot-project-init-4804`  
-**Pass close-out:** `test: finalize dialogue and npc system pass`  
-**Init hardening:** `fix: harden autoload initialization and dependency binding`  
+**Pass:** **closed** (branching → debug tools + data-driven foundation)  
 **Engine:** Godot 4.7  
 
-This report classifies the **Dialogue & NPC System Pass** (branching → debug tools). It is the implemented foundation, not the full GAME_DESIGN vision.
+This report classifies the **Dialogue & NPC System Pass**. It is the implemented foundation, not the full vision in [`docs/GAME_DESIGN.md`](GAME_DESIGN.md).  
+Architecture: [`docs/architecture-status.md`](architecture-status.md) · Testing: [`docs/testing.md`](testing.md).
 
 **Acceptance (scale):** New NPCs and dialogues are authored primarily as `.tres` Resources + catalog entries. Central scripts (`DialogueSystem`, `ConditionSystem`, `NpcStateSystem`, …) stay free of per-character name branches.
 
@@ -147,10 +147,13 @@ RelationshipSystem ── written by Executor / read by ConditionSystem (no Dial
 | Contextual priority | `_verify_npc_dialogue_rules` + `dlg_npc_pass` |
 | Coupling audit | `dlg_npc_pass` |
 
-Commands:
-- Dialogue suite: `godot --path . --headless -s res://scripts/test/dialogue_smoke.gd` (look for `dialogue_smoke: OK`)
-- NPC suite: `godot --path . --headless -s res://scripts/test/npc_smoke.gd` (look for `npc_smoke: OK`)
-- Full regression: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`
+Commands (see [`docs/testing.md`](testing.md)):
+
+```bash
+./run_tests.sh dialogue_smoke   # look for dialogue_smoke: OK
+./run_tests.sh npc_smoke        # look for npc_smoke: OK
+./run_tests.sh                  # full regression via drive_smoke
+```
 
 ---
 
@@ -162,7 +165,7 @@ Commands:
 - Crowds, multi-speaker scenes, second physical city for travelers  
 - Final NPC animation set, avoidance  
 - Quest log UI, dialogue tree editor  
-- Gas/service stops and broader world content (GAME_DESIGN roadmap)
+- Gas/service stops and broader world content ([`GAME_DESIGN.md`](GAME_DESIGN.md) roadmap)
 
 ---
 
@@ -170,7 +173,8 @@ Commands:
 
 | Doc | Role |
 |-----|------|
-| `README.md` | How to run + capability summary |
-| `docs/architecture-status.md` | Full foundation architecture |
-| `docs/dialogue-npc-system-status.md` | This report |
-| Store copy | `/cursor/stores/…/docs/` |
+| [`README.md`](../README.md) | How to run + capability summary |
+| [`docs/GAME_DESIGN.md`](GAME_DESIGN.md) | Product vision (canonical) |
+| [`docs/architecture-status.md`](architecture-status.md) | Full foundation architecture |
+| [`docs/testing.md`](testing.md) | Smoke suites + runners |
+| [`docs/dialogue-npc-system-status.md`](dialogue-npc-system-status.md) | This report |
