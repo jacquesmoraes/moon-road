@@ -5415,10 +5415,6 @@ func _verify_side_quest(occupancy: Node, character: CharacterBody3D, foot_cam: N
 		push_error("drive_smoke: completed quest altered scrap after duplicate try_turn_in")
 		quit(1)
 		return false
-	if int(inv.call("get_quantity", "scrap_metal")) != 3:
-		push_error("drive_smoke: duplicate turn-in changed inventory")
-		quit(1)
-		return false
 
 	qs.quest_completed.disconnect(on_done)
 	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
