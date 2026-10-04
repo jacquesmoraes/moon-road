@@ -1,4 +1,4 @@
-[gd_scene load_steps=28 format=3 uid="uid://bterra_drive_sandbox"]
+[gd_scene load_steps=29 format=3 uid="uid://bterra_drive_sandbox"]
 
 [ext_resource type="PackedScene" uid="uid://bterra_player_vehicle" path="res://scenes/vehicles/PlayerVehicle.tscn" id="1_vehicle"]
 [ext_resource type="PackedScene" uid="uid://bterra_driving_debug_hud" path="res://scenes/ui/DrivingDebugHUD.tscn" id="2_hud"]
@@ -18,6 +18,7 @@
 [ext_resource type="PackedScene" uid="uid://bterra_inventory_debug" path="res://scenes/ui/InventoryDebugUI.tscn" id="16_inventory"]
 [ext_resource type="PackedScene" uid="uid://bterra_pickup_feedback" path="res://scenes/ui/PickupFeedbackUI.tscn" id="17_pickup_fb"]
 [ext_resource type="PackedScene" uid="uid://bterra_crafting_debug" path="res://scenes/ui/CraftingDebugUI.tscn" id="18_craft"]
+[ext_resource type="PackedScene" uid="uid://bterra_npc_dialogue_debug" path="res://scenes/ui/NpcDialogueDebugUI.tscn" id="19_npc_dlg_debug"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.28, 0.48, 0.78, 1)
@@ -171,6 +172,8 @@ occupancy_path = NodePath("../PlayerOccupancyController")
 [node name="PickupFeedbackUI" parent="." instance=ExtResource("17_pickup_fb")]
 
 [node name="CraftingDebugUI" parent="." instance=ExtResource("18_craft")]
+
+[node name="NpcDialogueDebugUI" parent="." instance=ExtResource("19_npc_dlg_debug")]
 
 [node name="DrivingDebugHUD" parent="." instance=ExtResource("2_hud")]
 vehicle_path = NodePath("../PlayerVehicle")

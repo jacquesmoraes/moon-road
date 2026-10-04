@@ -101,6 +101,33 @@ func get_recent_bark_ids(npc_id: String) -> PackedStringArray:
 	return out
 
 
+## Debug snapshot: last bark, recent ids, cooldown remaining (seconds), gap remaining.
+func get_bark_debug_state(npc_id: String) -> Dictionary:
+	if npc_id.is_empty():
+		return {}
+	_ensure_runtime(npc_id)
+	var runtime: Dictionary = _runtime[npc_id]
+	var now := _now_seconds()
+	var last_time := float(runtime.get("last_bark_time", -9999.0))
+	var gap_left := maxf(MIN_GAP_SECONDS - (now - last_time), 0.0)
+	var cool_raw: Dictionary = runtime.get("bark_cooldowns", {})
+	var cooldowns: Dictionary = {}
+	for key in cool_raw.keys():
+		var until := float(cool_raw[key])
+		var left := maxf(until - now, 0.0)
+		if left > 0.0:
+			cooldowns[str(key)] = snappedf(left, 0.1)
+	return {
+		"last_bark_id": str(runtime.get("last_bark_id", "")),
+		"recent_bark_ids": get_recent_bark_ids(npc_id),
+		"min_gap_remaining": snappedf(gap_left, 0.1),
+		"active_cooldowns": cooldowns,
+		"has_presenter": _presenters.has(npc_id)
+			and _presenters.get(npc_id) != null
+			and is_instance_valid(_presenters.get(npc_id)),
+	}
+
+
 func reset_for_tests(npc_id: String = "") -> void:
 	if npc_id.is_empty():
 		_runtime.clear()

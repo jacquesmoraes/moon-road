@@ -33,6 +33,17 @@ func has_quest(quest_id: String) -> bool:
 	return _by_id.has(quest_id)
 
 
+## Sorted quest ids from the loaded catalog (debug / tools).
+func get_quest_ids() -> PackedStringArray:
+	_ensure_index()
+	var ids: Array = _by_id.keys()
+	ids.sort()
+	var out := PackedStringArray()
+	for key in ids:
+		out.append(str(key))
+	return out
+
+
 func get_quest(quest_id: String) -> Resource:
 	_ensure_index()
 	return _by_id.get(quest_id, null)

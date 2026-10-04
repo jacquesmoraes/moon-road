@@ -99,6 +99,48 @@ func record_choice_selected(choice_id: String, dialogue_id: String = "") -> void
 	choice_selected.emit(choice_id, count)
 
 
+func get_seen_dialogue_ids() -> PackedStringArray:
+	var ids: Array = []
+	for key in _dialogues.keys():
+		var dialogue_id := str(key)
+		if has_seen_dialogue(dialogue_id):
+			ids.append(dialogue_id)
+	ids.sort()
+	var out := PackedStringArray()
+	for key in ids:
+		out.append(str(key))
+	return out
+
+
+func get_completed_dialogue_ids() -> PackedStringArray:
+	var ids: Array = []
+	for key in _dialogues.keys():
+		var dialogue_id := str(key)
+		if has_completed_dialogue(dialogue_id):
+			ids.append(dialogue_id)
+	ids.sort()
+	var out := PackedStringArray()
+	for key in ids:
+		out.append(str(key))
+	return out
+
+
+func get_choice_history_ids() -> PackedStringArray:
+	var ids: Array = _choices.keys()
+	ids.sort()
+	var out := PackedStringArray()
+	for key in ids:
+		out.append(str(key))
+	return out
+
+
+func get_times_started(dialogue_id: String) -> int:
+	if dialogue_id.is_empty():
+		return 0
+	var entry: Dictionary = _dialogues.get(dialogue_id, {})
+	return maxi(int(entry.get("times_started", 0)), 0)
+
+
 func reset_for_tests() -> void:
 	_dialogues.clear()
 	_choices.clear()

@@ -363,6 +363,128 @@ func get_npc_definition(npc_id: String) -> Resource:
 	return _npc_defs.get(npc_id, null)
 
 
+## Sorted npc_id list from the registered NPC catalog (debug / tools).
+func get_registered_npc_ids() -> PackedStringArray:
+	_ensure_npc_index()
+	var ids: Array = _npc_defs.keys()
+	ids.sort()
+	var out := PackedStringArray()
+	for key in ids:
+		out.append(str(key))
+	return out
+
+
+## Sorted dialogue ids from the loaded dialogue catalog (debug / tools).
+func get_all_dialogue_ids() -> PackedStringArray:
+	_ensure_index()
+	var ids: Array = _by_id.keys()
+	ids.sort()
+	var out := PackedStringArray()
+	for key in ids:
+		out.append(str(key))
+	return out
+
+
+## Dialogue ids authored on an NPC (rules + fallback + legacy). Sorted unique.
+func get_dialogue_ids_for_npc(npc_id: String) -> PackedStringArray:
+	_ensure_npc_index()
+	var def: Resource = _npc_defs.get(npc_id, null)
+	if def == null:
+		return PackedStringArray()
+	var seen: Dictionary = {}
+	var out := PackedStringArray()
+	var fallback := ""
+	if def.has_method("get_fallback_dialogue_id"):
+		fallback = str(def.call("get_fallback_dialogue_id"))
+	else:
+		fallback = str(def.get("fallback_dialogue_id"))
+	if not fallback.is_empty() and not seen.has(fallback):
+		seen[fallback] = true
+		out.append(fallback)
+	if "dialogue_rules" in def:
+		var rules: Variant = def.get("dialogue_rules")
+		if typeof(rules) == TYPE_ARRAY:
+			for rule in rules:
+				if rule == null:
+					continue
+				var dlg_id := str(rule.get("dialogue_id"))
+				if dlg_id.is_empty() or seen.has(dlg_id):
+					continue
+				seen[dlg_id] = true
+				out.append(dlg_id)
+	if "conditional_dialogues" in def:
+		var legacy: Variant = def.get("conditional_dialogues")
+		if typeof(legacy) == TYPE_ARRAY:
+			for entry in legacy:
+				if entry == null:
+					continue
+				var lid := str(entry.get("dialogue_id"))
+				if lid.is_empty() or seen.has(lid):
+					continue
+				seen[lid] = true
+				out.append(lid)
+	return out
+
+
+## Per-rule condition TRUE/FALSE snapshot for debug tools.
+## Returns Array of Dictionaries: rule_id, dialogue_id, priority, enabled, passes, conditions[].
+func inspect_npc_dialogue_rules(npc_id: String) -> Array:
+	_ensure_npc_index()
+	var def: Resource = _npc_defs.get(npc_id, null)
+	if def == null:
+		return []
+	var rules: Array = []
+	if "dialogue_rules" in def:
+		var raw: Variant = def.get("dialogue_rules")
+		if typeof(raw) == TYPE_ARRAY:
+			rules = raw
+	var cond_sys := get_node_or_null("/root/ConditionSystem")
+	var out: Array = []
+	for rule in rules:
+		if rule == null:
+			continue
+		var conditions: Array = []
+		var raw_c: Variant = rule.get("conditions")
+		if typeof(raw_c) == TYPE_ARRAY:
+			conditions = raw_c
+		var require_all := true
+		if "require_all" in rule:
+			require_all = bool(rule.get("require_all"))
+		var cond_rows: Array = []
+		for cond in conditions:
+			var type_name := "null"
+			var result := true
+			if cond != null:
+				if cond.has_method("get_type_name"):
+					type_name = str(cond.call("get_type_name"))
+				else:
+					type_name = str(cond.get("type"))
+				if cond_sys != null and cond_sys.has_method("evaluate"):
+					result = bool(cond_sys.call("evaluate", cond))
+				else:
+					result = false
+			cond_rows.append({
+				"type": type_name,
+				"key": str(cond.get("key")) if cond != null else "",
+				"result": result,
+			})
+		var passes := true
+		if bool(rule.get("enabled")) == false:
+			passes = false
+		elif not conditions.is_empty():
+			passes = _rule_conditions_pass(cond_sys, conditions, require_all)
+		out.append({
+			"rule_id": str(rule.get("id")),
+			"dialogue_id": str(rule.get("dialogue_id")),
+			"priority": int(rule.get("priority")),
+			"enabled": bool(rule.get("enabled")),
+			"require_all": require_all,
+			"passes": passes,
+			"conditions": cond_rows,
+		})
+	return out
+
+
 func reload_npc_catalog() -> void:
 	_npc_defs.clear()
 	_load_npc_catalog()

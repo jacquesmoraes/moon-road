@@ -1,7 +1,7 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** contextual NPC barks (`feat: add contextual npc bark system`)  
+**As of:** NPC/dialogue debug + validation (`dev: add npc dialogue debug and validation tools`)  
 **Engine:** Godot 4.7 Forward Plus
 
 This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.
@@ -172,14 +172,16 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 ## 7. Temporary / debug surfaces
 
 - Dev main: `scenes/test/DrivingSandbox.tscn`
-- Hotkeys: F5/F9/F6 save debug; I inventory; Workbench CraftingDebugUI (Tab Install)
+- Hotkeys: F5/F9/F6 save debug; I inventory; **F10** NPC/Dialogues debug; Workbench CraftingDebugUI (Tab Install)
 - Narrative debug: **F7** +1h · **Shift+F7** +6h · **F8** 08:00 · **Shift+F8** 22:00 (HUD shows Day + HH:MM + scale)
 - `DrivingDebugHUD` play/travel + world clock lines
+- `NpcDialogueDebugUI` (`scripts/debug/npc_dialogue_debug_ui.gd`) — sandbox CanvasLayer only; start any `dialogue_id`, inspect rules/memory/barks, mutate test state, reset NPC/dialogue data without wiping save
+- `NpcDialogueContentValidator` (`scripts/debug/npc_dialogue_content_validator.gd`) — RefCounted headless checks (missing/duplicate ids, schedule fallback, unknown conditions/actions); smoke runs `validate()`
 - Placeholder NPC meshes, procedural road, no final art
 - Offline travel is a **minimal hook** (cruise speed × time, fuel cap) — not the full design offline policy
 - Narrative clock is logical only (no lighting/sky)
 - NPC POI walks use flat `NavigationRegion3D` + markers (no crowds, vehicles, inter-city nav, final anim)
-- No gas stations, garage, multi-vehicle, quest log UI
+- No gas stations, garage, multi-vehicle, quest log UI, dialogue tree editor
 
 ---
 
@@ -188,7 +190,19 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira (`met_player`) → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → talk to Rafa (`rafa_far` → `BUSY`) → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time/dialogue memory/NPC state without duplication → limited offline progress respects fuel (+ narrative when applied).
 
 Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `npc_bark=OK`, `dlg_interrupt=OK`, `npc_travel=OK`, `npc_move=OK`, and the full `drive_smoke: OK …` line.
+Look for `npc_dlg_debug=OK`, `npc_bark=OK`, `dlg_interrupt=OK`, `npc_travel=OK`, `npc_move=OK`, and the full `drive_smoke: OK …` line.
+
+### NPC / dialogue debug tools
+
+| Piece | Role |
+|-------|------|
+| `NpcDialogueDebugUI` | F10 panel — list NPCs, inspect + mutate, start dialogue remotely |
+| `NpcDialogueContentValidator` | Catalog scan — missing/duplicate ids, bad links, schedule/condition/action issues |
+| DialogueSystem helpers | `get_registered_npc_ids`, `get_dialogue_ids_for_npc`, `inspect_npc_dialogue_rules` |
+| DialogueMemory helpers | `get_seen_dialogue_ids`, `get_completed_dialogue_ids`, `get_choice_history_ids` |
+| BarkSystem helper | `get_bark_debug_state` (last/recent/cooldowns) |
+
+**Isolation:** gameplay autoloads and `NpcCharacter` / `DialogueUI` do not reference the debug panel or validator. Reset clears memory/NPC state/barks/linked quests/`npc.*`+`debug.*` flags only — journey/inventory/vehicle untouched.
 
 ### NPC barks (`BarkSystem`)
 

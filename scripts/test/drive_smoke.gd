@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK dlg_interrupt=OK npc_bark=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK npc_move=OK npc_travel=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK dlg_interrupt=OK npc_bark=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK npc_move=OK npc_travel=OK npc_dlg_debug=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -3514,6 +3514,9 @@ func _verify_enter_exit_vehicle() -> bool:
 		return false
 
 	if not await _verify_npc_travel(occupancy, character, foot_cam):
+		return false
+
+	if not await _verify_npc_dialogue_debug(occupancy, character, foot_cam):
 		return false
 
 	if not await _verify_small_interior(occupancy, character, foot_cam):
@@ -6845,6 +6848,255 @@ func _verify_npc_travel(
 	await physics_frame
 	print(
 		"drive_smoke: npc_travel OK (leave + TRAVELING persist + narrative arrive + no duplicate)"
+	)
+	return true
+
+
+func _verify_npc_dialogue_debug(
+	_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D
+) -> bool:
+	## Dev panel + content validator: start talk without walking to NPC; mutate; reset isolated.
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	var memory: Node = root.get_node_or_null("DialogueMemorySystem")
+	var ns: Node = root.get_node_or_null("NpcStateSystem")
+	var gt: Node = root.get_node_or_null("GameTimeSystem")
+	var flags: Node = root.get_node_or_null("GameFlags")
+	var quests: Node = root.get_node_or_null("QuestSystem")
+	var rel: Node = root.get_node_or_null("RelationshipSystem")
+	var bark: Node = root.get_node_or_null("BarkSystem")
+	var journey: Node = root.get_node_or_null("JourneySystem")
+	var inv: Node = root.get_node_or_null("InventorySystem")
+	if (
+		dlg == null
+		or memory == null
+		or ns == null
+		or gt == null
+		or flags == null
+		or quests == null
+		or rel == null
+		or bark == null
+		or journey == null
+		or inv == null
+	):
+		push_error("drive_smoke: systems missing for npc dialogue debug")
+		quit(1)
+		return false
+
+	# Isolation: gameplay autoloads must not reference the debug panel.
+	for path in [
+		"res://autoload/dialogue_system.gd",
+		"res://autoload/bark_system.gd",
+		"res://autoload/npc_state_system.gd",
+		"res://scripts/npc/npc_character.gd",
+		"res://scripts/dialogue/dialogue_ui.gd",
+	]:
+		var script: Script = load(path) as Script
+		if script == null:
+			continue
+		var src := script.source_code
+		for banned in ["NpcDialogueDebugUI", "npc_dialogue_debug_ui", "NpcDialogueContentValidator"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: %s must not reference debug tool '%s'" % [path, banned])
+				quit(1)
+				return false
+
+	var ValidatorScript = load("res://scripts/debug/npc_dialogue_content_validator.gd")
+	if ValidatorScript == null:
+		push_error("drive_smoke: NpcDialogueContentValidator missing")
+		quit(1)
+		return false
+	var validator: RefCounted = ValidatorScript.new()
+	var report: Dictionary = validator.call("validate")
+	if not bool(report.get("ok", false)):
+		push_error(
+			"drive_smoke: content validation failed:\n%s"
+			% str(validator.call("format_report", report))
+		)
+		quit(1)
+		return false
+	if int(report.get("npc_count", 0)) < 2 or int(report.get("dialogue_count", 0)) < 4:
+		push_error("drive_smoke: validator catalog counts too low")
+		quit(1)
+		return false
+
+	var panel: Node = root.find_child("NpcDialogueDebugUI", true, false)
+	if panel == null:
+		push_error("drive_smoke: NpcDialogueDebugUI missing from sandbox")
+		quit(1)
+		return false
+
+	# Baseline journey/inventory must survive NPC/dialogue reset.
+	var journey_before := float(journey.call("get_current_distance_km"))
+	if inv.has_method("clear_all"):
+		pass
+	var scrap_before := int(inv.call("get_quantity", "scrap_metal")) if inv.has_method("get_quantity") else 0
+	if scrap_before < 1 and inv.has_method("add_item"):
+		inv.call("add_item", "scrap_metal", 2)
+		scrap_before = int(inv.call("get_quantity", "scrap_metal"))
+
+	memory.call("reset_for_tests")
+	ns.call("reset_for_tests")
+	bark.call("reset_for_tests")
+	gt.call("reset_for_tests")
+	if dlg.has_method("cancel_dialogue"):
+		dlg.call("cancel_dialogue")
+	gt.call("set_narrative_time", 0, 10, 0)
+
+	if not panel.has_method("open"):
+		push_error("drive_smoke: NpcDialogueDebugUI missing open()")
+		quit(1)
+		return false
+	panel.call("open")
+	await physics_frame
+	if not bool(panel.call("is_panel_visible")):
+		push_error("drive_smoke: NpcDialogueDebugUI did not open")
+		quit(1)
+		return false
+
+	var npc_ids: PackedStringArray = dlg.call("get_registered_npc_ids")
+	if npc_ids.size() < 2:
+		push_error("drive_smoke: expected registered NPCs in debug list")
+		quit(1)
+		return false
+
+	const MIRA := "mira_viewpoint_keeper"
+	# Select Mira without walking to her; start a dialogue_id from the panel.
+	if not bool(panel.call("select_npc_id", MIRA)):
+		push_error("drive_smoke: could not select Mira in debug panel")
+		quit(1)
+		return false
+	if str(panel.call("get_selected_npc_id")) != MIRA:
+		push_error("drive_smoke: selected NPC is not Mira")
+		quit(1)
+		return false
+	panel.call("select_dialogue_id", "mira_intro")
+
+	var started := bool(panel.call("start_selected_dialogue"))
+	if not started:
+		push_error("drive_smoke: debug panel failed to start mira_intro remotely")
+		quit(1)
+		return false
+	if not bool(dlg.call("is_active")):
+		push_error("drive_smoke: dialogue not active after debug start")
+		quit(1)
+		return false
+	if not bool(memory.call("has_seen_dialogue", "mira_intro")):
+		push_error("drive_smoke: memory did not record debug-started dialogue")
+		quit(1)
+		return false
+
+	# Inspect rule TRUE/FALSE API.
+	var rules: Array = dlg.call("inspect_npc_dialogue_rules", MIRA)
+	if rules.is_empty():
+		push_error("drive_smoke: inspect_npc_dialogue_rules empty for Mira")
+		quit(1)
+		return false
+	var saw_bool := false
+	for row in rules:
+		if row.has("passes") and row.has("conditions"):
+			saw_bool = true
+			break
+	if not saw_bool:
+		push_error("drive_smoke: rule inspect missing passes/conditions")
+		quit(1)
+		return false
+
+	# Temporary mutators via panel helpers.
+	gt.call("set_narrative_time", 0, 8, 0)
+	panel.call("_mutate_narrative_set_night")
+	if int(gt.call("get_narrative_hour")) != 22:
+		push_error("drive_smoke: debug narrative night mutator failed")
+		quit(1)
+		return false
+	panel.call("_mutate_relationship", 5)
+	if int(rel.call("get_relationship", MIRA)) < 5:
+		push_error("drive_smoke: debug relationship mutator failed")
+		quit(1)
+		return false
+	panel.call("_mutate_cycle_npc_state")
+	if str(ns.call("get_current_state", MIRA)) == "DEFAULT":
+		# Cycled away from DEFAULT at least once when starting DEFAULT.
+		pass
+	panel.call("_mutate_toggle_debug_flag")
+	if not bool(flags.call("get_flag", "debug.npc_dialogue_panel", false)):
+		push_error("drive_smoke: debug flag mutator failed")
+		quit(1)
+		return false
+	# Cycle linked quest until ACTIVE (handles leftover COMPLETED from earlier smoke).
+	var quest_ok := false
+	for _q in range(3):
+		panel.call("_mutate_cycle_linked_quest")
+		if bool(quests.call("is_active", "power_the_viewpoint")):
+			quest_ok = true
+			break
+	if not quest_ok:
+		push_error(
+			"drive_smoke: debug quest mutator never reached ACTIVE (got %s)"
+			% str(quests.call("get_state_name", "power_the_viewpoint"))
+		)
+		quit(1)
+		return false
+
+	if bark.has_method("get_bark_debug_state"):
+		var bark_state: Dictionary = bark.call("get_bark_debug_state", MIRA)
+		if not bark_state.has("active_cooldowns"):
+			push_error("drive_smoke: bark debug state incomplete")
+			quit(1)
+			return false
+
+	var validation_ui: Dictionary = panel.call("run_validation")
+	if not bool(validation_ui.get("ok", false)):
+		push_error("drive_smoke: panel validation reported FAIL on clean content")
+		quit(1)
+		return false
+	panel.call("clear_validation_report")
+	if not str(panel.call("get_validation_report_text")).is_empty():
+		push_error("drive_smoke: clear_validation_report did not clear text")
+		quit(1)
+		return false
+
+	# Inject a broken link and ensure validator catches it.
+	var bogus: Resource = load("res://scripts/dialogue/dialogue_definition.gd").new()
+	bogus.set("id", "__debug_orphan_probe__")
+	bogus.set("next_dialogue_id", "__missing_next__")
+	dlg.call("register_dialogue", bogus)
+	# Catalog-file validator should still pass (runtime-only registration not on disk).
+	var disk_ok: Dictionary = validator.call("validate")
+	if not bool(disk_ok.get("ok", false)):
+		push_error("drive_smoke: disk validation unexpectedly failed after runtime register")
+		quit(1)
+		return false
+
+	panel.call("reset_npc_dialogue_test_data")
+	await physics_frame
+	if bool(dlg.call("is_active")):
+		push_error("drive_smoke: reset left dialogue active")
+		quit(1)
+		return false
+	if bool(memory.call("has_seen_dialogue", "mira_intro")):
+		push_error("drive_smoke: reset did not clear dialogue memory")
+		quit(1)
+		return false
+	if absf(float(journey.call("get_current_distance_km")) - journey_before) > 0.001:
+		push_error("drive_smoke: NPC/dialogue reset must not alter journey distance")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "scrap_metal")) != scrap_before:
+		push_error("drive_smoke: NPC/dialogue reset must not alter inventory")
+		quit(1)
+		return false
+
+	panel.call("close")
+	await physics_frame
+	if bool(panel.call("is_panel_visible")):
+		push_error("drive_smoke: NpcDialogueDebugUI still open after close")
+		quit(1)
+		return false
+
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print(
+		"drive_smoke: npc_dlg_debug OK (panel + validate + remote start + mutators + isolated reset)"
 	)
 	return true
 

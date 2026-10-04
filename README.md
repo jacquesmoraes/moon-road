@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **contextual NPC barks** — short Label3D lines on approach (Mira/Rafa), cooldown + conditions, dialogue blocks bark. See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **NPC/dialogue debug panel** — F10 inspector + content validation (start talks remotely, mutate time/flags/quests, catch broken ids). See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -36,11 +36,14 @@ Current slice: **contextual NPC barks** — short Label3D lines on approach (Mir
 | `dialogue_continue` | Space / E / Enter — advance line, confirm choice, or close dialogue |
 | `dialogue_cancel` | Esc — interrupt active dialogue (resume via re-talk); Esc again cancels interrupted |
 | `inventory_debug_toggle` | I — show/hide debug inventory panel |
+| `npc_dialogue_debug_toggle` | F10 — show/hide NPC/Dialogues debug panel |
 | `save_debug_save` | F5 — write `user://savegame.json` |
 | `save_debug_load` | F9 — load save (keeps file if corrupt) |
 | `save_debug_delete` | F6 — delete save + backup |
 
 Workbench: walk up at Sunset Viewpoint, **E** opens CraftingDebugUI (↑↓ select, Enter/C craft, **Tab** Install mode, Esc or E again to close).
+
+**NPC/Dialogues debug (F10):** list/select NPCs, inspect state/location/relationship/schedule/travel/resolved dialogue, list dialogues, Enter to start `dialogue_id` without walking to the NPC, rule condition TRUE/FALSE, mutate narrative time/flags/quests/relationship/NPC state/location, DialogueMemory + bark cooldowns, **V** validate content, **C** clear report, **X** reset NPC/dialogue test data only (not full save). No dialogue tree editor. Sandbox-only — not ship gameplay.
 
 Tune feel on the `PlayerVehicle` node: `acceleration`, `braking`, `max_speed`, `steering_strength`, `drag`, plus cruise `cruise_target_speed_kmh`, `cruise_speed_deadzone`, `cruise_control_gain`, and parking `max_parking_speed`, `require_valid_surface`.
 
