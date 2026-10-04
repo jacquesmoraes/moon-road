@@ -3689,7 +3689,6 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 	qs.call("reset_all")
 
 	# --- Rafa first talk (memory cleared so greeting is rafa_01) ---
-	var memory: Node = root.get_node_or_null("DialogueMemorySystem")
 	if memory != null and memory.has_method("reset_for_tests"):
 		memory.call("reset_for_tests")
 	var rafa_pos: Vector3 = (rafa as Node3D).global_position
