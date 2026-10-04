@@ -24,6 +24,10 @@ func _ready() -> void:
 			_system.dialogue_finished.connect(_on_dialogue_ended)
 		if _system.has_signal("dialogue_cancelled") and not _system.dialogue_cancelled.is_connected(_on_dialogue_cancelled):
 			_system.dialogue_cancelled.connect(_on_dialogue_cancelled)
+		if _system.has_signal("dialogue_interrupted") and not _system.dialogue_interrupted.is_connected(_on_dialogue_interrupted):
+			_system.dialogue_interrupted.connect(_on_dialogue_interrupted)
+		if _system.has_signal("dialogue_resumed") and not _system.dialogue_resumed.is_connected(_on_dialogue_resumed):
+			_system.dialogue_resumed.connect(_on_dialogue_resumed)
 	_hide_box()
 
 
@@ -123,9 +127,9 @@ func _update_hint() -> void:
 		return
 	if _system.has_method("has_visible_choices") and bool(_system.call("has_visible_choices")):
 		if _system.has_method("is_selected_choice_enabled") and not bool(_system.call("is_selected_choice_enabled")):
-			_hint.text = "↑/↓ — Escolher · opção indisponível"
+			_hint.text = "↑/↓ — Escolher · opção indisponível · Esc — Interromper"
 		else:
-			_hint.text = "↑/↓ — Escolher · Enter / E — Confirmar"
+			_hint.text = "↑/↓ — Escolher · Enter / E — Confirmar · Esc — Interromper"
 		return
 	var def: Resource = _system.call("get_current") if _system.has_method("get_current") else null
 	var terminal := true
@@ -134,7 +138,8 @@ func _update_hint() -> void:
 			terminal = bool(def.call("is_terminal"))
 		else:
 			terminal = str(def.get("next_dialogue_id")).is_empty()
-	_hint.text = "Espaço / E — Fechar" if terminal else "Espaço / E — Continuar"
+	var cancel_hint := " · Esc — Interromper"
+	_hint.text = ("Espaço / E — Fechar" if terminal else "Espaço / E — Continuar") + cancel_hint
 
 
 func _on_dialogue_ended(_id: String) -> void:
@@ -143,6 +148,18 @@ func _on_dialogue_ended(_id: String) -> void:
 
 func _on_dialogue_cancelled() -> void:
 	_hide_box()
+
+
+func _on_dialogue_interrupted(_reason: String) -> void:
+	_hide_box()
+
+
+func _on_dialogue_resumed(_dialogue_id: String) -> void:
+	## line_changed also fires on resume; keep box ready if signal order differs.
+	if _system != null and _system.has_method("get_current"):
+		var def: Resource = _system.call("get_current")
+		if def != null:
+			_on_line_changed(def)
 
 
 func _clear_choice_labels() -> void:

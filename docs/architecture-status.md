@@ -1,7 +1,7 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** traveling NPC relocation (`feat: add traveling npc state and relocation`)  
+**As of:** safe dialogue interrupt/resume (`feat: add safe dialogue interruption and resume`)  
 **Engine:** Godot 4.7 Forward Plus
 
 This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.
@@ -15,8 +15,8 @@ This document describes the **current implemented foundation**, not the full des
 | `JourneySystem` | Logical Earth→Moon distance (km), physical→journey scale | Vehicle physics, road mesh, narrative clock |
 | `WorldRegionSystem` | Region band from journey distance | Visuals/audio of regions |
 | `POISystem` | Discovery flags + spawn/despawn of viewpoint scenes | Quest/terminal logic |
-| `DialogueSystem` | Linear + choice runner; NPC rule resolve (`resolve_dialogue_for_npc`); gates/effects/memory | Action type dispatch, NPC placement |
-| `DialogueMemorySystem` | Seen/completed/choice memory + timestamps | Dialogue text, NPC names |
+| `DialogueSystem` | Linear + choice runner; session IDLE/ACTIVE/INTERRUPTED; interrupt/resume/cancel; NPC rule resolve | Action type dispatch, NPC placement |
+| `DialogueMemorySystem` | Seen/completed/choice memory + timestamps (completed ≠ interrupted) | Dialogue text, NPC names |
 | `NpcStateSystem` | Mutable NPC campaign fields by `npc_id` (incl. travel_state / destination / arrival gates) | Pathfinding, Node refs, schedule resolution |
 | `NpcScheduleSystem` | Resolve daily routine from narrative hour → write location/state/schedule_id | Physical NPC movement, pathfinding, cross-city travel |
 | `NpcTravelSystem` | Logical TRAVELING ↔ AT_LOCATION; arrival via narrative / journey km / flag; POI spawn gate | Continuous road travel, vehicles, encounters |
@@ -149,7 +149,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 - `JourneySystem.distance_changed`
 - `WorldRegionSystem.region_changed`
 - `POISystem.discovered_poi`
-- `DialogueSystem.dialogue_started` / `line_changed` / `choice_selection_changed` / `choice_confirmed` / `dialogue_finished`
+- `DialogueSystem.dialogue_started` / `line_changed` / `choice_selection_changed` / `choice_confirmed` / `dialogue_finished` / `dialogue_cancelled` / `dialogue_interrupted` / `dialogue_resumed`
 - `QuestSystem.quest_started` / `quest_completed` / `quest_state_changed`
 - `InventorySystem.inventory_changed`
 - `CraftingSystem.craft_succeeded` / `craft_failed`
@@ -186,7 +186,23 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira (`met_player`) → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → talk to Rafa (`rafa_far` → `BUSY`) → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time/dialogue memory/NPC state without duplication → limited offline progress respects fuel (+ narrative when applied).
 
 Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `npc_travel=OK`, `npc_move=OK`, `npc_sched=OK`, `time_npc=OK`, `game_time=OK`, `relationship=OK`, `quest=OK`, and the full `drive_smoke: OK …` line.
+Look for `dlg_interrupt=OK`, `npc_travel=OK`, `npc_move=OK`, `npc_sched=OK`, and the full `drive_smoke: OK …` line.
+
+### Dialogue session (interrupt / resume)
+
+| State | Meaning |
+|-------|---------|
+| `IDLE` | No conversation |
+| `ACTIVE` | Running; input locked; once-guards live |
+| `INTERRUPTED` | Paused; **not** completed; serializable ids kept; Node actor may be cleared |
+
+API: `interrupt_dialogue(reason)`, `resume_dialogue(actor)`, `cancel_dialogue()`.  
+Reasons: `PLAYER_CANCEL`, `NPC_UNAVAILABLE`, `SCENE_UNLOAD`, `SYSTEM_EVENT`.  
+Input: `dialogue_cancel` (Esc) → interrupt while ACTIVE; cancel while INTERRUPTED.  
+Resume re-presents the latest line **without** re-firing enter/exit/choice once-guards.  
+If resume is impossible → `cancel_dialogue()`; next interact uses contextual NPC resolve.
+
+**Save note:** active/interrupted conversations are **session-only** and are cleared on load. Disk save does not persist mid-talk state; after load, talk starts a fresh contextual dialogue.
 
 ---
 

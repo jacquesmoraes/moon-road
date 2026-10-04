@@ -37,6 +37,15 @@ func _ready() -> void:
 	_connect_narrative_time()
 	_connect_travel_presence()
 	_refresh_time_availability()
+	if not tree_exiting.is_connected(_on_tree_exiting_dialogue):
+		tree_exiting.connect(_on_tree_exiting_dialogue)
+
+
+func _on_tree_exiting_dialogue() -> void:
+	## Unload mid-talk: DialogueSystem keeps serializable ids only (no Node refs).
+	var dlg := get_node_or_null("/root/DialogueSystem")
+	if dlg != null and dlg.has_method("notify_npc_unavailable"):
+		dlg.call("notify_npc_unavailable", get_npc_id())
 
 
 func get_npc_id() -> String:
@@ -145,18 +154,40 @@ func interact(actor: Node = null) -> bool:
 		return false
 
 	var started := false
+	var dlg := get_node_or_null("/root/DialogueSystem")
+	var self_id := get_npc_id()
+	# Resume interrupted conversation with this speaker when still safe.
+	if (
+		dlg != null
+		and dlg.has_method("is_interrupted")
+		and bool(dlg.call("is_interrupted"))
+		and str(dlg.call("get_session_npc_id")) == self_id
+		and dlg.has_method("can_resume")
+		and bool(dlg.call("can_resume"))
+	):
+		_arm_dialogue_movement_lock()
+		started = bool(dlg.call("resume_dialogue", actor))
+		if started:
+			var rid := str(dlg.call("get_session_start_id")) if dlg.has_method("get_session_start_id") else ""
+			dialogue_requested.emit(rid, actor)
+			var text := str(dlg.call("get_current_text")) if dlg.has_method("get_current_text") else rid
+			set_meta("last_spoken_line", text)
+			set_meta("last_interact_message", "NPC %s resume=%s" % [get_display_name(), rid])
+			line_spoken.emit(text)
+		else:
+			_clear_dialogue_movement_lock()
+
 	var id := get_dialogue_id()
-	if not id.is_empty():
-		var dlg := get_node_or_null("/root/DialogueSystem")
+	if not started and not id.is_empty():
 		if dlg != null and dlg.has_method("start_dialogue"):
 			_arm_dialogue_movement_lock()
-			started = bool(dlg.call("start_dialogue", id, actor))
+			started = bool(dlg.call("start_dialogue", id, actor, self_id))
 			if started:
 				dialogue_requested.emit(id, actor)
-				var text := str(dlg.call("get_current_text")) if dlg.has_method("get_current_text") else id
-				set_meta("last_spoken_line", text)
+				var text2 := str(dlg.call("get_current_text")) if dlg.has_method("get_current_text") else id
+				set_meta("last_spoken_line", text2)
 				set_meta("last_interact_message", "NPC %s dialogue=%s" % [get_display_name(), id])
-				line_spoken.emit(text)
+				line_spoken.emit(text2)
 				_record_talk_state(id)
 			else:
 				_clear_dialogue_movement_lock()
@@ -170,7 +201,7 @@ func interact(actor: Node = null) -> bool:
 		if dlg2 != null and dlg2.has_method("start_from_definition"):
 			var fallback := _make_fallback_definition(line)
 			_arm_dialogue_movement_lock()
-			started = bool(dlg2.call("start_from_definition", fallback, actor))
+			started = bool(dlg2.call("start_from_definition", fallback, actor, self_id))
 			if started:
 				dialogue_requested.emit(str(fallback.get("id")), actor)
 				set_meta("last_spoken_line", line)

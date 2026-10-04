@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **traveling NPC relocation** — logical `TRAVELING` / `AT_LOCATION` between POIs (Rafa → `debug_waystation`), plus in-POI walks. See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **safe dialogue interrupt/resume** — `IDLE`/`ACTIVE`/`INTERRUPTED`, Esc cancel, no duplicate effects on resume. See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -34,6 +34,7 @@ Current slice: **traveling NPC relocation** — logical `TRAVELING` / `AT_LOCATI
 | `player_run` | Shift — run while on foot |
 | `player_interact` | E — world interact when focused; else enter vehicle (see Occupancy) |
 | `dialogue_continue` | Space / E / Enter — advance line, confirm choice, or close dialogue |
+| `dialogue_cancel` | Esc — interrupt active dialogue (resume via re-talk); Esc again cancels interrupted |
 | `inventory_debug_toggle` | I — show/hide debug inventory panel |
 | `save_debug_save` | F5 — write `user://savegame.json` |
 | `save_debug_load` | F9 — load save (keeps file if corrupt) |

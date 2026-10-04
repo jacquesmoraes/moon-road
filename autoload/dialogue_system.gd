@@ -3,6 +3,7 @@ extends Node
 ## Linear: advance on dialogue_continue via next_dialogue_id.
 ## Branching: visible choices (↑/↓); confirm only when enable conditions pass.
 ## Gates → ConditionSystem. Effects → DialogueActionExecutor (never UI).
+## Session: IDLE / ACTIVE / INTERRUPTED — interrupt ≠ completed; resume keeps once-guards.
 
 signal dialogue_started(dialogue_id: String)
 signal line_changed(def: Resource)
@@ -10,11 +11,24 @@ signal choice_selection_changed(index: int)
 signal choice_confirmed(choice_id: String, next_dialogue_id: String)
 signal dialogue_finished(dialogue_id: String)
 signal dialogue_cancelled
+signal dialogue_interrupted(reason: String)
+signal dialogue_resumed(dialogue_id: String)
 
 const DEFAULT_CATALOG_PATH := "res://resources/dialogue/default_catalog.tres"
 const DEFAULT_NPC_CATALOG_PATH := "res://resources/npc/default_npc_catalog.tres"
 const MAX_RESOLVE_HOPS: int = 12
 const ActionExecutorScript = preload("res://scripts/dialogue/dialogue_action_executor.gd")
+
+## Explicit conversation session states.
+const SESSION_IDLE := "IDLE"
+const SESSION_ACTIVE := "ACTIVE"
+const SESSION_INTERRUPTED := "INTERRUPTED"
+
+## interrupt_dialogue(reason) values.
+const REASON_PLAYER_CANCEL := "PLAYER_CANCEL"
+const REASON_NPC_UNAVAILABLE := "NPC_UNAVAILABLE"
+const REASON_SCENE_UNLOAD := "SCENE_UNLOAD"
+const REASON_SYSTEM_EVENT := "SYSTEM_EVENT"
 
 @export_file("*.tres") var catalog_path: String = DEFAULT_CATALOG_PATH
 @export_file("*.tres") var npc_catalog_path: String = DEFAULT_NPC_CATALOG_PATH
@@ -23,18 +37,24 @@ var _catalog: Resource
 var _by_id: Dictionary = {}
 ## npc_id → NpcDefinition (static authoring; no Node refs).
 var _npc_defs: Dictionary = {}
-var _active: bool = false
+var _session_state: String = SESSION_IDLE
 var _current: Resource
 var _start_id: String = ""
+var _current_line_id: String = ""
+var _npc_id: String = ""
 var _actor: Node
 var _restore_control: bool = false
 var _lines_shown: int = 0
 var _choice_index: int = 0
+var _interrupt_reason: String = ""
+## Choice ids confirmed during this conversation (serializable).
+var _choices_made: Array[String] = []
 var _executor: RefCounted
-## Per-conversation once-guards (enter / exit / choice). Cleared on start.
+## Per-conversation once-guards (enter / exit / choice). Cleared on start/cancel.
 var _fired_enter: Dictionary = {}
 var _fired_exit: Dictionary = {}
 var _fired_choice: Dictionary = {}
+var _actor_tree_exiting_connected: bool = false
 
 
 func _ready() -> void:
@@ -42,10 +62,23 @@ func _ready() -> void:
 	_load_catalog()
 	_load_npc_catalog()
 	set_process_unhandled_input(true)
+	var save := get_node_or_null("/root/SaveSystem")
+	if save != null and save.has_signal("load_completed"):
+		if not save.load_completed.is_connected(_on_save_loaded):
+			save.load_completed.connect(_on_save_loaded)
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not _active:
+	if _session_state == SESSION_INTERRUPTED:
+		if event.is_action_pressed("dialogue_cancel"):
+			cancel_dialogue()
+			get_viewport().set_input_as_handled()
+		return
+	if _session_state != SESSION_ACTIVE:
+		return
+	if event.is_action_pressed("dialogue_cancel"):
+		interrupt_dialogue(REASON_PLAYER_CANCEL)
+		get_viewport().set_input_as_handled()
 		return
 	if not get_visible_choices().is_empty():
 		if event.is_action_pressed("ui_up"):
@@ -62,7 +95,43 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func is_active() -> bool:
-	return _active
+	return _session_state == SESSION_ACTIVE
+
+
+func is_interrupted() -> bool:
+	return _session_state == SESSION_INTERRUPTED
+
+
+func get_session_state() -> String:
+	return _session_state
+
+
+func get_interrupt_reason() -> String:
+	return _interrupt_reason
+
+
+func get_session_npc_id() -> String:
+	return _npc_id
+
+
+func get_session_start_id() -> String:
+	return _start_id
+
+
+func get_choices_made() -> Array[String]:
+	return _choices_made.duplicate()
+
+
+func can_resume() -> bool:
+	if _session_state != SESSION_INTERRUPTED:
+		return false
+	if _current_line_id.is_empty() and _current == null:
+		return false
+	_ensure_index()
+	var line_id := _current_line_id
+	if line_id.is_empty() and _current != null:
+		line_id = str(_current.get("id"))
+	return not line_id.is_empty() and _by_id.has(line_id)
 
 
 func get_current() -> Resource:
@@ -70,9 +139,9 @@ func get_current() -> Resource:
 
 
 func get_current_id() -> String:
-	if _current == null:
-		return ""
-	return str(_current.get("id"))
+	if _current != null:
+		return str(_current.get("id"))
+	return _current_line_id
 
 
 func get_current_speaker() -> String:
@@ -180,7 +249,7 @@ func set_choice_index(index: int) -> void:
 
 ## Confirms the highlighted choice when it is enabled; no-op if disabled.
 func confirm_choice() -> void:
-	if not _active or _current == null:
+	if _session_state != SESSION_ACTIVE or _current == null:
 		return
 	var visible := get_visible_choices()
 	if visible.is_empty():
@@ -193,6 +262,8 @@ func confirm_choice() -> void:
 	var next_id := str(choice.get("next_dialogue_id"))
 	_fire_choice_actions(choice)
 	_fire_exit_actions(_current)
+	if not choice_id.is_empty():
+		_choices_made.append(choice_id)
 	_memory_record_choice(choice_id)
 	choice_confirmed.emit(choice_id, next_id)
 	if next_id.is_empty():
@@ -387,11 +458,12 @@ func register_dialogue(def: Resource) -> void:
 	_by_id[key] = def
 
 
-func start_dialogue(dialogue_id: String, actor: Node = null) -> bool:
+func start_dialogue(dialogue_id: String, actor: Node = null, npc_id: String = "") -> bool:
 	if dialogue_id.is_empty():
 		return false
-	if _active:
-		end_dialogue(false)
+	# Fresh start replaces any open / interrupted session (not completed).
+	if _session_state == SESSION_ACTIVE or _session_state == SESSION_INTERRUPTED:
+		cancel_dialogue()
 	_ensure_index()
 	var def: Resource = _by_id.get(dialogue_id, null)
 	if def == null:
@@ -403,17 +475,19 @@ func start_dialogue(dialogue_id: String, actor: Node = null) -> bool:
 		push_warning("DialogueSystem: no showable line for '%s'" % dialogue_id)
 		return false
 
-	_actor = actor
+	_bind_actor(actor, npc_id)
 	_start_id = dialogue_id
 	_lines_shown = 0
 	_choice_index = 0
+	_interrupt_reason = ""
+	_choices_made.clear()
 	_fired_enter.clear()
 	_fired_exit.clear()
 	_fired_choice.clear()
-	_active = true
+	_session_state = SESSION_ACTIVE
 	_lock_actor(true)
 	_present_line(resolved)
-	if not _active:
+	if _session_state != SESSION_ACTIVE:
 		# Presented line redirected to an empty dead-end and ended.
 		return false
 	_memory_record_started(dialogue_id)
@@ -422,15 +496,15 @@ func start_dialogue(dialogue_id: String, actor: Node = null) -> bool:
 
 
 ## Starts from a Resource directly (also indexes it). Useful for one-off / tests.
-func start_from_definition(def: Resource, actor: Node = null) -> bool:
+func start_from_definition(def: Resource, actor: Node = null, npc_id: String = "") -> bool:
 	if def == null:
 		return false
 	register_dialogue(def)
-	return start_dialogue(str(def.get("id")), actor)
+	return start_dialogue(str(def.get("id")), actor, npc_id)
 
 
 func advance() -> void:
-	if not _active or _current == null:
+	if _session_state != SESSION_ACTIVE or _current == null:
 		return
 	# Selectable choices: continue confirms the current highlight.
 	if has_available_choices():
@@ -448,27 +522,81 @@ func advance() -> void:
 	_goto_dialogue_id(next_id)
 
 
-func end_dialogue(completed: bool = true) -> void:
-	if not _active:
-		return
-	if completed:
-		_fire_exit_actions(_current)
-	var finished_id := _start_id
-	_active = false
-	_current = null
-	_choice_index = 0
+## Pause conversation without completing. Keeps once-guards + line for resume.
+func interrupt_dialogue(reason: String = REASON_SYSTEM_EVENT) -> bool:
+	if _session_state != SESSION_ACTIVE:
+		return false
+	var tag := reason.strip_edges().to_upper()
+	if tag.is_empty():
+		tag = REASON_SYSTEM_EVENT
+	_interrupt_reason = tag
+	if _current != null:
+		_current_line_id = str(_current.get("id"))
+	_session_state = SESSION_INTERRUPTED
 	_lock_actor(false)
-	_actor = null
-	_start_id = ""
-	_fired_enter.clear()
-	_fired_exit.clear()
-	_fired_choice.clear()
+	_unbind_actor_tree_signal()
+	# Drop Node refs on unload / unavailable — keep serializable ids only.
+	if tag == REASON_SCENE_UNLOAD or tag == REASON_NPC_UNAVAILABLE:
+		_actor = null
+	dialogue_interrupted.emit(tag)
+	return true
+
+
+## Resume from latest safe line. Re-present does not re-fire once-guards.
+func resume_dialogue(actor: Node = null) -> bool:
+	if _session_state != SESSION_INTERRUPTED:
+		return false
+	if not can_resume():
+		cancel_dialogue()
+		return false
+	_ensure_index()
+	var line_id := _current_line_id
+	if line_id.is_empty() and _current != null:
+		line_id = str(_current.get("id"))
+	var def: Resource = _by_id.get(line_id, null)
+	if def == null:
+		cancel_dialogue()
+		return false
+	if actor != null:
+		_bind_actor(actor, _npc_id)
+	elif _actor == null or not is_instance_valid(_actor):
+		# Need a live actor to restore control lock; without one, end safely.
+		cancel_dialogue()
+		return false
+	else:
+		_connect_actor_tree_exiting()
+	_interrupt_reason = ""
+	_session_state = SESSION_ACTIVE
+	_lock_actor(true)
+	_represent_current_line(def)
+	dialogue_resumed.emit(_start_id)
+	return true
+
+
+## Abort without completing. Clears session; next talk uses contextual resolve.
+func cancel_dialogue() -> void:
+	if _session_state == SESSION_IDLE:
+		return
+	_lock_actor(false)
+	_unbind_actor_tree_signal()
+	_clear_session_runtime()
+	dialogue_cancelled.emit()
+
+
+func end_dialogue(completed: bool = true) -> void:
+	## completed=true → finished; false → cancel_dialogue (never marks completed).
 	if completed:
-		# Interrupted / cancelled conversations must NOT count as completed.
+		if _session_state != SESSION_ACTIVE:
+			return
+		_fire_exit_actions(_current)
+		var finished_id := _start_id
+		_lock_actor(false)
+		_unbind_actor_tree_signal()
+		_clear_session_runtime()
 		_memory_record_completed(finished_id)
 		dialogue_finished.emit(finished_id)
-	else:
-		dialogue_cancelled.emit()
+		return
+	cancel_dialogue()
 
 
 func reload_catalog() -> void:
@@ -509,6 +637,7 @@ func _goto_dialogue_id(dialogue_id: String) -> void:
 
 func _present_line(def: Resource) -> void:
 	_current = def
+	_current_line_id = str(def.get("id")) if def != null else ""
 	_lines_shown += 1
 	_choice_index = 0
 
@@ -525,6 +654,20 @@ func _present_line(def: Resource) -> void:
 
 	_fire_enter_actions(def)
 	_choice_index = _first_selectable_visible_index()
+	line_changed.emit(def)
+	if has_visible_choices():
+		choice_selection_changed.emit(_choice_index)
+
+
+func _represent_current_line(def: Resource) -> void:
+	## Resume path: same line, no lines_shown bump, once-guards already set.
+	_current = def
+	_current_line_id = str(def.get("id")) if def != null else ""
+	_choice_index = clampi(_choice_index, 0, maxi(get_visible_choices().size() - 1, 0))
+	if get_visible_choices().is_empty():
+		_choice_index = 0
+	else:
+		_choice_index = clampi(_choice_index, 0, get_visible_choices().size() - 1)
 	line_changed.emit(def)
 	if has_visible_choices():
 		choice_selection_changed.emit(_choice_index)
@@ -710,6 +853,67 @@ func _lock_actor(lock: bool) -> void:
 		if _restore_control and _actor.has_method("set_control_enabled"):
 			_actor.call("set_control_enabled", true)
 		_restore_control = false
+
+
+func _bind_actor(actor: Node, npc_id: String = "") -> void:
+	_unbind_actor_tree_signal()
+	_actor = actor
+	_npc_id = str(npc_id)
+	if _npc_id.is_empty() and actor != null and is_instance_valid(actor) and actor.has_method("get_npc_id"):
+		_npc_id = str(actor.call("get_npc_id"))
+	_connect_actor_tree_exiting()
+
+
+func _connect_actor_tree_exiting() -> void:
+	_unbind_actor_tree_signal()
+	if _actor == null or not is_instance_valid(_actor):
+		return
+	if not _actor.tree_exiting.is_connected(_on_actor_tree_exiting):
+		_actor.tree_exiting.connect(_on_actor_tree_exiting)
+	_actor_tree_exiting_connected = true
+
+
+func _unbind_actor_tree_signal() -> void:
+	if _actor != null and is_instance_valid(_actor) and _actor_tree_exiting_connected:
+		if _actor.tree_exiting.is_connected(_on_actor_tree_exiting):
+			_actor.tree_exiting.disconnect(_on_actor_tree_exiting)
+	_actor_tree_exiting_connected = false
+
+
+func _on_actor_tree_exiting() -> void:
+	## Scene unload / free while talking — interrupt with ids only (no Node keep).
+	if _session_state == SESSION_ACTIVE:
+		interrupt_dialogue(REASON_SCENE_UNLOAD)
+
+
+func _clear_session_runtime() -> void:
+	_session_state = SESSION_IDLE
+	_current = null
+	_current_line_id = ""
+	_choice_index = 0
+	_actor = null
+	_npc_id = ""
+	_start_id = ""
+	_interrupt_reason = ""
+	_choices_made.clear()
+	_fired_enter.clear()
+	_fired_exit.clear()
+	_fired_choice.clear()
+	_lines_shown = 0
+
+
+func _on_save_loaded(_path: String = "") -> void:
+	## Active/interrupted conversations are session-only — not restored from disk.
+	if _session_state != SESSION_IDLE:
+		cancel_dialogue()
+
+
+func notify_npc_unavailable(npc_id: String) -> void:
+	## POI/NPC systems call when a speaker leaves; interrupt if that conversation is open.
+	if npc_id.is_empty() or _npc_id != npc_id:
+		return
+	if _session_state == SESSION_ACTIVE:
+		interrupt_dialogue(REASON_NPC_UNAVAILABLE)
 
 
 func _ensure_index() -> void:

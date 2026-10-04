@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK npc_move=OK npc_travel=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK dlg_interrupt=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK npc_move=OK npc_travel=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -3489,6 +3489,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_dialogue_memory(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_dialogue_interrupt(occupancy, character, foot_cam):
+		return false
+
 	if not await _verify_npc_dialogue_rules(occupancy, character, foot_cam):
 		return false
 
@@ -4953,6 +4956,239 @@ func _verify_dialogue_memory(_occupancy: Node, character: CharacterBody3D, _foot
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print("drive_smoke: dlg_memory OK (seen/completed + choice + Rafa return + save)")
+	return true
+
+
+func _verify_dialogue_interrupt(
+	_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D
+) -> bool:
+	## start → advance → interrupt → resume; enter effects not duplicated; unload safe.
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	var inv: Node = root.get_node_or_null("InventorySystem")
+	var memory: Node = root.get_node_or_null("DialogueMemorySystem")
+	var flags: Node = root.get_node_or_null("GameFlags")
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	if dlg == null or inv == null or memory == null or flags == null or poi_sys == null:
+		push_error("drive_smoke: systems missing for dialogue interrupt")
+		quit(1)
+		return false
+
+	if not InputMap.has_action("dialogue_cancel"):
+		push_error("drive_smoke: dialogue_cancel input action missing")
+		quit(1)
+		return false
+
+	inv.call("clear_inventory")
+	memory.call("reset_for_tests")
+	flags.call("reset_for_tests")
+	dlg.call("reload_catalog")
+	if dlg.has_method("cancel_dialogue"):
+		dlg.call("cancel_dialogue")
+
+	var ActionScript: Script = load("res://scripts/dialogue/dialogue_action.gd") as Script
+	var DefScript: Script = load("res://scripts/dialogue/dialogue_definition.gd") as Script
+	var add_a: Resource = ActionScript.new()
+	add_a.set("type", 3)  # ADD_ITEM
+	add_a.set("target_id", "scrap_metal")
+	add_a.set("int_value", 1)
+	var add_b: Resource = ActionScript.new()
+	add_b.set("type", 3)
+	add_b.set("target_id", "copper_wire")
+	add_b.set("int_value", 1)
+
+	var line_a: Resource = DefScript.new()
+	line_a.set("id", "interrupt_line_a")
+	line_a.set("speaker_name", "Test")
+	line_a.set("text", "Line A")
+	line_a.set("next_dialogue_id", "interrupt_line_b")
+	line_a.set("on_enter_actions", [add_a])
+
+	var line_b: Resource = DefScript.new()
+	line_b.set("id", "interrupt_line_b")
+	line_b.set("speaker_name", "Test")
+	line_b.set("text", "Line B")
+	line_b.set("next_dialogue_id", "")
+	line_b.set("on_enter_actions", [add_b])
+
+	dlg.call("register_dialogue", line_a)
+	dlg.call("register_dialogue", line_b)
+
+	if not bool(dlg.call("start_dialogue", "interrupt_line_a", character, "test_interrupt_npc")):
+		push_error("drive_smoke: interrupt test failed to start")
+		quit(1)
+		return false
+	await physics_frame
+	if str(dlg.call("get_session_state")) != "ACTIVE":
+		push_error("drive_smoke: session should be ACTIVE after start")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "scrap_metal")) != 1:
+		push_error("drive_smoke: line A enter should add scrap once")
+		quit(1)
+		return false
+
+	dlg.call("advance")
+	await physics_frame
+	if str(dlg.call("get_current_id")) != "interrupt_line_b":
+		push_error("drive_smoke: expected interrupt_line_b after advance")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "copper_wire")) != 1:
+		push_error("drive_smoke: line B enter should add copper once")
+		quit(1)
+		return false
+
+	if not bool(dlg.call("interrupt_dialogue", "PLAYER_CANCEL")):
+		push_error("drive_smoke: interrupt_dialogue failed")
+		quit(1)
+		return false
+	await physics_frame
+	if bool(dlg.call("is_active")):
+		push_error("drive_smoke: interrupt should leave is_active false")
+		quit(1)
+		return false
+	if not bool(dlg.call("is_interrupted")):
+		push_error("drive_smoke: session should be INTERRUPTED")
+		quit(1)
+		return false
+	if str(dlg.call("get_interrupt_reason")) != "PLAYER_CANCEL":
+		push_error("drive_smoke: interrupt reason should be PLAYER_CANCEL")
+		quit(1)
+		return false
+	if bool(memory.call("has_completed_dialogue", "interrupt_line_a")):
+		push_error("drive_smoke: interrupted dialogue must not count as completed")
+		quit(1)
+		return false
+	if character.has_method("is_control_enabled") and not bool(character.call("is_control_enabled")):
+		push_error("drive_smoke: interrupt should return player control")
+		quit(1)
+		return false
+
+	if not bool(dlg.call("resume_dialogue", character)):
+		push_error("drive_smoke: resume_dialogue failed")
+		quit(1)
+		return false
+	await physics_frame
+	if str(dlg.call("get_session_state")) != "ACTIVE":
+		push_error("drive_smoke: resume should restore ACTIVE")
+		quit(1)
+		return false
+	if str(dlg.call("get_current_id")) != "interrupt_line_b":
+		push_error("drive_smoke: resume should stay on latest safe line B")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "scrap_metal")) != 1:
+		push_error("drive_smoke: resume must not re-fire line A enter")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "copper_wire")) != 1:
+		push_error("drive_smoke: resume must not re-fire line B enter")
+		quit(1)
+		return false
+
+	dlg.call("end_dialogue", true)
+	await physics_frame
+	if not bool(memory.call("has_completed_dialogue", "interrupt_line_a")):
+		push_error("drive_smoke: completing after resume should record completed")
+		quit(1)
+		return false
+
+	# cancel_dialogue ≠ completed
+	memory.call("reset_for_tests")
+	inv.call("clear_inventory")
+	if not bool(dlg.call("start_dialogue", "interrupt_line_a", character, "test_interrupt_npc")):
+		push_error("drive_smoke: cancel path failed to start")
+		quit(1)
+		return false
+	await physics_frame
+	dlg.call("cancel_dialogue")
+	await physics_frame
+	if bool(dlg.call("is_interrupted")) or bool(dlg.call("is_active")):
+		push_error("drive_smoke: cancel should clear session to IDLE")
+		quit(1)
+		return false
+	if bool(memory.call("has_completed_dialogue", "interrupt_line_a")):
+		push_error("drive_smoke: cancel must not mark completed")
+		quit(1)
+		return false
+
+	# Scene unload mid-talk: no error; interrupted with ids only.
+	var gt: Node = root.get_node_or_null("GameTimeSystem")
+	if gt != null:
+		gt.call("set_narrative_time", 0, 10, 0)
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(6.0, 0.0, -6.0))
+	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	await physics_frame
+	await physics_frame
+	var mira: Node = vp.find_child("Mira", true, false) if vp != null else null
+	if mira == null:
+		push_error("drive_smoke: Mira missing for unload interrupt")
+		quit(1)
+		return false
+	character.global_position = (mira as Node3D).global_position + Vector3(0.0, 0.05, 1.4)
+	await physics_frame
+	if not bool(mira.call("interact", character)):
+		push_error("drive_smoke: Mira interact failed before unload interrupt")
+		quit(1)
+		return false
+	await physics_frame
+	if not bool(dlg.call("is_active")):
+		push_error("drive_smoke: expected active dialogue before POI unload")
+		quit(1)
+		return false
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	await physics_frame
+	await physics_frame
+	if bool(dlg.call("is_active")):
+		push_error("drive_smoke: active dialogue after unload should interrupt")
+		quit(1)
+		return false
+	if not bool(dlg.call("is_interrupted")):
+		push_error("drive_smoke: unload mid-talk should INTERRUPT (not crash / complete)")
+		quit(1)
+		return false
+	var unload_reason := str(dlg.call("get_interrupt_reason"))
+	if unload_reason != "NPC_UNAVAILABLE" and unload_reason != "SCENE_UNLOAD":
+		push_error("drive_smoke: unload interrupt reason unexpected: %s" % unload_reason)
+		quit(1)
+		return false
+	# Cannot resume without actor → cancel safely; next talk is fresh contextual resolve.
+	if bool(dlg.call("resume_dialogue", null)):
+		push_error("drive_smoke: resume without actor should fail safely")
+		quit(1)
+		return false
+	if bool(dlg.call("is_interrupted")) or bool(dlg.call("is_active")):
+		push_error("drive_smoke: failed resume should cancel to IDLE")
+		quit(1)
+		return false
+
+	# Fresh interaction still resolves coherently.
+	vp = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	await physics_frame
+	await physics_frame
+	mira = vp.find_child("Mira", true, false) if vp != null else null
+	if mira == null:
+		push_error("drive_smoke: Mira missing after unload interrupt cleanup")
+		quit(1)
+		return false
+	character.global_position = (mira as Node3D).global_position + Vector3(0.0, 0.05, 1.4)
+	await physics_frame
+	if not bool(mira.call("interact", character)):
+		push_error("drive_smoke: next interaction after interrupt should work")
+		quit(1)
+		return false
+	await physics_frame
+	dlg.call("cancel_dialogue")
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	inv.call("clear_inventory")
+	memory.call("reset_for_tests")
+	flags.call("reset_for_tests")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: dlg_interrupt OK (interrupt/resume + no dup effects + unload)")
 	return true
 
 

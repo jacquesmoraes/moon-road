@@ -73,10 +73,14 @@ func _connect_signals() -> void:
 	if _dialogue != null:
 		if _dialogue.has_signal("dialogue_started") and not _dialogue.dialogue_started.is_connected(_on_dialogue_started):
 			_dialogue.dialogue_started.connect(_on_dialogue_started)
+		if _dialogue.has_signal("dialogue_resumed") and not _dialogue.dialogue_resumed.is_connected(_on_dialogue_resumed):
+			_dialogue.dialogue_resumed.connect(_on_dialogue_resumed)
 		if _dialogue.has_signal("dialogue_finished") and not _dialogue.dialogue_finished.is_connected(_on_dialogue_finished):
 			_dialogue.dialogue_finished.connect(_on_dialogue_finished)
 		if _dialogue.has_signal("dialogue_cancelled") and not _dialogue.dialogue_cancelled.is_connected(_on_dialogue_cancelled):
 			_dialogue.dialogue_cancelled.connect(_on_dialogue_cancelled)
+		if _dialogue.has_signal("dialogue_interrupted") and not _dialogue.dialogue_interrupted.is_connected(_on_dialogue_interrupted):
+			_dialogue.dialogue_interrupted.connect(_on_dialogue_interrupted)
 
 
 func _bootstrap() -> void:
@@ -246,12 +250,22 @@ func _on_dialogue_started(_dialogue_id: String) -> void:
 		pause_movement("dialogue")
 
 
+func _on_dialogue_resumed(_dialogue_id: String) -> void:
+	if _body != null and bool(_body.get_meta("movement_dialogue_lock", false)):
+		pause_movement("dialogue")
+
+
 func _on_dialogue_finished(_dialogue_id: String) -> void:
 	_release_dialogue_pause()
 
 
 func _on_dialogue_cancelled() -> void:
-	## end_dialogue(false) emits cancelled, not finished — still resume walk.
+	## cancel_dialogue / end_dialogue(false) — resume walk.
+	_release_dialogue_pause()
+
+
+func _on_dialogue_interrupted(_reason: String) -> void:
+	## Interrupt returns control; walk may resume until dialogue resumes.
 	_release_dialogue_pause()
 
 
