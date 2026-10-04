@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **narrative world time** — independent 24h clock for NPCs/dialogues (separate from play/travel/system clocks), Mira 08:00–18:00 window, day/night lines. See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **data-driven NPC schedules** — daily routines from narrative hour (Mira workshop/diner/home; Rafa roadside/camp), logical location/state only. See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -413,8 +413,9 @@ Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later w
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
-# Expect: … time_npc=OK … relationship=OK … game_time=OK … drive_smoke: OK
+# Expect: … npc_sched=OK … time_npc=OK … game_time=OK … drive_smoke: OK
 ```
+
 
 
 Architecture snapshot: [`docs/architecture-status.md`](docs/architecture-status.md).
@@ -446,6 +447,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Save: `SaveSystem` → `user://savegame.json` (F5/F9/F6 debug)
 - Game time: `GameTimeSystem` (play/travel + independent narrative world clock + system stamps)
 - NPC time window: `NpcDefinition.available_hour_*` (Mira 08–18 narrative; hide outside)
+- NPC schedules: `NpcScheduleSystem` + `NpcScheduleData` / `NpcScheduleEntry` (logical routine; no pathfinding)
 - Vehicle state: `VehicleStateSystem` (`starter_car` attrs / upgrades / fuel; drives max speed)
 - Upgrades: `UpgradeData` + Cruise Module Mk I (+10 km/h via Workbench Install)
 - World state: `WorldStateSystem` (terminal powered / pickup collected)

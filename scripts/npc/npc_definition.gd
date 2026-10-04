@@ -5,7 +5,7 @@ class_name NpcDefinition
 
 enum PresenceMode {
 	STATIC, ## Stays at a placed transform (default foundation).
-	ROUTINE, ## Future: schedule / day cycle at a location.
+	ROUTINE, ## Logical day cycle via NpcScheduleSystem (no pathfinding yet).
 	TRAVELING, ## Future: moves along the road / between stops.
 }
 

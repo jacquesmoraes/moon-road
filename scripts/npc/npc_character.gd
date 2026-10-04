@@ -245,12 +245,17 @@ func _sync_with_state_system() -> void:
 
 
 func _sync_spawn_location() -> void:
-	## Updates logical location when this scene is parented under a POI (or similar).
-	var ns := get_node_or_null("/root/NpcStateSystem")
-	if ns == null or not ns.has_method("set_location_id"):
-		return
+	## Updates logical location when parented under a POI — skipped if a schedule owns it.
 	var id := get_npc_id()
 	if id.is_empty():
+		return
+	var schedules := get_node_or_null("/root/NpcScheduleSystem")
+	if schedules != null and schedules.has_method("has_schedule") and bool(schedules.call("has_schedule", id)):
+		if schedules.has_method("refresh_npc"):
+			schedules.call("refresh_npc", id)
+		return
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns == null or not ns.has_method("set_location_id"):
 		return
 	var location := _resolve_spawn_location_id()
 	if not location.is_empty():

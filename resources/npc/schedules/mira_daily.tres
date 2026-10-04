@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="NpcScheduleData" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/npc/npc_schedule_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://resources/npc/schedules/entries/mira_workshop_morning.tres" id="2_m"]
+[ext_resource type="Resource" path="res://resources/npc/schedules/entries/mira_diner.tres" id="3_d"]
+[ext_resource type="Resource" path="res://resources/npc/schedules/entries/mira_workshop_afternoon.tres" id="4_a"]
+[ext_resource type="Resource" path="res://resources/npc/schedules/entries/mira_home.tres" id="5_h"]
+
+[resource]
+script = ExtResource("1_script")
+schedule_id = "mira_daily"
+npc_id = "mira_viewpoint_keeper"
+enabled = true
+entries = [ExtResource("2_m"), ExtResource("3_d"), ExtResource("4_a"), ExtResource("5_h")]
+fallback_location_id = "viewpoint_home"
+fallback_state = "RESTING"
+fallback_activity_id = "sleep"
+selection_tags = PackedStringArray()

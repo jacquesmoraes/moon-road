@@ -117,7 +117,7 @@ func get_schedule_id(npc_id: String) -> String:
 
 
 func set_schedule_id(npc_id: String, schedule_id: String) -> void:
-	## Placeholder for future schedules — persisted only, no runtime behavior yet.
+	## Written by NpcScheduleSystem when a routine is active.
 	if npc_id.is_empty():
 		return
 	ensure_npc(npc_id)

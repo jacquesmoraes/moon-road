@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="NpcScheduleCatalog" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/npc/npc_schedule_catalog.gd" id="1_script"]
+[ext_resource type="Resource" path="res://resources/npc/schedules/mira_daily.tres" id="2_mira"]
+[ext_resource type="Resource" path="res://resources/npc/schedules/rafa_roadside.tres" id="3_rafa"]
+
+[resource]
+script = ExtResource("1_script")
+schedules = [ExtResource("2_mira"), ExtResource("3_rafa")]

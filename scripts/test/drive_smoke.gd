@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -3501,6 +3501,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_time_npc_availability(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_npc_schedules(occupancy, character, foot_cam):
+		return false
+
 	if not await _verify_small_interior(occupancy, character, foot_cam):
 		return false
 
@@ -5217,19 +5220,24 @@ func _verify_npc_state(_occupancy: Node, character: CharacterBody3D, _foot_cam: 
 		quit(1)
 		return false
 
-	# Spawn syncs location from parent POI (no schedule/pathfinding).
-	# POI setup is deferred relative to NPC _ready — wait a frame.
+	# Schedule owns logical location when present (narrative hour 10 → workshop).
+	var gt_ns: Node = root.get_node_or_null("GameTimeSystem")
+	var sched_ns: Node = root.get_node_or_null("NpcScheduleSystem")
+	if gt_ns != null and gt_ns.has_method("set_narrative_time"):
+		gt_ns.call("set_narrative_time", 0, 10, 0)
+	if sched_ns != null and sched_ns.has_method("refresh_all"):
+		sched_ns.call("refresh_all")
 	await physics_frame
 	await physics_frame
-	if str(ns.call("get_location_id", MIRA_ID)) != "sunset_viewpoint":
+	if str(ns.call("get_location_id", MIRA_ID)) != "viewpoint_workshop":
 		push_error(
-			"drive_smoke: Mira location should sync to sunset_viewpoint, got '%s'"
+			"drive_smoke: Mira location should be viewpoint_workshop at hour 10, got '%s'"
 			% str(ns.call("get_location_id", MIRA_ID))
 		)
 		quit(1)
 		return false
-	if not bool(cond.call("evaluate", cond.call("make_npc_location", MIRA_ID, "sunset_viewpoint"))):
-		push_error("drive_smoke: NPC_LOCATION condition failed after spawn")
+	if not bool(cond.call("evaluate", cond.call("make_npc_location", MIRA_ID, "viewpoint_workshop"))):
+		push_error("drive_smoke: NPC_LOCATION condition failed after schedule resolve")
 		quit(1)
 		return false
 
@@ -5358,8 +5366,12 @@ func _verify_npc_state(_occupancy: Node, character: CharacterBody3D, _foot_cam: 
 		push_error("drive_smoke: Rafa BUSY lost after load")
 		quit(1)
 		return false
-	if str(ns.call("get_location_id", MIRA_ID)) != "sunset_viewpoint":
-		push_error("drive_smoke: Mira location lost after load")
+	# After load, schedule re-resolves against narrative hour → workshop at hour 10.
+	if str(ns.call("get_location_id", MIRA_ID)) != "viewpoint_workshop":
+		push_error(
+			"drive_smoke: Mira schedule location lost after load (got '%s')"
+			% str(ns.call("get_location_id", MIRA_ID))
+		)
 		quit(1)
 		return false
 
@@ -5654,8 +5666,7 @@ func _verify_time_npc_availability(
 
 	# Persist met flag across hide/show — availability must not wipe NpcState.
 	ns.call("set_met_player", MIRA, true)
-	if ns.has_method("set_current_state"):
-		ns.call("set_current_state", MIRA, "QUEST_RELATED")
+	ns.call("set_custom_flag", MIRA, "smoke_persist", true)
 
 	# Daytime: visible + interactable → "Bom dia." via dialogue rules / conditions.
 	gt.call("set_narrative_time", 0, 10, 0)
@@ -5713,13 +5724,13 @@ func _verify_time_npc_availability(
 		push_error("drive_smoke: Mira should not be interactable at narrative hour 22")
 		quit(1)
 		return false
-	# Persistent state kept while hidden.
+	# Persistent campaign fields kept while hidden (schedule may update state/location).
 	if ns.has_method("has_met_player") and not bool(ns.call("has_met_player", MIRA)):
 		push_error("drive_smoke: hiding Mira must not clear met_player")
 		quit(1)
 		return false
-	if ns.has_method("get_current_state") and str(ns.call("get_current_state", MIRA)) != "QUEST_RELATED":
-		push_error("drive_smoke: hiding Mira must not clear current_state")
+	if ns.has_method("get_custom_flag") and not bool(ns.call("get_custom_flag", MIRA, "smoke_persist", false)):
+		push_error("drive_smoke: hiding Mira must not clear custom flags")
 		quit(1)
 		return false
 	var night_id := str(dlg.call("resolve_dialogue_for_npc", MIRA))
@@ -5765,6 +5776,237 @@ func _verify_time_npc_availability(
 	await physics_frame
 	print(
 		"drive_smoke: time_npc OK (independent narrative + Mira window + day/night + range 22–6)"
+	)
+	return true
+
+
+func _verify_npc_schedules(
+	_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D
+) -> bool:
+	## Data-driven NpcScheduleSystem: Mira daily routine + Rafa cross-midnight; save/load.
+	var gt: Node = root.get_node_or_null("GameTimeSystem")
+	var ns: Node = root.get_node_or_null("NpcStateSystem")
+	var sched: Node = root.get_node_or_null("NpcScheduleSystem")
+	var save: Node = root.get_node_or_null("SaveSystem")
+	if gt == null or ns == null or sched == null or save == null:
+		push_error("drive_smoke: systems missing for npc schedules")
+		quit(1)
+		return false
+
+	const MIRA := "mira_viewpoint_keeper"
+	const RAFA := "rafa_road_traveler"
+
+	var sched_script: Script = load("res://autoload/npc_schedule_system.gd") as Script
+	if sched_script != null:
+		var src := sched_script.source_code
+		for banned in [
+			"mira_viewpoint_keeper",
+			"rafa_road_traveler",
+			"viewpoint_workshop",
+			"Time.get_datetime_dict_from_system",
+			"get_total_travel_time",
+		]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: NpcScheduleSystem must not hardcode '%s'" % banned)
+				quit(1)
+				return false
+
+	ns.call("reset_for_tests")
+	gt.call("reset_for_tests")
+	sched.call("reset_for_tests")
+	save.call("delete_save")
+
+	if not bool(sched.call("has_schedule", MIRA)) or not bool(sched.call("has_schedule", RAFA)):
+		push_error("drive_smoke: catalog should register Mira and Rafa schedules")
+		quit(1)
+		return false
+
+	var changed: Array = []
+	var on_changed := func(
+		npc_id: String, _loc: String, _state: String, _act: String, _sid: String
+	) -> void:
+		changed.append(npc_id)
+	if sched.has_signal("npc_schedule_changed"):
+		sched.npc_schedule_changed.connect(on_changed)
+
+	# Mira: 10 workshop WORKING, 12 diner EATING, 15 workshop, 20 home RESTING, 3 fallback home.
+	gt.call("set_narrative_time", 0, 10, 0)
+	sched.call("refresh_all")
+	if str(ns.call("get_location_id", MIRA)) != "viewpoint_workshop":
+		push_error("drive_smoke: Mira@10 location expected viewpoint_workshop")
+		quit(1)
+		return false
+	if str(ns.call("get_current_state", MIRA)) != "WORKING":
+		push_error("drive_smoke: Mira@10 state expected WORKING")
+		quit(1)
+		return false
+	if str(ns.call("get_schedule_id", MIRA)) != "mira_daily":
+		push_error("drive_smoke: Mira schedule_id expected mira_daily")
+		quit(1)
+		return false
+	if str(sched.call("get_active_activity_id", MIRA)) != "workshop_morning":
+		push_error("drive_smoke: Mira@10 activity expected workshop_morning")
+		quit(1)
+		return false
+
+	gt.call("set_narrative_time", 0, 12, 0)
+	sched.call("refresh_all")
+	if str(ns.call("get_location_id", MIRA)) != "viewpoint_diner":
+		push_error("drive_smoke: Mira@12 location expected viewpoint_diner")
+		quit(1)
+		return false
+	if str(ns.call("get_current_state", MIRA)) != "EATING":
+		push_error("drive_smoke: Mira@12 state expected EATING")
+		quit(1)
+		return false
+
+	gt.call("set_narrative_time", 0, 15, 0)
+	sched.call("refresh_all")
+	if str(ns.call("get_location_id", MIRA)) != "viewpoint_workshop":
+		push_error("drive_smoke: Mira@15 location expected viewpoint_workshop")
+		quit(1)
+		return false
+	if str(sched.call("get_active_activity_id", MIRA)) != "workshop_afternoon":
+		push_error("drive_smoke: Mira@15 activity expected workshop_afternoon")
+		quit(1)
+		return false
+
+	gt.call("set_narrative_time", 0, 20, 0)
+	sched.call("refresh_all")
+	if str(ns.call("get_location_id", MIRA)) != "viewpoint_home":
+		push_error("drive_smoke: Mira@20 location expected viewpoint_home")
+		quit(1)
+		return false
+	if str(ns.call("get_current_state", MIRA)) != "RESTING":
+		push_error("drive_smoke: Mira@20 state expected RESTING")
+		quit(1)
+		return false
+
+	# 00–08: no entry → fallback home RESTING.
+	gt.call("set_narrative_time", 0, 3, 0)
+	sched.call("refresh_all")
+	if str(ns.call("get_location_id", MIRA)) != "viewpoint_home":
+		push_error("drive_smoke: Mira@3 fallback location expected viewpoint_home")
+		quit(1)
+		return false
+	if str(ns.call("get_current_state", MIRA)) != "RESTING":
+		push_error("drive_smoke: Mira@3 fallback state expected RESTING")
+		quit(1)
+		return false
+	if str(sched.call("get_active_activity_id", MIRA)) != "sleep":
+		push_error("drive_smoke: Mira@3 fallback activity expected sleep")
+		quit(1)
+		return false
+
+	# Two NPCs differ at the same hour.
+	gt.call("set_narrative_time", 0, 10, 0)
+	sched.call("refresh_all")
+	if str(ns.call("get_location_id", RAFA)) != "roadside_pullout":
+		push_error("drive_smoke: Rafa@10 expected roadside_pullout")
+		quit(1)
+		return false
+	if str(ns.call("get_location_id", MIRA)) == str(ns.call("get_location_id", RAFA)):
+		push_error("drive_smoke: Mira and Rafa should have different schedule locations")
+		quit(1)
+		return false
+	if str(ns.call("get_schedule_id", RAFA)) != "rafa_roadside":
+		push_error("drive_smoke: Rafa schedule_id expected rafa_roadside")
+		quit(1)
+		return false
+
+	# Rafa cross-midnight 20→06.
+	gt.call("set_narrative_time", 0, 22, 0)
+	sched.call("refresh_all")
+	if str(ns.call("get_location_id", RAFA)) != "roadside_camp":
+		push_error("drive_smoke: Rafa@22 cross-midnight expected roadside_camp")
+		quit(1)
+		return false
+	gt.call("set_narrative_time", 0, 4, 0)
+	sched.call("refresh_all")
+	if str(ns.call("get_location_id", RAFA)) != "roadside_camp":
+		push_error("drive_smoke: Rafa@04 cross-midnight expected roadside_camp")
+		quit(1)
+		return false
+	gt.call("set_narrative_time", 0, 7, 0)
+	sched.call("refresh_all")
+	if str(ns.call("get_location_id", RAFA)) != "roadside_pullout":
+		push_error("drive_smoke: Rafa@07 expected roadside_pullout")
+		quit(1)
+		return false
+
+	# Empty schedule state must not wipe dialogue-driven BUSY.
+	ns.call("set_current_state", RAFA, "BUSY")
+	gt.call("set_narrative_time", 0, 10, 0)
+	sched.call("refresh_all")
+	if str(ns.call("get_current_state", RAFA)) != "BUSY":
+		push_error("drive_smoke: Rafa empty schedule state must preserve BUSY")
+		quit(1)
+		return false
+
+	# Midnight wrap: Mira 23 home → advance to hour 0 still fallback home.
+	gt.call("set_narrative_time", 0, 23, 0)
+	sched.call("refresh_all")
+	if str(ns.call("get_location_id", MIRA)) != "viewpoint_home":
+		push_error("drive_smoke: Mira@23 expected viewpoint_home")
+		quit(1)
+		return false
+	gt.call("advance_narrative_seconds", 60.0)
+	sched.call("refresh_all")
+	if int(gt.call("get_narrative_day_index")) != 1:
+		push_error("drive_smoke: schedule midnight wrap should reach day 1")
+		quit(1)
+		return false
+	if str(ns.call("get_location_id", MIRA)) != "viewpoint_home":
+		push_error("drive_smoke: Mira after midnight expected fallback home")
+		quit(1)
+		return false
+
+	# Save / load: pin hour 12 diner, persist, reload, still diner (+ schedule_id).
+	gt.call("set_narrative_time", 1, 12, 0)
+	sched.call("refresh_all")
+	if not bool(save.call("save_game")):
+		push_error("drive_smoke: npc schedule save failed")
+		quit(1)
+		return false
+	ns.call("reset_for_tests")
+	gt.call("reset_for_tests")
+	if not bool(save.call("load_game")):
+		push_error("drive_smoke: npc schedule load failed")
+		quit(1)
+		return false
+	await physics_frame
+	await physics_frame
+	if str(ns.call("get_location_id", MIRA)) != "viewpoint_diner":
+		push_error(
+			"drive_smoke: Mira diner location not restored/resolved after load (got '%s')"
+			% str(ns.call("get_location_id", MIRA))
+		)
+		quit(1)
+		return false
+	if str(ns.call("get_current_state", MIRA)) != "EATING":
+		push_error("drive_smoke: Mira EATING not restored after load")
+		quit(1)
+		return false
+	if str(ns.call("get_schedule_id", MIRA)) != "mira_daily":
+		push_error("drive_smoke: Mira schedule_id not restored after load")
+		quit(1)
+		return false
+
+	if sched.has_signal("npc_schedule_changed") and sched.npc_schedule_changed.is_connected(on_changed):
+		sched.npc_schedule_changed.disconnect(on_changed)
+	if changed.is_empty():
+		push_error("drive_smoke: npc_schedule_changed never emitted")
+		quit(1)
+		return false
+
+	save.call("delete_save")
+	ns.call("reset_for_tests")
+	gt.call("reset_for_tests")
+	sched.call("reset_for_tests")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print(
+		"drive_smoke: npc_sched OK (Mira routine + Rafa cross-midnight + fallback + save + signal)"
 	)
 	return true
 

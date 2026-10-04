@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="NpcScheduleData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/npc/npc_schedule_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://resources/npc/schedules/entries/rafa_road_day.tres" id="2_d"]
+[ext_resource type="Resource" path="res://resources/npc/schedules/entries/rafa_camp_night.tres" id="3_n"]
+
+[resource]
+script = ExtResource("1_script")
+schedule_id = "rafa_roadside"
+npc_id = "rafa_road_traveler"
+enabled = true
+entries = [ExtResource("2_d"), ExtResource("3_n")]
+fallback_location_id = "roadside_pullout"
+fallback_state = ""
+fallback_activity_id = ""
+selection_tags = PackedStringArray()
