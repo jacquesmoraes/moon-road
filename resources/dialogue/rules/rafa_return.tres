@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="NpcDialogueRule" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/npc/npc_dialogue_rule.gd" id="1_script"]
+[ext_resource type="Resource" path="res://resources/conditions/rafa_01_completed.tres" id="2_cond"]
+
+[resource]
+script = ExtResource("1_script")
+id = "rafa_return"
+dialogue_id = "rafa_return_far"
+priority = 50
+conditions = [ExtResource("2_cond")]
+require_all = true
+enabled = true

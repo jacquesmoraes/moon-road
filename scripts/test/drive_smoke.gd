@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK npc_state=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK npc_rules=OK npc_state=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -2543,7 +2543,7 @@ func _verify_condition_system() -> bool:
 		quit(1)
 		return false
 
-	# Mira contextual dialogue via ConditionSystem gate when quest COMPLETED.
+	# Mira contextual dialogue via priority rules when quest COMPLETED.
 	if qs != null:
 		qs.call("reset_all")
 		qs.call("start_quest", "power_the_viewpoint")
@@ -2553,24 +2553,23 @@ func _verify_condition_system() -> bool:
 			quit(1)
 			return false
 
-	# Ensure Mira definition has the condition gate and resolve uses it.
 	var mira_def: Resource = load("res://resources/npc/mira_viewpoint_keeper.tres")
-	if mira_def == null or not ("conditional_dialogues" in mira_def):
-		push_error("drive_smoke: Mira missing conditional_dialogues")
+	if mira_def == null or not ("dialogue_rules" in mira_def):
+		push_error("drive_smoke: Mira missing dialogue_rules")
 		quit(1)
 		return false
-	var gates: Array = mira_def.conditional_dialogues
-	if gates.is_empty():
-		push_error("drive_smoke: Mira conditional_dialogues empty")
+	if (mira_def.dialogue_rules as Array).is_empty():
+		push_error("drive_smoke: Mira dialogue_rules empty")
 		quit(1)
 		return false
-	if dlg == null or not dlg.has_method("resolve_dialogue_id"):
-		push_error("drive_smoke: DialogueSystem.resolve_dialogue_id missing")
+	if dlg == null or not dlg.has_method("resolve_dialogue_for_npc"):
+		push_error("drive_smoke: DialogueSystem.resolve_dialogue_for_npc missing")
 		quit(1)
 		return false
-	var resolved := str(dlg.call("resolve_dialogue_id", gates))
+	dlg.call("register_npc_definition", mira_def)
+	var resolved := str(dlg.call("resolve_dialogue_for_npc", "mira_viewpoint_keeper"))
 	if resolved != "mira_quest_done_01":
-		push_error("drive_smoke: expected mira_quest_done_01 from condition gate, got %s" % resolved)
+		push_error("drive_smoke: expected mira_quest_done_01 from NPC rules, got %s" % resolved)
 		quit(1)
 		return false
 
@@ -3215,6 +3214,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_dialogue_memory(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_npc_dialogue_rules(occupancy, character, foot_cam):
+		return false
+
 	if not await _verify_npc_state(occupancy, character, foot_cam):
 		return false
 
@@ -3514,6 +3516,8 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 	## Data-driven DialogueSystem via Mira + Rafa (shared Interactable + catalog).
 	var poi_sys: Node = root.get_node_or_null("POISystem")
 	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	var ns: Node = root.get_node_or_null("NpcStateSystem")
+	var memory: Node = root.get_node_or_null("DialogueMemorySystem")
 	if poi_sys == null:
 		push_error("drive_smoke: POISystem missing for dialogue test")
 		quit(1)
@@ -3523,6 +3527,11 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 		quit(1)
 		return false
 	_clear_world_state()
+	if ns != null and ns.has_method("reset_for_tests"):
+		ns.call("reset_for_tests")
+	if memory != null and memory.has_method("reset_for_tests"):
+		memory.call("reset_for_tests")
+	dlg.call("reload_npc_catalog")
 
 	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
 	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
@@ -3571,8 +3580,8 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 		push_error("drive_smoke: NPCs must duck-type Interactable")
 		quit(1)
 		return false
-	if str(mira.call("get_dialogue_id")) != "mira_quest_offer_01":
-		push_error("drive_smoke: Mira dialogue_id should be mira_quest_offer_01")
+	if str(mira.call("get_dialogue_id")) != "mira_intro":
+		push_error("drive_smoke: Mira first-meet should resolve mira_intro")
 		quit(1)
 		return false
 	if str(rafa.call("get_dialogue_id")) != "rafa_01":
@@ -3621,12 +3630,12 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 		push_error("drive_smoke: character still movable during dialogue")
 		quit(1)
 		return false
-	if str(dlg.call("get_current_id")) != "mira_quest_offer_01":
-		push_error("drive_smoke: expected mira_quest_offer_01, got %s" % str(dlg.call("get_current_id")))
+	if str(dlg.call("get_current_id")) != "mira_intro":
+		push_error("drive_smoke: expected mira_intro, got %s" % str(dlg.call("get_current_id")))
 		quit(1)
 		return false
 	if str(dlg.call("get_current_text")).find("terminal") < 0:
-		push_error("drive_smoke: unexpected Mira offer line 1 text")
+		push_error("drive_smoke: unexpected Mira intro line text")
 		quit(1)
 		return false
 	var flags_early: Node = root.get_node_or_null("GameFlags")
@@ -4612,15 +4621,16 @@ func _verify_dialogue_memory(_occupancy: Node, character: CharacterBody3D, _foot
 	dlg.call("end_dialogue", true)
 	await physics_frame
 
-	# NPC resolve uses ConditionSystem gate (no hardcoded names in DialogueSystem).
+	# NPC resolve uses priority rules (no hardcoded names in DialogueSystem).
 	var rafa_def: Resource = load("res://resources/npc/rafa_road_traveler.tres")
-	if rafa_def == null or not ("conditional_dialogues" in rafa_def):
-		push_error("drive_smoke: Rafa NpcDefinition missing conditional_dialogues")
+	if rafa_def == null or not ("dialogue_rules" in rafa_def):
+		push_error("drive_smoke: Rafa NpcDefinition missing dialogue_rules")
 		quit(1)
 		return false
-	var resolved := str(dlg.call("resolve_dialogue_id", rafa_def.conditional_dialogues))
+	dlg.call("register_npc_definition", rafa_def)
+	var resolved := str(dlg.call("resolve_dialogue_for_npc", "rafa_road_traveler"))
 	if resolved != "rafa_return_far":
-		push_error("drive_smoke: expected rafa_return_far from COMPLETED gate, got %s" % resolved)
+		push_error("drive_smoke: expected rafa_return_far from return rule, got %s" % resolved)
 		quit(1)
 		return false
 
@@ -4654,6 +4664,187 @@ func _verify_dialogue_memory(_occupancy: Node, character: CharacterBody3D, _foot
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print("drive_smoke: dlg_memory OK (seen/completed + choice + Rafa return + save)")
+	return true
+
+
+func _verify_npc_dialogue_rules(_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D) -> bool:
+	## Priority NpcDialogueRule resolve: intro → returning → quest done beats generic; fallback.
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	var cond: Node = root.get_node_or_null("ConditionSystem")
+	var qs: Node = root.get_node_or_null("QuestSystem")
+	var ns: Node = root.get_node_or_null("NpcStateSystem")
+	var memory: Node = root.get_node_or_null("DialogueMemorySystem")
+	if dlg == null or cond == null or qs == null or ns == null:
+		push_error("drive_smoke: systems missing for npc dialogue rules")
+		quit(1)
+		return false
+
+	const MIRA := "mira_viewpoint_keeper"
+
+	# NpcCharacter must not inspect rules / hardcode quest ids.
+	var npc_script: Script = load("res://scripts/npc/npc_character.gd") as Script
+	if npc_script != null:
+		var src := npc_script.source_code
+		for banned in [
+			"power_the_viewpoint",
+			"dialogue_rules",
+			"NpcDialogueRule",
+			"mira_quest_done",
+			"mira_intro",
+			"mira_returning",
+		]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: NpcCharacter must not contain '%s'" % banned)
+				quit(1)
+				return false
+
+	# DialogueSystem must stay free of Mira/quest hardcoding in resolve.
+	var dlg_script: Script = load("res://autoload/dialogue_system.gd") as Script
+	if dlg_script != null:
+		var dsrc := dlg_script.source_code
+		for banned in ["mira_viewpoint_keeper", "power_the_viewpoint", "mira_intro"]:
+			if dsrc.find(banned) >= 0:
+				push_error("drive_smoke: DialogueSystem must not hardcode '%s'" % banned)
+				quit(1)
+				return false
+
+	qs.call("reset_all")
+	ns.call("reset_for_tests")
+	if memory != null and memory.has_method("reset_for_tests"):
+		memory.call("reset_for_tests")
+	dlg.call("reload_catalog")
+	dlg.call("reload_npc_catalog")
+
+	# 1) First meet → fallback intro.
+	var first := str(dlg.call("resolve_dialogue_for_npc", MIRA))
+	if first != "mira_intro":
+		push_error("drive_smoke: first meet should be mira_intro, got %s" % first)
+		quit(1)
+		return false
+
+	# 2) After met (no quest) → returning.
+	ns.call("set_met_player", MIRA, true)
+	var returning := str(dlg.call("resolve_dialogue_for_npc", MIRA))
+	if returning != "mira_returning":
+		push_error("drive_smoke: met Mira should resolve mira_returning, got %s" % returning)
+		quit(1)
+		return false
+
+	# 3) Active quest beats generic returning.
+	qs.call("start_quest", "power_the_viewpoint")
+	var active := str(dlg.call("resolve_dialogue_for_npc", MIRA))
+	if active != "mira_quest_active_01":
+		push_error("drive_smoke: ACTIVE quest should beat returning, got %s" % active)
+		quit(1)
+		return false
+
+	# 4) Completed beats active / returning.
+	qs.call("complete_quest", "power_the_viewpoint")
+	var done := str(dlg.call("resolve_dialogue_for_npc", MIRA))
+	if done != "mira_quest_done_01":
+		push_error("drive_smoke: COMPLETED should resolve mira_quest_done_01, got %s" % done)
+		quit(1)
+		return false
+
+	# 5) Tie-break: equal priority → lower authored index wins.
+	var RuleScript: Script = load("res://scripts/npc/npc_dialogue_rule.gd") as Script
+	var DefScript: Script = load("res://scripts/npc/npc_definition.gd") as Script
+	if RuleScript == null or DefScript == null:
+		push_error("drive_smoke: could not load rule/definition scripts")
+		quit(1)
+		return false
+	var rule_a: Resource = RuleScript.new()
+	rule_a.set("id", "tie_a")
+	rule_a.set("dialogue_id", "mira_01")
+	rule_a.set("priority", 10)
+	rule_a.set("enabled", true)
+	rule_a.set("conditions", [])
+	var rule_b: Resource = RuleScript.new()
+	rule_b.set("id", "tie_b")
+	rule_b.set("dialogue_id", "mira_02")
+	rule_b.set("priority", 10)
+	rule_b.set("enabled", true)
+	rule_b.set("conditions", [])
+	var tie_def: Resource = DefScript.new()
+	tie_def.set("npc_id", "tie_test_npc")
+	tie_def.set("fallback_dialogue_id", "mira_intro")
+	tie_def.set("dialogue_rules", [rule_a, rule_b])
+	var tied := str(dlg.call("resolve_dialogue_from_definition", tie_def))
+	if tied != "mira_01":
+		push_error("drive_smoke: equal priority should prefer lower index (mira_01), got %s" % tied)
+		quit(1)
+		return false
+
+	# 6) No matching rules / all fail → fallback.
+	var fail_rule: Resource = RuleScript.new()
+	fail_rule.set("id", "fail")
+	fail_rule.set("dialogue_id", "mira_returning")
+	fail_rule.set("priority", 99)
+	fail_rule.set("enabled", true)
+	fail_rule.set("conditions", [cond.call("make_npc_met", "nobody_here", true)])
+	var fb_def: Resource = DefScript.new()
+	fb_def.set("npc_id", "fallback_npc")
+	fb_def.set("fallback_dialogue_id", "mira_intro")
+	fb_def.set("dialogue_rules", [fail_rule])
+	var fb := str(dlg.call("resolve_dialogue_from_definition", fb_def))
+	if fb != "mira_intro":
+		push_error("drive_smoke: fallback_dialogue_id should win when rules fail, got %s" % fb)
+		quit(1)
+		return false
+
+	# Live Mira interact uses resolve (no fixed dialogue_id).
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	if poi_sys != null and poi_res != null and vp_scene != null:
+		qs.call("reset_all")
+		ns.call("reset_for_tests")
+		var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+		var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(8.0, 0.0, -4.0))
+		var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+		var mira: Node = vp.find_child("Mira", true, false) if vp != null else null
+		if mira == null:
+			push_error("drive_smoke: Mira missing for npc rules live check")
+			quit(1)
+			return false
+		if str(mira.call("get_dialogue_id")) != "mira_intro":
+			push_error("drive_smoke: live Mira should open mira_intro first")
+			quit(1)
+			return false
+		character.global_position = (mira as Node3D).global_position + Vector3(0.0, 0.05, 1.5)
+		await physics_frame
+		if not bool(mira.call("interact", character)):
+			push_error("drive_smoke: Mira intro interact failed")
+			quit(1)
+			return false
+		await physics_frame
+		if str(dlg.call("get_current_id")) != "mira_intro":
+			push_error("drive_smoke: interact started wrong line %s" % str(dlg.call("get_current_id")))
+			quit(1)
+			return false
+		# Advance intro → offer choices → accept (starts quest).
+		dlg.call("advance")
+		await physics_frame
+		dlg.call("set_choice_index", 0)
+		await physics_frame
+		dlg.call("confirm_choice")
+		await physics_frame
+		if str(mira.call("get_dialogue_id")) != "mira_quest_active_01":
+			push_error(
+				"drive_smoke: after intro Mira should be active quest line, got %s"
+				% str(mira.call("get_dialogue_id"))
+			)
+			quit(1)
+			return false
+		poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+
+	qs.call("reset_all")
+	ns.call("reset_for_tests")
+	if memory != null and memory.has_method("reset_for_tests"):
+		memory.call("reset_for_tests")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: npc_rules OK (intro → returning → active → done + ties + fallback)")
 	return true
 
 
@@ -4823,11 +5014,12 @@ func _verify_npc_state(_occupancy: Node, character: CharacterBody3D, _foot_cam: 
 		quit(1)
 		return false
 
-	# Conditional dialogue resolve uses NPC_STATE (no hardcoded branch in DialogueSystem).
+	# Priority rules: BUSY beats return/fallback.
 	var rafa_def: Resource = load("res://resources/npc/rafa_road_traveler.tres")
-	var resolved := str(dlg.call("resolve_dialogue_id", rafa_def.conditional_dialogues))
+	dlg.call("register_npc_definition", rafa_def)
+	var resolved := str(dlg.call("resolve_dialogue_for_npc", "rafa_road_traveler"))
 	if resolved != "rafa_busy_01":
-		push_error("drive_smoke: expected rafa_busy_01 from NPC_STATE gate, got %s" % resolved)
+		push_error("drive_smoke: expected rafa_busy_01 from BUSY rule, got %s" % resolved)
 		quit(1)
 		return false
 	if str(rafa.call("get_dialogue_id")) != "rafa_busy_01":
@@ -5238,6 +5430,13 @@ func _verify_side_quest(occupancy: Node, character: CharacterBody3D, foot_cam: N
 	qs.call("reset_all")
 	inv.call("clear_inventory")
 	_clear_world_state()
+	var ns_quest: Node = root.get_node_or_null("NpcStateSystem")
+	var memory_quest: Node = root.get_node_or_null("DialogueMemorySystem")
+	if ns_quest != null and ns_quest.has_method("reset_for_tests"):
+		ns_quest.call("reset_for_tests")
+	if memory_quest != null and memory_quest.has_method("reset_for_tests"):
+		memory_quest.call("reset_for_tests")
+	dlg.call("reload_npc_catalog")
 
 	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
 	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")

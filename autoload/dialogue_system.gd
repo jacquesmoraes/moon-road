@@ -12,13 +12,17 @@ signal dialogue_finished(dialogue_id: String)
 signal dialogue_cancelled
 
 const DEFAULT_CATALOG_PATH := "res://resources/dialogue/default_catalog.tres"
+const DEFAULT_NPC_CATALOG_PATH := "res://resources/npc/default_npc_catalog.tres"
 const MAX_RESOLVE_HOPS: int = 12
 const ActionExecutorScript = preload("res://scripts/dialogue/dialogue_action_executor.gd")
 
 @export_file("*.tres") var catalog_path: String = DEFAULT_CATALOG_PATH
+@export_file("*.tres") var npc_catalog_path: String = DEFAULT_NPC_CATALOG_PATH
 
 var _catalog: Resource
 var _by_id: Dictionary = {}
+## npc_id → NpcDefinition (static authoring; no Node refs).
+var _npc_defs: Dictionary = {}
 var _active: bool = false
 var _current: Resource
 var _start_id: String = ""
@@ -36,6 +40,7 @@ var _fired_choice: Dictionary = {}
 func _ready() -> void:
 	_executor = ActionExecutorScript.new()
 	_load_catalog()
+	_load_npc_catalog()
 	set_process_unhandled_input(true)
 
 
@@ -198,6 +203,7 @@ func confirm_choice() -> void:
 
 ## Extension point: first entry whose ConditionData passes (null condition = always).
 ## entries: Array of ConditionalDialogue / Dictionary {dialogue_id, condition}.
+## Prefer resolve_dialogue_for_npc / NpcDialogueRule for new authoring.
 func resolve_dialogue_id(entries: Array) -> String:
 	var cond_sys := get_node_or_null("/root/ConditionSystem")
 	for entry in entries:
@@ -224,6 +230,151 @@ func resolve_dialogue_id(entries: Array) -> String:
 				return dlg_id
 		# Without ConditionSystem, only ungated entries resolve.
 	return ""
+
+
+## Pick the best dialogue for an NPC by npc_id (catalog lookup).
+## Rules: drop disabled / failing conditions → highest priority → lower index on ties.
+func resolve_dialogue_for_npc(npc_id: String) -> String:
+	if npc_id.is_empty():
+		return ""
+	_ensure_npc_index()
+	var def: Resource = _npc_defs.get(npc_id, null)
+	if def == null:
+		return ""
+	return resolve_dialogue_from_definition(def)
+
+
+## Same priority resolve using an NpcDefinition resource directly (tests / scene defs).
+func resolve_dialogue_from_definition(definition: Resource) -> String:
+	if definition == null:
+		return ""
+	var fallback := ""
+	if definition.has_method("get_fallback_dialogue_id"):
+		fallback = str(definition.call("get_fallback_dialogue_id"))
+	else:
+		fallback = str(definition.get("fallback_dialogue_id"))
+		if fallback.is_empty():
+			fallback = str(definition.get("dialogue_id"))
+
+	var rules: Array = []
+	if "dialogue_rules" in definition:
+		var raw_rules: Variant = definition.get("dialogue_rules")
+		if typeof(raw_rules) == TYPE_ARRAY:
+			rules = raw_rules
+
+	if not rules.is_empty():
+		var picked := _pick_best_dialogue_rule(rules)
+		if not picked.is_empty():
+			return picked
+		return fallback
+
+	# Legacy: first-match ConditionalDialogue list.
+	if "conditional_dialogues" in definition:
+		var legacy: Variant = definition.get("conditional_dialogues")
+		if typeof(legacy) == TYPE_ARRAY and not (legacy as Array).is_empty():
+			var gated := resolve_dialogue_id(legacy as Array)
+			if not gated.is_empty():
+				return gated
+	return fallback
+
+
+func register_npc_definition(definition: Resource) -> void:
+	if definition == null:
+		return
+	var key := str(definition.get("npc_id"))
+	if key.is_empty():
+		return
+	_npc_defs[key] = definition
+
+
+func get_npc_definition(npc_id: String) -> Resource:
+	_ensure_npc_index()
+	return _npc_defs.get(npc_id, null)
+
+
+func reload_npc_catalog() -> void:
+	_npc_defs.clear()
+	_load_npc_catalog()
+
+
+func _pick_best_dialogue_rule(rules: Array) -> String:
+	var cond_sys := get_node_or_null("/root/ConditionSystem")
+	var best_id := ""
+	var best_priority := -2147483648
+	var best_index := 2147483647
+	var found := false
+
+	for i in rules.size():
+		var rule: Variant = rules[i]
+		if rule == null:
+			continue
+		if not bool(rule.get("enabled")):
+			continue
+		var dlg_id := str(rule.get("dialogue_id"))
+		if dlg_id.is_empty():
+			continue
+		var conditions: Array = []
+		var raw_c: Variant = rule.get("conditions")
+		if typeof(raw_c) == TYPE_ARRAY:
+			conditions = raw_c
+		var require_all := true
+		if "require_all" in rule:
+			require_all = bool(rule.get("require_all"))
+		if not _rule_conditions_pass(cond_sys, conditions, require_all):
+			continue
+		var priority := int(rule.get("priority"))
+		# Highest priority wins; ties → lower authored index (deterministic).
+		if not found or priority > best_priority or (priority == best_priority and i < best_index):
+			found = true
+			best_priority = priority
+			best_index = i
+			best_id = dlg_id
+	return best_id
+
+
+func _rule_conditions_pass(cond_sys: Node, conditions: Array, require_all: bool) -> bool:
+	if conditions.is_empty():
+		return true
+	if cond_sys == null:
+		return false
+	if require_all:
+		if cond_sys.has_method("evaluate_all"):
+			return bool(cond_sys.call("evaluate_all", conditions))
+		for entry in conditions:
+			if entry == null:
+				continue
+			if not bool(cond_sys.call("evaluate", entry)):
+				return false
+		return true
+	if cond_sys.has_method("evaluate_any"):
+		return bool(cond_sys.call("evaluate_any", conditions))
+	for entry in conditions:
+		if entry == null:
+			continue
+		if bool(cond_sys.call("evaluate", entry)):
+			return true
+	return false
+
+
+func _load_npc_catalog() -> void:
+	_npc_defs.clear()
+	if npc_catalog_path.is_empty():
+		return
+	var catalog: Resource = load(npc_catalog_path) as Resource
+	if catalog == null:
+		push_warning("DialogueSystem: could not load NPC catalog '%s'" % npc_catalog_path)
+		return
+	var entries: Variant = catalog.get("entries")
+	if typeof(entries) != TYPE_ARRAY:
+		return
+	for entry in entries:
+		register_npc_definition(entry)
+
+
+func _ensure_npc_index() -> void:
+	if not _npc_defs.is_empty():
+		return
+	_load_npc_catalog()
 
 
 ## Registers / replaces a definition at runtime (tests, optional local overrides).

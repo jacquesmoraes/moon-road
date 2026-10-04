@@ -1,7 +1,7 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** persistent NPC state (`feat: add persistent npc state system`)  
+**As of:** contextual NPC dialogue (`feat: add contextual npc dialogue resolution`)  
 **Engine:** Godot 4.7 Forward Plus
 
 This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.
@@ -15,7 +15,7 @@ This document describes the **current implemented foundation**, not the full des
 | `JourneySystem` | Logical Earth→Moon distance (km), physical→journey scale | Vehicle physics, road mesh |
 | `WorldRegionSystem` | Region band from journey distance | Visuals/audio of regions |
 | `POISystem` | Discovery flags + spawn/despawn of viewpoint scenes | Quest/terminal logic |
-| `DialogueSystem` | Linear + choice runner; gates via ConditionSystem; effects via Executor; records memory | Action type dispatch, NPC placement |
+| `DialogueSystem` | Linear + choice runner; NPC rule resolve (`resolve_dialogue_for_npc`); gates/effects/memory | Action type dispatch, NPC placement |
 | `DialogueMemorySystem` | Seen/completed/choice memory + timestamps | Dialogue text, NPC names |
 | `NpcStateSystem` | Mutable NPC campaign fields by `npc_id` | Schedules, pathfinding, city travel, Node refs |
 | `InventorySystem` | Item quantities by id + catalog | World pickups, UI layout |
@@ -44,11 +44,11 @@ InventorySystem ← CraftingSystem, QuestSystem, VehicleStateSystem (install con
 POISystem / WorldStateSystem / VehicleStateSystem / GameFlags / JourneySystem / WorldRegionSystem
     ↑ queried by ConditionSystem (no reverse writes)
 
-DialogueSystem → ConditionSystem (gates) + DialogueActionExecutor (effects) + DialogueMemorySystem (record)
+DialogueSystem → ConditionSystem (gates + NPC rules) + DialogueActionExecutor (effects) + DialogueMemorySystem (record)
 DialogueActionExecutor → GameFlags / QuestSystem / InventorySystem / WorldStateSystem / POISystem / NpcStateSystem
 ConditionSystem → DialogueMemorySystem (DIALOGUE_*) + NpcStateSystem (NPC_*)
-NpcCharacter → NpcStateSystem (spawn sync + talk) / DialogueSystem / QuestSystem / ConditionSystem (via resolve)
-NpcDefinition → static authoring only (npc_id, names, dialogue refs); never mutable campaign fields
+NpcCharacter → DialogueSystem.resolve_dialogue_for_npc (no rule internals) + NpcStateSystem (spawn/talk)
+NpcDefinition → static authoring: dialogue_rules + fallback_dialogue_id; never mutable campaign fields
 
 QuestSystem → InventorySystem (requirements)
             → (legacy) DialogueSystem.dialogue_finished may still start quests if start_dialogue_id set
@@ -94,7 +94,8 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 | WorldState pickup | `poi.<poi_id>.pickup.<name>` → `collected` |
 | Quest | `power_the_viewpoint` |
 | Items / upgrades / recipes | `cruise_module_mk1`, `scrap_metal`, … |
-| Dialogue | `mira_quest_offer_01`, `mira_moon_ask`, `mira_quest_done_01`, … |
+| Dialogue | `mira_intro`, `mira_returning`, `mira_quest_done_01`, … |
+| NpcDialogueRule | `mira_quest_done` / `mira_quest_active` / `mira_returning` (priority + conditions) |
 | DialogueChoice | `accept_help`, `refuse_help`, `moon_yes`, `buy_part`, … |
 | DialogueAction | `SET_FLAG` / `START_QUEST` / `ADD_ITEM` / … via `target_id` + value fields |
 | Dialogue memory | conversation start id (`rafa_01`); choice ids (`rafa_far`, `rafa_pass`) |
@@ -140,7 +141,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira (`met_player`) → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → talk to Rafa (`rafa_far` → `BUSY`) → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time/dialogue memory/NPC state without duplication → limited offline progress respects fuel.
 
 Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `dlg_memory=OK`, `npc_state=OK`, `dlg_actions=OK`, `mid_save=OK`, and the full `drive_smoke: OK …` line.
+Look for `npc_rules=OK`, `npc_state=OK`, `dlg_memory=OK`, `mid_save=OK`, and the full `drive_smoke: OK …` line.
 
 ---
 

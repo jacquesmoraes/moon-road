@@ -1,7 +1,9 @@
-[gd_resource type="Resource" script_class="NpcDefinition" load_steps=3 format=3]
+[gd_resource type="Resource" script_class="NpcDefinition" load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/npc/npc_definition.gd" id="1_script"]
-[ext_resource type="Resource" path="res://resources/dialogue/mira_completed_gate.tres" id="2_gate"]
+[ext_resource type="Resource" path="res://resources/dialogue/rules/mira_quest_done.tres" id="2_done"]
+[ext_resource type="Resource" path="res://resources/dialogue/rules/mira_quest_active.tres" id="3_active"]
+[ext_resource type="Resource" path="res://resources/dialogue/rules/mira_returning.tres" id="4_ret"]
 
 [resource]
 script = ExtResource("1_script")
@@ -10,7 +12,8 @@ display_name = "Mira"
 role = "viewpoint_keeper"
 enabled = true
 presence_mode = 0
-dialogue_id = "mira_quest_offer_01"
+fallback_dialogue_id = "mira_intro"
+dialogue_rules = [ExtResource("2_done"), ExtResource("3_active"), ExtResource("4_ret")]
 linked_quest_id = "power_the_viewpoint"
-conditional_dialogues = [ExtResource("2_gate")]
 greeting_line = ""
+dialogue_id = "mira_intro"

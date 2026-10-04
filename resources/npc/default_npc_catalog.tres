@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="NpcDefinitionCatalog" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/npc/npc_definition_catalog.gd" id="1_script"]
+[ext_resource type="Resource" path="res://resources/npc/mira_viewpoint_keeper.tres" id="2_mira"]
+[ext_resource type="Resource" path="res://resources/npc/rafa_road_traveler.tres" id="3_rafa"]
+
+[resource]
+script = ExtResource("1_script")
+entries = [ExtResource("2_mira"), ExtResource("3_rafa")]

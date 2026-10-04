@@ -59,50 +59,19 @@ func is_npc_enabled() -> bool:
 
 
 func get_dialogue_id() -> String:
+	## Contextual pick via DialogueSystem — this scene never inspects rule internals.
 	_apply_definition_to_exports()
-	var fallback := dialogue_id
-
-	# Extension point: ConditionSystem-gated overrides (e.g. Mira after quest complete).
-	var gated := _resolve_conditional_dialogue()
-	if not gated.is_empty():
-		return gated
-
-	var quest_id := linked_quest_id
-	if quest_id.is_empty():
-		var qs := get_node_or_null("/root/QuestSystem")
-		if qs != null and qs.has_method("find_quest_for_giver"):
-			quest_id = str(qs.call("find_quest_for_giver", get_npc_id()))
-	if quest_id.is_empty():
-		return fallback
-	var qs2 := get_node_or_null("/root/QuestSystem")
-	if qs2 != null and qs2.has_method("get_dialogue_for_quest"):
-		return str(qs2.call("get_dialogue_for_quest", quest_id, fallback))
-	return fallback
-
-
-func _resolve_conditional_dialogue() -> String:
-	var entries: Array = []
-	if definition != null and "conditional_dialogues" in definition:
-		entries = definition.conditional_dialogues
-	if entries.is_empty():
-		return ""
 	var dlg := get_node_or_null("/root/DialogueSystem")
-	if dlg != null and dlg.has_method("resolve_dialogue_id"):
-		return str(dlg.call("resolve_dialogue_id", entries))
-	# Fallback: evaluate via ConditionSystem directly.
-	var cond_sys := get_node_or_null("/root/ConditionSystem")
-	for entry in entries:
-		if entry == null:
-			continue
-		var dlg_id := str(entry.get("dialogue_id"))
-		if dlg_id.is_empty():
-			continue
-		var condition: Resource = entry.get("condition") as Resource
-		if condition == null:
-			return dlg_id
-		if cond_sys != null and cond_sys.has_method("evaluate") and bool(cond_sys.call("evaluate", condition)):
-			return dlg_id
-	return ""
+	if dlg != null:
+		if dlg.has_method("resolve_dialogue_for_npc"):
+			var by_id := str(dlg.call("resolve_dialogue_for_npc", get_npc_id()))
+			if not by_id.is_empty():
+				return by_id
+		if definition != null and dlg.has_method("resolve_dialogue_from_definition"):
+			var from_def := str(dlg.call("resolve_dialogue_from_definition", definition))
+			if not from_def.is_empty():
+				return from_def
+	return dialogue_id
 
 
 func get_linked_quest_id() -> String:
@@ -221,8 +190,15 @@ func _apply_definition_to_exports() -> void:
 		role = definition.role
 	# Definition.enabled is the authoring default only — runtime uses NpcStateSystem.
 	enabled = definition.enabled
-	if not definition.dialogue_id.is_empty():
-		dialogue_id = definition.dialogue_id
+	var fallback := ""
+	if definition.has_method("get_fallback_dialogue_id"):
+		fallback = str(definition.call("get_fallback_dialogue_id"))
+	elif "fallback_dialogue_id" in definition and not str(definition.fallback_dialogue_id).is_empty():
+		fallback = str(definition.fallback_dialogue_id)
+	elif not definition.dialogue_id.is_empty():
+		fallback = definition.dialogue_id
+	if not fallback.is_empty():
+		dialogue_id = fallback
 	if "linked_quest_id" in definition and not str(definition.linked_quest_id).is_empty():
 		linked_quest_id = str(definition.linked_quest_id)
 	if not definition.greeting_line.is_empty():

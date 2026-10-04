@@ -1,7 +1,7 @@
 extends Resource
 class_name NpcDefinition
-## Data for a world NPC. Lives outside PlayerCharacter and the POI autoload.
-## Ready for static, routine, and traveling presence later — behavior hooks stay empty for now.
+## Static authoring data for a world NPC. Mutable campaign fields live in NpcStateSystem.
+## Dialogue selection uses dialogue_rules + fallback_dialogue_id (priority resolve).
 
 enum PresenceMode {
 	STATIC, ## Stays at a placed transform (default foundation).
@@ -14,14 +14,20 @@ enum PresenceMode {
 @export var role: String = "traveler"
 @export var enabled: bool = true
 @export var presence_mode: PresenceMode = PresenceMode.STATIC
-## Default / fallback dialogue id. QuestSystem may override via linked_quest_id.
-@export var dialogue_id: String = ""
-## If set, dialogue resolves from QuestSystem state for this quest.
+## Used when no dialogue_rule matches (or rules list is empty).
+@export var fallback_dialogue_id: String = ""
+## Priority-ranked contextual rules (NpcDialogueRule). Highest valid priority wins.
+@export var dialogue_rules: Array = []
+## Optional quest link for turn-in / helpers — not used for dialogue picking.
 @export var linked_quest_id: String = ""
-## Condition-gated dialogue overrides (checked before quest helper). First match wins.
-@export var conditional_dialogues: Array = []
-## Legacy one-liner fallback when dialogue_id is empty (prefer dialogue_id).
+## Legacy one-liner fallback when no dialogue resolves (prefer fallback_dialogue_id).
 @export var greeting_line: String = ""
+
+## --- Legacy fields (kept for older resources; prefer dialogue_rules) ---
+## Alias for fallback_dialogue_id when fallback is empty.
+@export var dialogue_id: String = ""
+## Legacy first-match gates. Ignored when dialogue_rules is non-empty.
+@export var conditional_dialogues: Array = []
 
 
 func get_presence_mode_name() -> String:
@@ -32,3 +38,9 @@ func get_presence_mode_name() -> String:
 			return "TRAVELING"
 		_:
 			return "STATIC"
+
+
+func get_fallback_dialogue_id() -> String:
+	if not fallback_dialogue_id.is_empty():
+		return fallback_dialogue_id
+	return dialogue_id
