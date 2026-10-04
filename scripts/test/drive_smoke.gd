@@ -43,7 +43,7 @@ func _initialize() -> void:
 		var output: Array = []
 		var exit_code: int = OS.execute(exe, args, output, true, false)
 		for line in output:
-			print(str(line).rstrip())
+			print(str(line).rstrip("\r\n"))
 		if exit_code == 0:
 			passed.append(suite_name)
 			print("drive_smoke: <<< %s OK" % suite_name)
