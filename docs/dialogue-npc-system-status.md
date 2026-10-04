@@ -147,8 +147,10 @@ RelationshipSystem ── written by Executor / read by ConditionSystem (no Dial
 | Contextual priority | `_verify_npc_dialogue_rules` + `dlg_npc_pass` |
 | Coupling audit | `dlg_npc_pass` |
 
-Command: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `dlg_npc_pass=OK`.
+Commands:
+- Dialogue suite: `godot --path . --headless -s res://scripts/test/dialogue_smoke.gd` (look for `dialogue_smoke: OK`)
+- NPC suite: `godot --path . --headless -s res://scripts/test/npc_smoke.gd` (look for `npc_smoke: OK`)
+- Full regression: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`
 
 ---
 

@@ -449,9 +449,24 @@ Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later w
 
 ```bash
 godot --path . --headless --quit-after 3
+
+# Full regression (isolated domain suites via subprocesses)
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
-# Expect: … npc_bark=OK … dlg_interrupt=OK … npc_travel=OK … drive_smoke: OK
+# Expect: drive_smoke: SUMMARY passed=9 failed=0 … drive_smoke: OK
+
+# Individual domain suites (any order; each boots its own sandbox)
+godot --path . --headless -s res://scripts/test/autoload_init_smoke.gd
+godot --path . --headless -s res://scripts/test/vehicle_smoke.gd
+godot --path . --headless -s res://scripts/test/journey_world_smoke.gd
+godot --path . --headless -s res://scripts/test/save_smoke.gd
+godot --path . --headless -s res://scripts/test/inventory_crafting_smoke.gd
+godot --path . --headless -s res://scripts/test/dialogue_smoke.gd
+godot --path . --headless -s res://scripts/test/npc_smoke.gd
+godot --path . --headless -s res://scripts/test/poi_worldstate_smoke.gd
+godot --path . --headless -s res://scripts/test/vertical_slice_smoke.gd
 ```
+
+Shared helpers: `scripts/test/test_helpers.gd`. Suites exit nonzero on failure and print a final `*: OK …` summary line.
 
 
 

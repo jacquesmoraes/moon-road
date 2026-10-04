@@ -217,9 +217,9 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 
 Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira (`met_player`) → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → talk to Rafa (`rafa_far` → `BUSY`) → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time/dialogue memory/NPC state without duplication → limited offline progress respects fuel (+ narrative when applied).
 
-Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `autoload_init=OK`, `dlg_npc_pass=OK`, `npc_dlg_debug=OK`, and the full `drive_smoke: OK …` line.  
-Dedicated init smoke: `godot --path . --headless -s res://scripts/test/autoload_init_smoke.gd`
+Full regression: `godot --path . --headless -s res://scripts/test/drive_smoke.gd` (orchestrates isolated domain suites).  
+Look for `drive_smoke: SUMMARY passed=9 failed=0` and `drive_smoke: OK suites=…`.  
+Domain suites: `autoload_init_smoke`, `vehicle_smoke`, `journey_world_smoke`, `save_smoke`, `inventory_crafting_smoke`, `dialogue_smoke`, `npc_smoke`, `poi_worldstate_smoke`, `vertical_slice_smoke` under `scripts/test/` (shared `test_helpers.gd`).
 
 ### NPC / dialogue debug tools
 
