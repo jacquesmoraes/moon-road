@@ -4987,28 +4987,30 @@ func _verify_dialogue_interrupt(
 
 	var ActionScript: Script = load("res://scripts/dialogue/dialogue_action.gd") as Script
 	var DefScript: Script = load("res://scripts/dialogue/dialogue_definition.gd") as Script
-	var add_a: Resource = ActionScript.new()
-	add_a.set("type", 3)  # ADD_ITEM
-	add_a.set("target_id", "scrap_metal")
-	add_a.set("int_value", 1)
-	var add_b: Resource = ActionScript.new()
-	add_b.set("type", 3)
-	add_b.set("target_id", "copper_wire")
-	add_b.set("int_value", 1)
+	var add_a: DialogueAction = ActionScript.new() as DialogueAction
+	add_a.type = DialogueAction.Type.ADD_ITEM
+	add_a.target_id = "scrap_metal"
+	add_a.int_value = 1
+	var add_b: DialogueAction = ActionScript.new() as DialogueAction
+	add_b.type = DialogueAction.Type.ADD_ITEM
+	add_b.target_id = "copper_wire"
+	add_b.int_value = 1
 
-	var line_a: Resource = DefScript.new()
-	line_a.set("id", "interrupt_line_a")
-	line_a.set("speaker_name", "Test")
-	line_a.set("text", "Line A")
-	line_a.set("next_dialogue_id", "interrupt_line_b")
-	line_a.set("on_enter_actions", [add_a])
+	var line_a: DialogueDefinition = DefScript.new() as DialogueDefinition
+	line_a.id = "interrupt_line_a"
+	line_a.speaker_name = "Test"
+	line_a.text = "Line A"
+	line_a.next_dialogue_id = "interrupt_line_b"
+	var enter_a: Array[DialogueAction] = [add_a]
+	line_a.on_enter_actions = enter_a
 
-	var line_b: Resource = DefScript.new()
-	line_b.set("id", "interrupt_line_b")
-	line_b.set("speaker_name", "Test")
-	line_b.set("text", "Line B")
-	line_b.set("next_dialogue_id", "")
-	line_b.set("on_enter_actions", [add_b])
+	var line_b: DialogueDefinition = DefScript.new() as DialogueDefinition
+	line_b.id = "interrupt_line_b"
+	line_b.speaker_name = "Test"
+	line_b.text = "Line B"
+	line_b.next_dialogue_id = ""
+	var enter_b: Array[DialogueAction] = [add_b]
+	line_b.on_enter_actions = enter_b
 
 	dlg.call("register_dialogue", line_a)
 	dlg.call("register_dialogue", line_b)
