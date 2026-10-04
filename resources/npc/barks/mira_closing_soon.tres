@@ -13,4 +13,4 @@ conditions = [ExtResource("2_hour")]
 require_all = true
 weight = 1.0
 enabled = true
-triggers = PackedStringArray(["PLAYER_NEARBY", "PLAYER_ENTER_AREA", "TIME_INTERVAL"])
+triggers = PackedStringArray("PLAYER_NEARBY", "PLAYER_ENTER_AREA", "TIME_INTERVAL")

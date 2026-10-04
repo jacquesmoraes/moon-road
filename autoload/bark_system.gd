@@ -1,5 +1,5 @@
 extends Node
-## Contextual short NPC lines (barks). Never opens DialogueUI.
+## Contextual short NPC lines (barks). Never opens the full conversation UI.
 ## Selection: conditions → priority → cooldown / anti-repeat → optional weight.
 ## Dialogue ACTIVE always blocks barking. No per-NPC name branches.
 
@@ -11,6 +11,10 @@ const RECENT_BARK_LIMIT: int = 3
 const MIN_GAP_SECONDS: float = 8.0
 ## Default TIME_INTERVAL spacing when definition omits bark_interval_seconds.
 const DEFAULT_INTERVAL_SECONDS: float = 60.0
+const TRIGGER_PLAYER_NEARBY := "PLAYER_NEARBY"
+const TRIGGER_PLAYER_ENTER_AREA := "PLAYER_ENTER_AREA"
+const TRIGGER_TIME_INTERVAL := "TIME_INTERVAL"
+const TRIGGER_NPC_STATE_CHANGED := "NPC_STATE_CHANGED"
 
 ## npc_id → weak presenter Node (NpcCharacter)
 var _presenters: Dictionary = {}
@@ -68,7 +72,7 @@ func try_bark(npc_id: String, trigger: String) -> bool:
 		bark_suppressed.emit(npc_id, "min_gap")
 		return false
 
-	if tag == BarkData.TRIGGER_TIME_INTERVAL:
+	if tag == TRIGGER_TIME_INTERVAL:
 		var interval := _interval_seconds_for(presenter)
 		if now - float(runtime.get("last_interval_attempt", -9999.0)) < interval:
 			bark_suppressed.emit(npc_id, "interval_gate")
@@ -120,7 +124,7 @@ func _process(_delta: float) -> void:
 		var interval := _interval_seconds_for(presenter)
 		if now - float(runtime.get("last_interval_attempt", -9999.0)) < interval:
 			continue
-		try_bark(id, BarkData.TRIGGER_TIME_INTERVAL)
+		try_bark(id, TRIGGER_TIME_INTERVAL)
 
 
 func _emit_bark(npc_id: String, bark: Resource, presenter: Node, now: float) -> bool:
@@ -292,19 +296,19 @@ func _supports_trigger_fallback(entry: Resource, trigger: String) -> bool:
 	if typeof(raw) == TYPE_PACKED_STRING_ARRAY:
 		var arr: PackedStringArray = raw
 		if arr.is_empty():
-			return trigger == BarkData.TRIGGER_PLAYER_NEARBY or trigger == BarkData.TRIGGER_PLAYER_ENTER_AREA
+			return trigger == TRIGGER_PLAYER_NEARBY or trigger == TRIGGER_PLAYER_ENTER_AREA
 		for t in arr:
 			if str(t).to_upper() == trigger:
 				return true
 		return false
 	if typeof(raw) == TYPE_ARRAY:
 		if (raw as Array).is_empty():
-			return trigger == BarkData.TRIGGER_PLAYER_NEARBY or trigger == BarkData.TRIGGER_PLAYER_ENTER_AREA
+			return trigger == TRIGGER_PLAYER_NEARBY or trigger == TRIGGER_PLAYER_ENTER_AREA
 		for t in raw:
 			if str(t).to_upper() == trigger:
 				return true
 		return false
-	return trigger == BarkData.TRIGGER_PLAYER_NEARBY or trigger == BarkData.TRIGGER_PLAYER_ENTER_AREA
+	return trigger == TRIGGER_PLAYER_NEARBY or trigger == TRIGGER_PLAYER_ENTER_AREA
 
 
 func _dialogue_blocks_bark() -> bool:
@@ -317,7 +321,7 @@ func _dialogue_blocks_bark() -> bool:
 func _on_npc_state_changed(npc_id: String, _field: String, _value: Variant) -> void:
 	if npc_id.is_empty() or not _presenters.has(npc_id):
 		return
-	try_bark(npc_id, BarkData.TRIGGER_NPC_STATE_CHANGED)
+	try_bark(npc_id, TRIGGER_NPC_STATE_CHANGED)
 
 
 func _ensure_runtime(npc_id: String) -> void:

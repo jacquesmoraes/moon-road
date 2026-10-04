@@ -1,6 +1,6 @@
 extends Resource
 class_name BarkData
-## Short non-interactive NPC line. Selected by BarkSystem — never opens DialogueUI.
+## Short non-interactive NPC line. Selected by BarkSystem — never opens full conversation UI.
 
 const TRIGGER_PLAYER_NEARBY := "PLAYER_NEARBY"
 const TRIGGER_PLAYER_ENTER_AREA := "PLAYER_ENTER_AREA"

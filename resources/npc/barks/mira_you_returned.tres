@@ -13,4 +13,4 @@ conditions = [ExtResource("2_met")]
 require_all = true
 weight = 1.0
 enabled = true
-triggers = PackedStringArray(["PLAYER_ENTER_AREA"])
+triggers = PackedStringArray("PLAYER_ENTER_AREA")
