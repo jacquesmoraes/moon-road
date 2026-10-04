@@ -3,6 +3,7 @@ class_name DialogueDefinition
 ## One line of dialogue. Chain with next_dialogue_id for linear talk, or
 ## author choices[] for a branching reply list (zero or more).
 ## show_conditions gate whether this line can appear (via ConditionSystem).
+## on_enter / on_exit actions are declarative DialogueAction resources.
 
 @export var id: String = ""
 @export var speaker_name: String = ""
@@ -21,9 +22,11 @@ class_name DialogueDefinition
 ## Used when this line fails show_conditions, or when all choices are hidden.
 @export var fallback_dialogue_id: String = ""
 
-@export_group("Future (unused)")
-## Reserved: set when the line is shown.
-@export var set_flags_on_show: PackedStringArray = []
+@export_group("Actions")
+## Run once when this line is first presented in the current conversation.
+@export var on_enter_actions: Array[DialogueAction] = []
+## Run once when leaving this line (advance / choice / completed end).
+@export var on_exit_actions: Array[DialogueAction] = []
 
 
 func has_choices() -> bool:

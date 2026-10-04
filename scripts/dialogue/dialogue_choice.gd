@@ -19,3 +19,7 @@ class_name DialogueChoice
 ## Choice stays visible but not confirmable when this list fails.
 @export var enable_conditions: Array[Resource] = []
 @export var enable_require_all: bool = true
+
+@export_group("Actions")
+## Run once when this choice is confirmed in the current conversation.
+@export var on_choose_actions: Array[DialogueAction] = []

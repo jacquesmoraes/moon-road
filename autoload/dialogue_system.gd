@@ -2,7 +2,7 @@ extends Node
 ## Data-driven dialogue runner. Autoload — no NPC-specific logic.
 ## Linear: advance on dialogue_continue via next_dialogue_id.
 ## Branching: visible choices (↑/↓); confirm only when enable conditions pass.
-## All gameplay gates go through ConditionSystem — never inventory/quests/etc.
+## Gates → ConditionSystem. Effects → DialogueActionExecutor (never UI).
 
 signal dialogue_started(dialogue_id: String)
 signal line_changed(def: Resource)
@@ -13,6 +13,7 @@ signal dialogue_cancelled
 
 const DEFAULT_CATALOG_PATH := "res://resources/dialogue/default_catalog.tres"
 const MAX_RESOLVE_HOPS: int = 12
+const ActionExecutorScript = preload("res://scripts/dialogue/dialogue_action_executor.gd")
 
 @export_file("*.tres") var catalog_path: String = DEFAULT_CATALOG_PATH
 
@@ -25,9 +26,15 @@ var _actor: Node
 var _restore_control: bool = false
 var _lines_shown: int = 0
 var _choice_index: int = 0
+var _executor: RefCounted
+## Per-conversation once-guards (enter / exit / choice). Cleared on start.
+var _fired_enter: Dictionary = {}
+var _fired_exit: Dictionary = {}
+var _fired_choice: Dictionary = {}
 
 
 func _ready() -> void:
+	_executor = ActionExecutorScript.new()
 	_load_catalog()
 	set_process_unhandled_input(true)
 
@@ -179,6 +186,8 @@ func confirm_choice() -> void:
 		return
 	var choice_id := str(choice.get("id"))
 	var next_id := str(choice.get("next_dialogue_id"))
+	_fire_choice_actions(choice)
+	_fire_exit_actions(_current)
 	choice_confirmed.emit(choice_id, next_id)
 	if next_id.is_empty():
 		end_dialogue(true)
@@ -246,6 +255,9 @@ func start_dialogue(dialogue_id: String, actor: Node = null) -> bool:
 	_start_id = dialogue_id
 	_lines_shown = 0
 	_choice_index = 0
+	_fired_enter.clear()
+	_fired_exit.clear()
+	_fired_choice.clear()
 	_active = true
 	_lock_actor(true)
 	_present_line(resolved)
@@ -279,12 +291,15 @@ func advance() -> void:
 	if next_id.is_empty():
 		end_dialogue(true)
 		return
+	_fire_exit_actions(_current)
 	_goto_dialogue_id(next_id)
 
 
 func end_dialogue(completed: bool = true) -> void:
 	if not _active:
 		return
+	if completed:
+		_fire_exit_actions(_current)
 	var finished_id := _start_id
 	_active = false
 	_current = null
@@ -292,6 +307,9 @@ func end_dialogue(completed: bool = true) -> void:
 	_lock_actor(false)
 	_actor = null
 	_start_id = ""
+	_fired_enter.clear()
+	_fired_exit.clear()
+	_fired_choice.clear()
 	if completed:
 		dialogue_finished.emit(finished_id)
 	else:
@@ -305,6 +323,7 @@ func reload_catalog() -> void:
 
 func _leave_choice_line_without_selection() -> void:
 	## All visible choices are disabled: prefer line fallback, then next, then end.
+	_fire_exit_actions(_current)
 	var fallback := str(_current.get("fallback_dialogue_id")) if _current != null else ""
 	if not fallback.is_empty():
 		_goto_dialogue_id(fallback)
@@ -342,16 +361,59 @@ func _present_line(def: Resource) -> void:
 	if _has_authored_choices(def) and get_visible_choices().is_empty():
 		var fallback := str(def.get("fallback_dialogue_id"))
 		var self_id := str(def.get("id"))
+		# Do not fire enter on a line that never actually displays.
 		if not fallback.is_empty() and fallback != self_id:
 			_goto_dialogue_id(fallback)
 			return
 		end_dialogue(true)
 		return
 
+	_fire_enter_actions(def)
 	_choice_index = _first_selectable_visible_index()
 	line_changed.emit(def)
 	if has_visible_choices():
 		choice_selection_changed.emit(_choice_index)
+
+
+func _fire_enter_actions(def: Resource) -> void:
+	if def == null or _executor == null:
+		return
+	var line_id := str(def.get("id"))
+	if line_id.is_empty() or _fired_enter.has(line_id):
+		return
+	_fired_enter[line_id] = true
+	_executor.call("execute_all", _read_actions(def, "on_enter_actions"))
+
+
+func _fire_exit_actions(def: Resource) -> void:
+	if def == null or _executor == null:
+		return
+	var line_id := str(def.get("id"))
+	if line_id.is_empty() or _fired_exit.has(line_id):
+		return
+	_fired_exit[line_id] = true
+	_executor.call("execute_all", _read_actions(def, "on_exit_actions"))
+
+
+func _fire_choice_actions(choice: Variant) -> void:
+	if choice == null or _executor == null or _current == null:
+		return
+	var line_id := str(_current.get("id"))
+	var choice_id := str(choice.get("id"))
+	var key := "%s::%s" % [line_id, choice_id]
+	if _fired_choice.has(key):
+		return
+	_fired_choice[key] = true
+	_executor.call("execute_all", _read_actions(choice, "on_choose_actions"))
+
+
+func _read_actions(owner: Variant, property: String) -> Array:
+	if owner == null or not (property in owner):
+		return []
+	var raw: Variant = owner.get(property)
+	if typeof(raw) != TYPE_ARRAY:
+		return []
+	return raw
 
 
 func _first_selectable_visible_index() -> int:

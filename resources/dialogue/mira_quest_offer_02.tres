@@ -1,10 +1,28 @@
-[gd_resource type="Resource" script_class="DialogueDefinition" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="DialogueDefinition" load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/dialogue/dialogue_definition.gd" id="1_script"]
+[ext_resource type="Script" path="res://scripts/dialogue/dialogue_choice.gd" id="2_choice"]
+[ext_resource type="Resource" path="res://resources/dialogue/actions/start_quest_power_viewpoint.tres" id="3_start"]
+
+[sub_resource type="Resource" id="choice_accept"]
+script = ExtResource("2_choice")
+id = "accept_help"
+text = "Pode deixar — eu resolvo."
+next_dialogue_id = ""
+enabled = true
+on_choose_actions = [ExtResource("3_start")]
+
+[sub_resource type="Resource" id="choice_refuse"]
+script = ExtResource("2_choice")
+id = "refuse_help"
+text = "Agora não."
+next_dialogue_id = ""
+enabled = true
 
 [resource]
 script = ExtResource("1_script")
 id = "mira_quest_offer_02"
 speaker_name = "Mira"
-text = "Me traz 3 Scrap Metal e 1 Copper Wire, depois liga o terminal."
+text = "Me traz 3 Scrap Metal e 1 Copper Wire, depois liga o terminal. Topa?"
 next_dialogue_id = ""
+choices = [SubResource("choice_accept"), SubResource("choice_refuse")]

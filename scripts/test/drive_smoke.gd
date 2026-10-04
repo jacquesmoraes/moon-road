@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -3209,6 +3209,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_conditional_dialogue(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_dialogue_actions(occupancy, character, foot_cam):
+		return false
+
 	if not await _verify_small_interior(occupancy, character, foot_cam):
 		return false
 
@@ -3618,6 +3621,11 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 		return false
 	if str(dlg.call("get_current_text")).find("terminal") < 0:
 		push_error("drive_smoke: unexpected Mira offer line 1 text")
+		quit(1)
+		return false
+	var flags_early: Node = root.get_node_or_null("GameFlags")
+	if flags_early == null or not bool(flags_early.call("get_flag", "npc.mira.met", false)):
+		push_error("drive_smoke: on_enter should SET_FLAG npc.mira.met")
 		quit(1)
 		return false
 
@@ -4211,6 +4219,222 @@ func _verify_conditional_dialogue(_occupancy: Node, character: CharacterBody3D, 
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print("drive_smoke: cond_dlg OK (quest show + item enable + ALL/ANY + fallback/loop)")
+	return true
+
+
+func _verify_dialogue_actions(_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D) -> bool:
+	## Declarative DialogueAction: enter flag, choice starts/refuses quest, once-per-event, save.
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	var qs: Node = root.get_node_or_null("QuestSystem")
+	var inv: Node = root.get_node_or_null("InventorySystem")
+	var flags: Node = root.get_node_or_null("GameFlags")
+	var save: Node = root.get_node_or_null("SaveSystem")
+	var poi: Node = root.get_node_or_null("POISystem")
+	var ws: Node = root.get_node_or_null("WorldStateSystem")
+	if dlg == null or qs == null or inv == null or flags == null or save == null:
+		push_error("drive_smoke: systems missing for dialogue actions")
+		quit(1)
+		return false
+
+	# DialogueSystem must not own the type dispatch (executor does).
+	var dlg_script: Script = load("res://autoload/dialogue_system.gd") as Script
+	if dlg_script != null:
+		var src := dlg_script.source_code
+		for banned in ["SET_FLAG", "START_QUEST", "ADD_ITEM", "match type", "InventorySystem", "QuestSystem"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: DialogueSystem must not dispatch action types ('%s')" % banned)
+				quit(1)
+				return false
+	var exec_script: Script = load("res://scripts/dialogue/dialogue_action_executor.gd") as Script
+	if exec_script == null:
+		push_error("drive_smoke: DialogueActionExecutor missing")
+		quit(1)
+		return false
+
+	qs.call("reset_all")
+	inv.call("clear_inventory")
+	flags.call("reset_for_tests")
+	if poi != null and poi.has_method("clear_discovery_for_tests"):
+		poi.call("clear_discovery_for_tests")
+	_clear_world_state()
+	dlg.call("reload_catalog")
+
+	# --- Mira: enter sets flag; accept starts quest; refuse does not ---
+	if not bool(dlg.call("start_dialogue", "mira_quest_offer_01", character)):
+		push_error("drive_smoke: dlg_actions offer failed to start")
+		quit(1)
+		return false
+	await physics_frame
+	if not bool(flags.call("get_flag", "npc.mira.met", false)):
+		push_error("drive_smoke: enter action should set npc.mira.met")
+		quit(1)
+		return false
+	# Accidental re-present of same line in-session must not re-run enter.
+	flags.call("set_flag", "npc.mira.met", false)
+	dlg.call("_present_line", dlg.call("get_current"))
+	await physics_frame
+	if bool(flags.call("get_flag", "npc.mira.met", false)):
+		push_error("drive_smoke: enter actions must fire once per line per conversation")
+		quit(1)
+		return false
+	flags.call("set_flag", "npc.mira.met", true)
+
+	dlg.call("advance")
+	await physics_frame
+	if str(dlg.call("get_current_id")) != "mira_quest_offer_02":
+		push_error("drive_smoke: expected offer_02 for accept/refuse choices")
+		quit(1)
+		return false
+	# Refuse path.
+	dlg.call("set_choice_index", 1)
+	await physics_frame
+	dlg.call("confirm_choice")
+	await physics_frame
+	if bool(dlg.call("is_active")):
+		push_error("drive_smoke: refuse should end dialogue")
+		quit(1)
+		return false
+	if not bool(qs.call("is_inactive", "power_the_viewpoint")):
+		push_error("drive_smoke: refuse must not START_QUEST")
+		quit(1)
+		return false
+
+	# Accept path starts quest via on_choose action.
+	qs.call("reset_all")
+	if not bool(dlg.call("start_dialogue", "mira_quest_offer_01", character)):
+		push_error("drive_smoke: accept path failed to start")
+		quit(1)
+		return false
+	await physics_frame
+	dlg.call("advance")
+	await physics_frame
+	dlg.call("set_choice_index", 0)
+	await physics_frame
+	dlg.call("confirm_choice")
+	await physics_frame
+	if not bool(qs.call("is_active", "power_the_viewpoint")):
+		push_error("drive_smoke: accept choice should START_QUEST")
+		quit(1)
+		return false
+
+	# Choice actions once: re-confirm is impossible after end; use runtime loop A→B→A enter once.
+	var ActionScript: Script = load("res://scripts/dialogue/dialogue_action.gd") as Script
+	var DefScript: Script = load("res://scripts/dialogue/dialogue_definition.gd") as Script
+	var add_action: DialogueAction = ActionScript.new() as DialogueAction
+	add_action.type = DialogueAction.Type.ADD_ITEM
+	add_action.target_id = "scrap_metal"
+	add_action.int_value = 1
+	var line_a: DialogueDefinition = DefScript.new() as DialogueDefinition
+	line_a.id = "action_loop_a"
+	line_a.speaker_name = "Test"
+	line_a.text = "A"
+	line_a.next_dialogue_id = "action_loop_b"
+	var enter_arr: Array[DialogueAction] = [add_action]
+	line_a.on_enter_actions = enter_arr
+	var line_b: DialogueDefinition = DefScript.new() as DialogueDefinition
+	line_b.id = "action_loop_b"
+	line_b.speaker_name = "Test"
+	line_b.text = "B"
+	line_b.next_dialogue_id = "action_loop_a"
+	dlg.call("register_dialogue", line_a)
+	dlg.call("register_dialogue", line_b)
+	inv.call("clear_inventory")
+	dlg.call("start_dialogue", "action_loop_a", character)
+	await physics_frame
+	if int(inv.call("get_quantity", "scrap_metal")) != 1:
+		push_error("drive_smoke: enter ADD_ITEM should run once on first present")
+		quit(1)
+		return false
+	dlg.call("advance")
+	await physics_frame
+	dlg.call("advance")
+	await physics_frame
+	if str(dlg.call("get_current_id")) != "action_loop_a":
+		push_error("drive_smoke: expected return to action_loop_a")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "scrap_metal")) != 1:
+		push_error("drive_smoke: re-entering same line must not re-run enter actions")
+		quit(1)
+		return false
+	dlg.call("end_dialogue", false)
+	await physics_frame
+
+	# Executor covers remaining types fail-soft + success.
+	var executor: RefCounted = exec_script.new()
+	var set_ws: DialogueAction = ActionScript.new() as DialogueAction
+	set_ws.type = DialogueAction.Type.SET_WORLD_STATE
+	set_ws.target_id = "dlg.action.test"
+	set_ws.secondary_id = "powered"
+	set_ws.string_value = "true"
+	if not bool(executor.call("execute", set_ws)):
+		push_error("drive_smoke: SET_WORLD_STATE action failed")
+		quit(1)
+		return false
+	if ws != null and str(ws.call("get_value", "dlg.action.test", "powered", "")) != "true":
+		push_error("drive_smoke: SET_WORLD_STATE value not applied")
+		quit(1)
+		return false
+	var disc: DialogueAction = ActionScript.new() as DialogueAction
+	disc.type = DialogueAction.Type.DISCOVER_POI
+	disc.target_id = "sunset_viewpoint"
+	disc.string_value = "Sunset Viewpoint"
+	if not bool(executor.call("execute", disc)):
+		push_error("drive_smoke: DISCOVER_POI action failed")
+		quit(1)
+		return false
+	if poi != null and not bool(poi.call("is_discovered", "sunset_viewpoint")):
+		push_error("drive_smoke: DISCOVER_POI did not mark discovery")
+		quit(1)
+		return false
+	var bad: DialogueAction = ActionScript.new() as DialogueAction
+	bad.type = DialogueAction.Type.START_QUEST
+	bad.target_id = "missing_quest_id_xyz"
+	if bool(executor.call("execute", bad)):
+		push_error("drive_smoke: missing quest target should fail safely")
+		quit(1)
+		return false
+
+	# Save/load preserves flag set by dialogue enter.
+	flags.call("reset_for_tests")
+	qs.call("reset_all")
+	save.call("delete_save")
+	dlg.call("start_dialogue", "mira_quest_offer_01", character)
+	await physics_frame
+	if not bool(flags.call("get_flag", "npc.mira.met", false)):
+		push_error("drive_smoke: flag missing before save")
+		quit(1)
+		return false
+	if not bool(save.call("save_game")):
+		push_error("drive_smoke: save after dialogue action failed")
+		quit(1)
+		return false
+	flags.call("reset_for_tests")
+	if bool(flags.call("get_flag", "npc.mira.met", false)):
+		push_error("drive_smoke: flag should clear before load")
+		quit(1)
+		return false
+	if not bool(save.call("load_game")):
+		push_error("drive_smoke: load after dialogue action failed")
+		quit(1)
+		return false
+	if not bool(flags.call("get_flag", "npc.mira.met", false)):
+		push_error("drive_smoke: save/load should preserve npc.mira.met from dialogue action")
+		quit(1)
+		return false
+	dlg.call("end_dialogue", false)
+	save.call("delete_save")
+	await physics_frame
+
+	qs.call("reset_all")
+	inv.call("clear_inventory")
+	flags.call("reset_for_tests")
+	if poi != null:
+		poi.call("clear_discovery_for_tests")
+	_clear_world_state()
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: dlg_actions OK (enter flag + choice quest + once + save)")
 	return true
 
 

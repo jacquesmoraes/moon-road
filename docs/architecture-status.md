@@ -1,7 +1,7 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** conditional dialogue lines/choices (`feat: add conditional dialogue lines and choices`)  
+**As of:** data-driven dialogue actions (`feat: add data-driven dialogue actions`)  
 **Engine:** Godot 4.7 Forward Plus
 
 This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.
@@ -15,7 +15,7 @@ This document describes the **current implemented foundation**, not the full des
 | `JourneySystem` | Logical Earth→Moon distance (km), physical→journey scale | Vehicle physics, road mesh |
 | `WorldRegionSystem` | Region band from journey distance | Visuals/audio of regions |
 | `POISystem` | Discovery flags + spawn/despawn of viewpoint scenes | Quest/terminal logic |
-| `DialogueSystem` | Linear + choice runner; line/choice gates via ConditionSystem only | Inventory/quest/flag queries, NPC placement |
+| `DialogueSystem` | Linear + choice runner; gates via ConditionSystem; effects via DialogueActionExecutor | Action type dispatch, NPC placement |
 | `InventorySystem` | Item quantities by id + catalog | World pickups, UI layout |
 | `QuestSystem` | Quest state by id; dialogue_finished → start; turn-in API | Condition evaluation, UI log |
 | `CraftingSystem` | Recipes; consume→output via Inventory | Workbench UX beyond debug UI |
@@ -42,11 +42,12 @@ InventorySystem ← CraftingSystem, QuestSystem, VehicleStateSystem (install con
 POISystem / WorldStateSystem / VehicleStateSystem / GameFlags / JourneySystem / WorldRegionSystem
     ↑ queried by ConditionSystem (no reverse writes)
 
-DialogueSystem → ConditionSystem only (resolve_dialogue_id, show/enable conditions)
+DialogueSystem → ConditionSystem (gates) + DialogueActionExecutor (effects)
+DialogueActionExecutor → GameFlags / QuestSystem / InventorySystem / WorldStateSystem / POISystem
 NpcCharacter → DialogueSystem / QuestSystem / ConditionSystem (via resolve)
 
-QuestSystem → DialogueSystem (signal dialogue_finished)
-            → InventorySystem (requirements)
+QuestSystem → InventorySystem (requirements)
+            → (legacy) DialogueSystem.dialogue_finished may still start quests if start_dialogue_id set
 
 GameTimeSystem ← VehicleStateSystem.get_save_data (was_traveling snapshot)
 SaveSystem → all providers; after load may call VehicleStateSystem.apply_offline_travel
@@ -88,9 +89,10 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 | Quest | `power_the_viewpoint` |
 | Items / upgrades / recipes | `cruise_module_mk1`, `scrap_metal`, … |
 | Dialogue | `mira_quest_offer_01`, `mira_moon_ask`, `mira_quest_done_01`, … |
-| DialogueChoice | `moon_yes`, `terminal_repaired`, `buy_part`, … |
+| DialogueChoice | `accept_help`, `refuse_help`, `moon_yes`, `buy_part`, … |
+| DialogueAction | `SET_FLAG` / `START_QUEST` / `ADD_ITEM` / … via `target_id` + value fields |
+| Flags | `npc.mira.met`, `slice_mid_marker`, … |
 | Regions | `CLOUDLINE`, `ENDLESS_SUMMER`, … |
-| Flags | free-form strings (`slice_mid_marker`, …) |
 
 ---
 
@@ -128,7 +130,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time without duplication → limited offline progress respects fuel.
 
 Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `choices=OK`, `cond_dlg=OK`, `mid_save=OK`, and the full `drive_smoke: OK …` line.
+Look for `dlg_actions=OK`, `cond_dlg=OK`, `choices=OK`, `mid_save=OK`, and the full `drive_smoke: OK …` line.
 
 ---
 

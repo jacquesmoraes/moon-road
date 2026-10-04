@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **conditional dialogue lines/choices** — show/enable gates via ConditionSystem. See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **data-driven dialogue actions** — enter/choice/exit effects via DialogueActionExecutor. See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -68,10 +68,12 @@ Data-driven talk with optional player choices. No VO, relationship effects, or t
 
 | Piece | Role |
 |-------|------|
-| `DialogueDefinition` | `id`, `speaker_name`, `text`, `next_dialogue_id`, `choices[]`, `show_conditions`, `fallback_dialogue_id` |
-| `DialogueChoice` | `id`, `text`, `next_dialogue_id`, `enabled`, `show_conditions`, `enable_conditions` (+ ALL/ANY flags) |
+| `DialogueDefinition` | line fields + `show_conditions` / `fallback_dialogue_id` + `on_enter_actions` / `on_exit_actions` |
+| `DialogueChoice` | choice fields + show/enable conditions + `on_choose_actions` |
+| `DialogueAction` | Declarative effect (`SET_FLAG`, `START_QUEST`, `ADD_ITEM`, …) — no scripts in resources |
+| `DialogueActionExecutor` | Type dispatch → GameFlags / Quest / Inventory / WorldState / POI |
 | `DialogueCatalog` | Flat registry (`resources/dialogue/default_catalog.tres`) |
-| `DialogueSystem` | Autoload — start / advance / confirm; gates only via ConditionSystem; locks on-foot control |
+| `DialogueSystem` | Flow only — ConditionSystem for gates, Executor for effects; locks on-foot control |
 | `DialogueUI` | Bottom box + choices; `[indisponível]` for failed enable_conditions |
 | `ConditionalDialogue` | `condition` + `dialogue_id` — first match wins |
 | `NpcDefinition.dialogue_id` | Fallback / offer line id |
@@ -80,7 +82,9 @@ Data-driven talk with optional player choices. No VO, relationship effects, or t
 **Linear:** empty `choices` → `dialogue_continue` follows `next_dialogue_id` (empty ends).  
 **Branching:** visible choices shown; ↑/↓ select; Enter/E confirms only if `enable_conditions` pass. Failed `show_conditions` hide a choice; failed `enable_conditions` keep it visible as `[indisponível]`. Line `show_conditions` use `fallback_dialogue_id` (loop-guarded) or skip. All gates evaluate through ConditionSystem only.
 
-**Authoring:** create `.tres` lines / choices with ConditionData lists, add to the catalog. **Mira** `mira_moon_ask`: moon replies + “Eu consertei o terminal.” (`QUEST_STATE` COMPLETED) + “Posso comprar essa peça?” (visible; needs `scrap_metal`×3 to enable). Quest offer stays linear. **Rafa** stays linear.
+**Actions fire:** `on_enter` when a line is first presented in the conversation; `on_choose` when a choice is confirmed; `on_exit` when leaving a line (advance / choice / completed end). Each fires at most once per conversation (UI redraw / re-present ignored).
+
+**Authoring:** attach `DialogueAction` resources to lines/choices. **Mira** offer: enter sets `npc.mira.met`; offer_02 choices accept (`START_QUEST power_the_viewpoint`) or refuse (ends, no quest). `mira_moon_ask` keeps conditional moon/repair/buy choices. **Rafa** stays linear.
 
 ### Conditions + flags (`ConditionSystem` / `GameFlags`)
 
@@ -375,7 +379,7 @@ Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later w
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
-# Expect: … choices=OK … cond_dlg=OK … mid_save=OK … drive_smoke: OK
+# Expect: … dlg_actions=OK … cond_dlg=OK … choices=OK … drive_smoke: OK
 ```
 
 Architecture snapshot: [`docs/architecture-status.md`](docs/architecture-status.md).
