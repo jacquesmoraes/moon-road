@@ -1,6 +1,6 @@
 extends Node
 ## Persistent NPC relationship and place/group reputation.
-## Two separate maps — never mixed. No romance, no DialogueSystem coupling.
+## Two separate maps — never mixed. Effects arrive via action executor only.
 ## Values clamped to configurable min/max (default -100..+100).
 
 signal relationship_changed(npc_id: String, value: int, delta: int)
