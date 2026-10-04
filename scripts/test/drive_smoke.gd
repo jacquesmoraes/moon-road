@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -3212,6 +3212,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_dialogue_actions(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_dialogue_memory(occupancy, character, foot_cam):
+		return false
+
 	if not await _verify_small_interior(occupancy, character, foot_cam):
 		return false
 
@@ -3673,7 +3676,10 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 	# Isolate later tests.
 	qs.call("reset_all")
 
-	# --- Rafa reuses the same DialogueSystem ---
+	# --- Rafa first talk (memory cleared so greeting is rafa_01) ---
+	var memory: Node = root.get_node_or_null("DialogueMemorySystem")
+	if memory != null and memory.has_method("reset_for_tests"):
+		memory.call("reset_for_tests")
 	var rafa_pos: Vector3 = (rafa as Node3D).global_position
 	character.global_position = rafa_pos + Vector3(0.0, 0.05, 1.6)
 	face = rafa_pos - character.global_position
@@ -3684,6 +3690,10 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 	for _j in range(10):
 		await physics_frame
 
+	if str(rafa.call("get_dialogue_id")) != "rafa_01":
+		push_error("drive_smoke: Rafa should open rafa_01 before first completion")
+		quit(1)
+		return false
 	if not bool(rafa.call("interact", character)):
 		push_error("drive_smoke: Rafa interact failed")
 		quit(1)
@@ -3691,6 +3701,10 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 	await physics_frame
 	if not bool(dlg.call("is_active")) or str(dlg.call("get_current_id")) != "rafa_01":
 		push_error("drive_smoke: Rafa did not open rafa_01")
+		quit(1)
+		return false
+	if str(dlg.call("get_current_text")).find("novo por aqui") < 0:
+		push_error("drive_smoke: unexpected Rafa first greeting")
 		quit(1)
 		return false
 	if bool(character.call("is_control_enabled")):
@@ -3703,6 +3717,9 @@ func _verify_npc_foundation(occupancy: Node, character: CharacterBody3D, foot_ca
 		push_error("drive_smoke: unexpected Rafa line 2")
 		quit(1)
 		return false
+	# Confirm first choice (rafa_pass) to complete conversation.
+	dlg.call("set_choice_index", 0)
+	await physics_frame
 	dlg.call("advance")
 	await physics_frame
 	if bool(dlg.call("is_active")):
@@ -4435,6 +4452,193 @@ func _verify_dialogue_actions(_occupancy: Node, character: CharacterBody3D, _foo
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print("drive_smoke: dlg_actions OK (enter flag + choice quest + once + save)")
+	return true
+
+
+func _verify_dialogue_memory(_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D) -> bool:
+	## DialogueMemorySystem: seen vs completed, choices, ConditionSystem gates, save/load, Rafa return.
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	var memory: Node = root.get_node_or_null("DialogueMemorySystem")
+	var cond: Node = root.get_node_or_null("ConditionSystem")
+	var save: Node = root.get_node_or_null("SaveSystem")
+	if dlg == null or memory == null or cond == null or save == null:
+		push_error("drive_smoke: systems missing for dialogue memory")
+		quit(1)
+		return false
+
+	# Memory must stay NPC-agnostic.
+	var mem_script: Script = load("res://autoload/dialogue_memory_system.gd") as Script
+	if mem_script != null:
+		var src := mem_script.source_code
+		for banned in ["Rafa", "Mira", "rafa_01", "viewpoint_keeper"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: DialogueMemorySystem must not hardcode '%s'" % banned)
+				quit(1)
+				return false
+
+	memory.call("reset_for_tests")
+	dlg.call("reload_catalog")
+	save.call("delete_save")
+
+	# Interrupted conversation: seen, not completed.
+	if not bool(dlg.call("start_dialogue", "rafa_01", character)):
+		push_error("drive_smoke: memory rafa_01 failed to start")
+		quit(1)
+		return false
+	await physics_frame
+	if not bool(memory.call("has_seen_dialogue", "rafa_01")):
+		push_error("drive_smoke: start should mark dialogue seen")
+		quit(1)
+		return false
+	if bool(memory.call("has_completed_dialogue", "rafa_01")):
+		push_error("drive_smoke: incomplete talk must not be completed")
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate", cond.call("make_dialogue_seen", "rafa_01"))):
+		push_error("drive_smoke: DIALOGUE_SEEN condition failed")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate", cond.call("make_dialogue_completed", "rafa_01"))):
+		push_error("drive_smoke: DIALOGUE_COMPLETED should be false while interrupted")
+		quit(1)
+		return false
+	dlg.call("end_dialogue", false)
+	await physics_frame
+	if bool(memory.call("has_completed_dialogue", "rafa_01")):
+		push_error("drive_smoke: cancel must not complete dialogue memory")
+		quit(1)
+		return false
+
+	# Complete with far choice.
+	memory.call("reset_for_tests")
+	dlg.call("start_dialogue", "rafa_01", character)
+	await physics_frame
+	dlg.call("advance")
+	await physics_frame
+	dlg.call("set_choice_index", 1)  # rafa_far
+	await physics_frame
+	dlg.call("confirm_choice")
+	await physics_frame
+	if bool(dlg.call("is_active")):
+		push_error("drive_smoke: Rafa first talk should end after choice")
+		quit(1)
+		return false
+	if not bool(memory.call("has_completed_dialogue", "rafa_01")):
+		push_error("drive_smoke: finished talk should be completed")
+		quit(1)
+		return false
+	if int(memory.call("get_times_completed", "rafa_01")) != 1:
+		push_error("drive_smoke: times_completed should be 1")
+		quit(1)
+		return false
+	if not bool(memory.call("has_selected_choice", "rafa_far")):
+		push_error("drive_smoke: rafa_far choice should be remembered")
+		quit(1)
+		return false
+	if int(memory.call("get_choice_count", "rafa_far")) != 1:
+		push_error("drive_smoke: rafa_far choice count wrong")
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate", cond.call("make_dialogue_completed", "rafa_01"))):
+		push_error("drive_smoke: DIALOGUE_COMPLETED condition failed after finish")
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate", cond.call("make_dialogue_choice_selected", "rafa_far"))):
+		push_error("drive_smoke: DIALOGUE_CHOICE_SELECTED failed")
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate", cond.call("make_dialogue_completion_count_min", "rafa_01", 1))):
+		push_error("drive_smoke: DIALOGUE_COMPLETION_COUNT_MIN failed")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate", cond.call("make_dialogue_completion_count_min", "rafa_01", 2))):
+		push_error("drive_smoke: completion count min=2 should fail at 1")
+		quit(1)
+		return false
+
+	# Return talk differs — choice influences which return line shows.
+	if not bool(dlg.call("start_dialogue", "rafa_return_far", character)):
+		push_error("drive_smoke: return_far failed to start")
+		quit(1)
+		return false
+	await physics_frame
+	if str(dlg.call("get_current_id")) != "rafa_return_far":
+		push_error("drive_smoke: far choice should keep rafa_return_far")
+		quit(1)
+		return false
+	if str(dlg.call("get_current_text")).find("Lua") < 0:
+		push_error("drive_smoke: unexpected far-return text")
+		quit(1)
+		return false
+	dlg.call("end_dialogue", false)
+	await physics_frame
+
+	# Without far choice, return falls back to "Você voltou."
+	memory.call("reset_for_tests")
+	dlg.call("start_dialogue", "rafa_01", character)
+	await physics_frame
+	dlg.call("advance")
+	await physics_frame
+	dlg.call("set_choice_index", 0)  # rafa_pass
+	await physics_frame
+	dlg.call("confirm_choice")
+	await physics_frame
+	if not bool(dlg.call("start_dialogue", "rafa_return_far", character)):
+		push_error("drive_smoke: return gate failed after pass choice")
+		quit(1)
+		return false
+	await physics_frame
+	if str(dlg.call("get_current_id")) != "rafa_return_01":
+		push_error("drive_smoke: pass choice should fallback to rafa_return_01")
+		quit(1)
+		return false
+	if str(dlg.call("get_current_text")).find("voltou") < 0:
+		push_error("drive_smoke: unexpected return greeting")
+		quit(1)
+		return false
+	dlg.call("end_dialogue", true)
+	await physics_frame
+
+	# NPC resolve uses ConditionSystem gate (no hardcoded names in DialogueSystem).
+	var rafa_def: Resource = load("res://resources/npc/rafa_road_traveler.tres")
+	if rafa_def == null or not ("conditional_dialogues" in rafa_def):
+		push_error("drive_smoke: Rafa NpcDefinition missing conditional_dialogues")
+		quit(1)
+		return false
+	var resolved := str(dlg.call("resolve_dialogue_id", rafa_def.conditional_dialogues))
+	if resolved != "rafa_return_far":
+		push_error("drive_smoke: expected rafa_return_far from COMPLETED gate, got %s" % resolved)
+		quit(1)
+		return false
+
+	# Save / load preserves memory.
+	if not bool(save.call("save_game")):
+		push_error("drive_smoke: dialogue memory save failed")
+		quit(1)
+		return false
+	memory.call("reset_for_tests")
+	if bool(memory.call("has_completed_dialogue", "rafa_01")):
+		push_error("drive_smoke: memory should clear before load")
+		quit(1)
+		return false
+	if not bool(save.call("load_game")):
+		push_error("drive_smoke: dialogue memory load failed")
+		quit(1)
+		return false
+	if not bool(memory.call("has_completed_dialogue", "rafa_01")):
+		push_error("drive_smoke: completed state lost after load")
+		quit(1)
+		return false
+	if not bool(memory.call("has_selected_choice", "rafa_pass")):
+		push_error("drive_smoke: choice memory lost after load")
+		quit(1)
+		return false
+	save.call("delete_save")
+
+	memory.call("reset_for_tests")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: dlg_memory OK (seen/completed + choice + Rafa return + save)")
 	return true
 
 

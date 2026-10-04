@@ -4,7 +4,7 @@
 
 [resource]
 script = ExtResource("1_script")
-id = "rafa_01"
+id = "rafa_return_01"
 speaker_name = "Rafa"
-text = "Você é novo por aqui?"
-next_dialogue_id = "rafa_02"
+text = "Você voltou."
+next_dialogue_id = ""

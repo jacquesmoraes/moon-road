@@ -13,10 +13,14 @@ enum Type {
 	REGION_IS,
 	JOURNEY_DISTANCE_MIN,
 	JOURNEY_DISTANCE_MAX,
+	DIALOGUE_SEEN,
+	DIALOGUE_COMPLETED,
+	DIALOGUE_CHOICE_SELECTED,
+	DIALOGUE_COMPLETION_COUNT_MIN,
 }
 
 @export var type: Type = Type.FLAG_EQUALS
-## Primary id: flag / quest / item / poi / entity / upgrade / region.
+## Primary id: flag / quest / item / poi / entity / upgrade / region / dialogue / choice.
 @export var key: String = ""
 ## Secondary id when needed (e.g. WorldState key).
 @export var secondary_key: String = ""
@@ -48,5 +52,13 @@ func get_type_name() -> String:
 			return "JOURNEY_DISTANCE_MIN"
 		Type.JOURNEY_DISTANCE_MAX:
 			return "JOURNEY_DISTANCE_MAX"
+		Type.DIALOGUE_SEEN:
+			return "DIALOGUE_SEEN"
+		Type.DIALOGUE_COMPLETED:
+			return "DIALOGUE_COMPLETED"
+		Type.DIALOGUE_CHOICE_SELECTED:
+			return "DIALOGUE_CHOICE_SELECTED"
+		Type.DIALOGUE_COMPLETION_COUNT_MIN:
+			return "DIALOGUE_COMPLETION_COUNT_MIN"
 		_:
 			return "UNKNOWN"

@@ -1,6 +1,21 @@
-[gd_resource type="Resource" script_class="DialogueDefinition" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="DialogueDefinition" load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/dialogue/dialogue_definition.gd" id="1_script"]
+[ext_resource type="Script" path="res://scripts/dialogue/dialogue_choice.gd" id="2_choice"]
+
+[sub_resource type="Resource" id="choice_pass"]
+script = ExtResource("2_choice")
+id = "rafa_pass"
+text = "Só de passagem."
+next_dialogue_id = ""
+enabled = true
+
+[sub_resource type="Resource" id="choice_far"]
+script = ExtResource("2_choice")
+id = "rafa_far"
+text = "Vou até a Lua."
+next_dialogue_id = ""
+enabled = true
 
 [resource]
 script = ExtResource("1_script")
@@ -8,3 +23,4 @@ id = "rafa_02"
 speaker_name = "Rafa"
 text = "Cuida do carro."
 next_dialogue_id = ""
+choices = [SubResource("choice_pass"), SubResource("choice_far")]

@@ -188,6 +188,7 @@ func confirm_choice() -> void:
 	var next_id := str(choice.get("next_dialogue_id"))
 	_fire_choice_actions(choice)
 	_fire_exit_actions(_current)
+	_memory_record_choice(choice_id)
 	choice_confirmed.emit(choice_id, next_id)
 	if next_id.is_empty():
 		end_dialogue(true)
@@ -264,6 +265,7 @@ func start_dialogue(dialogue_id: String, actor: Node = null) -> bool:
 	if not _active:
 		# Presented line redirected to an empty dead-end and ended.
 		return false
+	_memory_record_started(dialogue_id)
 	dialogue_started.emit(dialogue_id)
 	return true
 
@@ -311,6 +313,8 @@ func end_dialogue(completed: bool = true) -> void:
 	_fired_exit.clear()
 	_fired_choice.clear()
 	if completed:
+		# Interrupted / cancelled conversations must NOT count as completed.
+		_memory_record_completed(finished_id)
 		dialogue_finished.emit(finished_id)
 	else:
 		dialogue_cancelled.emit()
@@ -414,6 +418,25 @@ func _read_actions(owner: Variant, property: String) -> Array:
 	if typeof(raw) != TYPE_ARRAY:
 		return []
 	return raw
+
+
+func _memory_record_started(dialogue_id: String) -> void:
+	var memory := get_node_or_null("/root/DialogueMemorySystem")
+	if memory != null and memory.has_method("record_dialogue_started"):
+		memory.call("record_dialogue_started", dialogue_id)
+
+
+func _memory_record_completed(dialogue_id: String) -> void:
+	var memory := get_node_or_null("/root/DialogueMemorySystem")
+	if memory != null and memory.has_method("record_dialogue_completed"):
+		memory.call("record_dialogue_completed", dialogue_id)
+
+
+func _memory_record_choice(choice_id: String) -> void:
+	var memory := get_node_or_null("/root/DialogueMemorySystem")
+	if memory == null or not memory.has_method("record_choice_selected"):
+		return
+	memory.call("record_choice_selected", choice_id, _start_id)
 
 
 func _first_selectable_visible_index() -> int:

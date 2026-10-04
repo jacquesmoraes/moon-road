@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="DialogueDefinition" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/dialogue/dialogue_definition.gd" id="1_script"]
+[ext_resource type="Resource" path="res://resources/conditions/rafa_far_choice.tres" id="2_choice"]
+
+[resource]
+script = ExtResource("1_script")
+id = "rafa_return_far"
+speaker_name = "Rafa"
+text = "Ainda na estrada pra Lua?"
+next_dialogue_id = ""
+show_conditions = [ExtResource("2_choice")]
+show_require_all = true
+fallback_dialogue_id = "rafa_return_01"

@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **data-driven dialogue actions** — enter/choice/exit effects via DialogueActionExecutor. See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **persistent dialogue memory** — seen/completed/choices via DialogueMemorySystem. See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -73,7 +73,8 @@ Data-driven talk with optional player choices. No VO, relationship effects, or t
 | `DialogueAction` | Declarative effect (`SET_FLAG`, `START_QUEST`, `ADD_ITEM`, …) — no scripts in resources |
 | `DialogueActionExecutor` | Type dispatch → GameFlags / Quest / Inventory / WorldState / POI |
 | `DialogueCatalog` | Flat registry (`resources/dialogue/default_catalog.tres`) |
-| `DialogueSystem` | Flow only — ConditionSystem for gates, Executor for effects; locks on-foot control |
+| `DialogueSystem` | Flow only — ConditionSystem for gates, Executor for effects; auto-records memory |
+| `DialogueMemorySystem` | Seen / completed / choice counts — SaveSystem provider `dialogue_memory` |
 | `DialogueUI` | Bottom box + choices; `[indisponível]` for failed enable_conditions |
 | `ConditionalDialogue` | `condition` + `dialogue_id` — first match wins |
 | `NpcDefinition.dialogue_id` | Fallback / offer line id |
@@ -84,7 +85,9 @@ Data-driven talk with optional player choices. No VO, relationship effects, or t
 
 **Actions fire:** `on_enter` when a line is first presented in the conversation; `on_choose` when a choice is confirmed; `on_exit` when leaving a line (advance / choice / completed end). Each fires at most once per conversation (UI redraw / re-present ignored).
 
-**Authoring:** attach `DialogueAction` resources to lines/choices. **Mira** offer: enter sets `npc.mira.met`; offer_02 choices accept (`START_QUEST power_the_viewpoint`) or refuse (ends, no quest). `mira_moon_ask` keeps conditional moon/repair/buy choices. **Rafa** stays linear.
+**Memory:** start → seen; successful finish → completed (+count); cancel/interrupt → seen only. Choices recorded on confirm. Condition types: `DIALOGUE_SEEN`, `DIALOGUE_COMPLETED`, `DIALOGUE_CHOICE_SELECTED`, `DIALOGUE_COMPLETION_COUNT_MIN`.
+
+**Authoring:** attach `DialogueAction`s / conditions as before. **Mira** offer: flag + accept/refuse quest. **Rafa:** first talk “Você é novo por aqui?”; after `rafa_01` completed, return gate → “Você voltou.” or “Ainda na estrada pra Lua?” if choice `rafa_far` was selected.
 
 ### Conditions + flags (`ConditionSystem` / `GameFlags`)
 

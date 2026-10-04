@@ -1,7 +1,7 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** data-driven dialogue actions (`feat: add data-driven dialogue actions`)  
+**As of:** persistent dialogue memory (`feat: add persistent dialogue memory`)  
 **Engine:** Godot 4.7 Forward Plus
 
 This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.

@@ -103,6 +103,24 @@ func make_journey_distance_max(km: float) -> Resource:
 	return c
 
 
+func make_dialogue_seen(dialogue_id: String) -> Resource:
+	return make(ConditionDataScript.Type.DIALOGUE_SEEN, dialogue_id)
+
+
+func make_dialogue_completed(dialogue_id: String) -> Resource:
+	return make(ConditionDataScript.Type.DIALOGUE_COMPLETED, dialogue_id)
+
+
+func make_dialogue_choice_selected(choice_id: String) -> Resource:
+	return make(ConditionDataScript.Type.DIALOGUE_CHOICE_SELECTED, choice_id)
+
+
+func make_dialogue_completion_count_min(dialogue_id: String, min_count: int) -> Resource:
+	var c := make(ConditionDataScript.Type.DIALOGUE_COMPLETION_COUNT_MIN, dialogue_id)
+	c.set("int_value", maxi(min_count, 0))
+	return c
+
+
 func _evaluate_typed(condition: Resource) -> bool:
 	var type_value := int(condition.get("type"))
 	var key := str(condition.get("key"))
@@ -129,6 +147,14 @@ func _evaluate_typed(condition: Resource) -> bool:
 			return _eval_journey_min(float(condition.get("float_value")))
 		ConditionDataScript.Type.JOURNEY_DISTANCE_MAX:
 			return _eval_journey_max(float(condition.get("float_value")))
+		ConditionDataScript.Type.DIALOGUE_SEEN:
+			return _eval_dialogue_seen(key)
+		ConditionDataScript.Type.DIALOGUE_COMPLETED:
+			return _eval_dialogue_completed(key)
+		ConditionDataScript.Type.DIALOGUE_CHOICE_SELECTED:
+			return _eval_dialogue_choice_selected(key)
+		ConditionDataScript.Type.DIALOGUE_COMPLETION_COUNT_MIN:
+			return _eval_dialogue_completion_count_min(key, maxi(int(condition.get("int_value")), 0))
 		_:
 			push_warning("ConditionSystem: unknown condition type %d" % type_value)
 			return false
@@ -224,3 +250,31 @@ func _eval_journey_max(km: float) -> bool:
 	if journey == null or not journey.has_method("get_current_distance_km"):
 		return false
 	return float(journey.call("get_current_distance_km")) <= km
+
+
+func _eval_dialogue_seen(dialogue_id: String) -> bool:
+	var memory := get_node_or_null("/root/DialogueMemorySystem")
+	if memory == null or dialogue_id.is_empty() or not memory.has_method("has_seen_dialogue"):
+		return false
+	return bool(memory.call("has_seen_dialogue", dialogue_id))
+
+
+func _eval_dialogue_completed(dialogue_id: String) -> bool:
+	var memory := get_node_or_null("/root/DialogueMemorySystem")
+	if memory == null or dialogue_id.is_empty() or not memory.has_method("has_completed_dialogue"):
+		return false
+	return bool(memory.call("has_completed_dialogue", dialogue_id))
+
+
+func _eval_dialogue_choice_selected(choice_id: String) -> bool:
+	var memory := get_node_or_null("/root/DialogueMemorySystem")
+	if memory == null or choice_id.is_empty() or not memory.has_method("has_selected_choice"):
+		return false
+	return bool(memory.call("has_selected_choice", choice_id))
+
+
+func _eval_dialogue_completion_count_min(dialogue_id: String, min_count: int) -> bool:
+	var memory := get_node_or_null("/root/DialogueMemorySystem")
+	if memory == null or dialogue_id.is_empty() or not memory.has_method("get_times_completed"):
+		return false
+	return int(memory.call("get_times_completed", dialogue_id)) >= min_count
