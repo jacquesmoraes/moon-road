@@ -32,6 +32,11 @@ func _ready() -> void:
 			_discover_area.body_entered.connect(_on_body_entered)
 		if not _discover_area.body_exited.is_connected(_on_body_exited):
 			_discover_area.body_exited.connect(_on_body_exited)
+	call_deferred("_apply_npc_presence_gates")
+	var travel := get_node_or_null("/root/NpcTravelSystem")
+	if travel != null and travel.has_signal("npc_presence_changed"):
+		if not travel.npc_presence_changed.is_connected(_on_npc_presence_changed):
+			travel.npc_presence_changed.connect(_on_npc_presence_changed)
 
 
 func setup(poi_resource: PointOfInterest) -> void:
@@ -64,6 +69,43 @@ func get_car_area_global_position() -> Vector3:
 func get_observation_global_position() -> Vector3:
 	_ensure_built()
 	return _observation.global_position if _observation else global_position + Vector3(0, 1.5, -4)
+
+
+func get_local_npc_location_ids() -> PackedStringArray:
+	## poi_id + Destinations marker names this stop can host.
+	_ensure_built()
+	var ids: PackedStringArray = PackedStringArray()
+	if not _poi_id.is_empty():
+		ids.append(_poi_id)
+	var destinations := get_node_or_null("Destinations")
+	if destinations != null:
+		for child in destinations.get_children():
+			if child is Marker3D:
+				ids.append(str(child.name))
+	return ids
+
+
+func _apply_npc_presence_gates() -> void:
+	## Spawn/keep NPC nodes only when logical state says they belong here.
+	var travel := get_node_or_null("/root/NpcTravelSystem")
+	if travel == null or not travel.has_method("should_spawn_at_poi"):
+		return
+	var local_ids := get_local_npc_location_ids()
+	var to_remove: Array[Node] = []
+	for child in get_children():
+		if child == null or not child.has_method("get_npc_id"):
+			continue
+		var npc_id := str(child.call("get_npc_id"))
+		if npc_id.is_empty():
+			continue
+		if not bool(travel.call("should_spawn_at_poi", npc_id, _poi_id, local_ids)):
+			to_remove.append(child)
+	for node in to_remove:
+		node.queue_free()
+
+
+func _on_npc_presence_changed(_npc_id: String) -> void:
+	_apply_npc_presence_gates()
 
 
 ## Test / systems helper: treat [param body] as present inside the discover volume.

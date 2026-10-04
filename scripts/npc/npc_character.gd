@@ -31,9 +31,11 @@ func _ready() -> void:
 	_sync_with_state_system()
 	# POISystem calls ViewpointPOI.setup after add_child; defer so get_poi_id is available.
 	call_deferred("_sync_spawn_location")
+	call_deferred("_apply_travel_presence_gate")
 	_cache_nodes()
 	_refresh_name_label()
 	_connect_narrative_time()
+	_connect_travel_presence()
 	_refresh_time_availability()
 
 
@@ -255,17 +257,58 @@ func _sync_spawn_location() -> void:
 	var id := get_npc_id()
 	if id.is_empty():
 		return
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns != null and ns.has_method("get_travel_state"):
+		if str(ns.call("get_travel_state", id)) == "TRAVELING":
+			return
+		if ns.has_method("follows_local_schedule") and not bool(ns.call("follows_local_schedule", id)):
+			# Traveler already placed elsewhere — do not overwrite with this POI.
+			if not str(ns.call("get_location_id", id)).is_empty():
+				return
 	var schedules := get_node_or_null("/root/NpcScheduleSystem")
 	if schedules != null and schedules.has_method("has_schedule") and bool(schedules.call("has_schedule", id)):
-		if schedules.has_method("refresh_npc"):
-			schedules.call("refresh_npc", id)
-		return
-	var ns := get_node_or_null("/root/NpcStateSystem")
+		if ns == null or not ns.has_method("follows_local_schedule") or bool(ns.call("follows_local_schedule", id)):
+			if schedules.has_method("refresh_npc"):
+				schedules.call("refresh_npc", id)
+			return
 	if ns == null or not ns.has_method("set_location_id"):
 		return
 	var location := _resolve_spawn_location_id()
 	if not location.is_empty():
 		ns.call("set_location_id", id, location)
+
+
+func _connect_travel_presence() -> void:
+	var travel := get_node_or_null("/root/NpcTravelSystem")
+	if travel == null or not travel.has_signal("npc_presence_changed"):
+		return
+	if not travel.npc_presence_changed.is_connected(_on_npc_presence_changed):
+		travel.npc_presence_changed.connect(_on_npc_presence_changed)
+
+
+func _on_npc_presence_changed(changed_npc_id: String) -> void:
+	if changed_npc_id.is_empty() or changed_npc_id != get_npc_id():
+		return
+	_apply_travel_presence_gate()
+
+
+func _apply_travel_presence_gate() -> void:
+	## Disable / remove physical body when this NPC no longer belongs at the host POI.
+	var travel := get_node_or_null("/root/NpcTravelSystem")
+	if travel == null or not travel.has_method("should_spawn_at_poi"):
+		return
+	var poi_id := ""
+	var local_ids: PackedStringArray = PackedStringArray()
+	var node: Node = get_parent()
+	while node != null:
+		if node.has_method("get_poi_id"):
+			poi_id = str(node.call("get_poi_id"))
+		if node.has_method("get_local_npc_location_ids"):
+			local_ids = node.call("get_local_npc_location_ids")
+			break
+		node = node.get_parent()
+	if not bool(travel.call("should_spawn_at_poi", get_npc_id(), poi_id, local_ids)):
+		queue_free()
 
 
 func _resolve_spawn_location_id() -> String:

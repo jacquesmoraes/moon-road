@@ -4,9 +4,9 @@ class_name NpcDefinition
 ## Dialogue selection uses dialogue_rules + fallback_dialogue_id (priority resolve).
 
 enum PresenceMode {
-	STATIC, ## Stays at a placed transform (default foundation).
-	ROUTINE, ## Logical day cycle via NpcScheduleSystem (no pathfinding yet).
-	TRAVELING, ## Future: moves along the road / between stops.
+	STATIC, ## Stays at a placed transform / fixed POI.
+	LOCAL_SCHEDULE, ## Day cycle via NpcScheduleSystem inside one POI/area.
+	TRAVELER, ## Logical relocation between locations (NpcTravelSystem).
 }
 
 @export var npc_id: String = ""
@@ -38,10 +38,10 @@ enum PresenceMode {
 
 func get_presence_mode_name() -> String:
 	match presence_mode:
-		PresenceMode.ROUTINE:
-			return "ROUTINE"
-		PresenceMode.TRAVELING:
-			return "TRAVELING"
+		PresenceMode.LOCAL_SCHEDULE:
+			return "LOCAL_SCHEDULE"
+		PresenceMode.TRAVELER:
+			return "TRAVELER"
 		_:
 			return "STATIC"
 

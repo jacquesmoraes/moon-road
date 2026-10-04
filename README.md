@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **basic NPC navigation** — schedule location_id → Marker3D walk via `NavigationAgent3D` (pause in dialogue, snap on POI reload). See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **traveling NPC relocation** — logical `TRAVELING` / `AT_LOCATION` between POIs (Rafa → `debug_waystation`), plus in-POI walks. See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -92,7 +92,7 @@ Data-driven talk with optional player choices. No VO, relationship effects, or t
 
 **Memory:** start → seen; successful finish → completed (+count); cancel/interrupt → seen only. Choices recorded on confirm. Condition types: `DIALOGUE_SEEN`, `DIALOGUE_COMPLETED`, `DIALOGUE_CHOICE_SELECTED`, `DIALOGUE_COMPLETION_COUNT_MIN`.
 
-**NPC state:** `NpcDefinition` stays data-driven/static. Runtime fields live in `NpcStateSystem` (keyed by `npc_id`, no Node refs). Scene spawn reads/writes location; talk sets `met_player` + `last_dialogue_id`. Extensible state tags: `DEFAULT`, `BUSY`, `UNAVAILABLE`, `TRAVELING`, `QUEST_RELATED`. Dialogue actions: `SET_NPC_MET` / `SET_NPC_STATE` / `SET_NPC_ENABLED` / `SET_NPC_LOCATION` / `SET_NPC_FLAG`. Conditions: `NPC_STATE`, `NPC_MET`, `NPC_ENABLED`, `NPC_LOCATION`.
+**NPC state:** `NpcDefinition` stays data-driven/static (`presence_mode`: STATIC / LOCAL_SCHEDULE / TRAVELER). Runtime fields live in `NpcStateSystem` (keyed by `npc_id`, no Node refs) including `travel_state`, `destination_location_id`, arrival gates. `NpcTravelSystem` starts/completes logical relocation and gates POI spawn. Dialogue actions: `SET_NPC_*` + `START_NPC_TRAVEL`. Conditions: `NPC_STATE` / `NPC_MET` / `NPC_ENABLED` / `NPC_LOCATION` / `NPC_TRAVEL_STATE` / `NPC_DESTINATION` / `NPC_AT_LOCATION`.
 
 **Contextual NPC lines:** `NpcDefinition.dialogue_rules` are scored by `priority` (ties → lower array index). Failing `conditions` drop the rule; if none match, `fallback_dialogue_id` is used. `NpcCharacter` only calls `DialogueSystem.resolve_dialogue_for_npc` — no rule/quest branching in the scene script.
 
@@ -413,7 +413,7 @@ Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later w
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
-# Expect: … npc_move=OK … npc_sched=OK … time_npc=OK … game_time=OK … drive_smoke: OK
+# Expect: … npc_travel=OK … npc_move=OK … npc_sched=OK … time_npc=OK … game_time=OK … drive_smoke: OK
 ```
 
 
@@ -449,6 +449,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - NPC time window: `NpcDefinition.available_hour_*` (Mira 08–18 narrative; hide outside)
 - NPC schedules: `NpcScheduleSystem` + `NpcScheduleData` / `NpcScheduleEntry` (logical routine)
 - NPC movement: `NpcMovementController` + `NpcDestinationResolver` + POI `Destinations` markers / `NavigationRegion3D`
+- NPC travel: `NpcTravelSystem` (logical relocation; arrival by narrative minutes / journey km / flag)
 - Vehicle state: `VehicleStateSystem` (`starter_car` attrs / upgrades / fuel; drives max speed)
 - Upgrades: `UpgradeData` + Cruise Module Mk I (+10 km/h via Workbench Install)
 - World state: `WorldStateSystem` (terminal powered / pickup collected)

@@ -138,6 +138,16 @@ func _apply_for_npc(npc_id: String, hour: int) -> void:
 	var data: Resource = _schedules.get(npc_id) as Resource
 	if data == null:
 		return
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns != null:
+		if ns.has_method("ensure_npc"):
+			ns.call("ensure_npc", npc_id)
+		# Travelers mid-relocation / after leaving a POI must not be yanked by local routines.
+		if ns.has_method("get_travel_state") and str(ns.call("get_travel_state", npc_id)) == "TRAVELING":
+			return
+		if ns.has_method("follows_local_schedule") and not bool(ns.call("follows_local_schedule", npc_id)):
+			return
+
 	var schedule_id := str(data.get("schedule_id"))
 	var entry: Resource = null
 	if data.has_method("resolve_entry"):
@@ -160,10 +170,7 @@ func _apply_for_npc(npc_id: String, hour: int) -> void:
 	var previous_logical := str(_last_applied.get(npc_id, ""))
 	_active_activity[npc_id] = activity_id
 
-	var ns := get_node_or_null("/root/NpcStateSystem")
 	if ns != null:
-		if ns.has_method("ensure_npc"):
-			ns.call("ensure_npc", npc_id)
 		if ns.has_method("set_schedule_id"):
 			ns.call("set_schedule_id", npc_id, schedule_id)
 		if not location_id.is_empty() and ns.has_method("set_location_id"):

@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK npc_move=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK npc_move=OK npc_travel=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -3505,6 +3505,9 @@ func _verify_enter_exit_vehicle() -> bool:
 		return false
 
 	if not await _verify_npc_movement(occupancy, character, foot_cam):
+		return false
+
+	if not await _verify_npc_travel(occupancy, character, foot_cam):
 		return false
 
 	if not await _verify_small_interior(occupancy, character, foot_cam):
@@ -6208,6 +6211,240 @@ func _verify_npc_movement(
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print("drive_smoke: npc_move OK (walk + dialogue pause + fail-safe + reload snap)")
+	return true
+
+
+func _verify_npc_travel(
+	_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D
+) -> bool:
+	## Logical traveler relocation: leave POI → TRAVELING → arrive at debug location.
+	var gt: Node = root.get_node_or_null("GameTimeSystem")
+	var ns: Node = root.get_node_or_null("NpcStateSystem")
+	var sched: Node = root.get_node_or_null("NpcScheduleSystem")
+	var travel: Node = root.get_node_or_null("NpcTravelSystem")
+	var cond: Node = root.get_node_or_null("ConditionSystem")
+	var save: Node = root.get_node_or_null("SaveSystem")
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	if (
+		gt == null
+		or ns == null
+		or sched == null
+		or travel == null
+		or cond == null
+		or save == null
+		or poi_sys == null
+		or dlg == null
+	):
+		push_error("drive_smoke: systems missing for npc travel")
+		quit(1)
+		return false
+
+	const RAFA := "rafa_road_traveler"
+	const DEST := "debug_waystation"
+
+	var travel_script: Script = load("res://autoload/npc_travel_system.gd") as Script
+	if travel_script != null:
+		var src := travel_script.source_code
+		for banned in ["rafa_road_traveler", "Rafa", "mira_viewpoint_keeper", "Mira", "debug_waystation"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: NpcTravelSystem must not hardcode '%s'" % banned)
+				quit(1)
+				return false
+
+	ns.call("reset_for_tests")
+	gt.call("reset_for_tests")
+	sched.call("reset_for_tests")
+	save.call("delete_save")
+	if dlg.has_method("reload_catalog"):
+		dlg.call("reload_catalog")
+
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(8.0, 0.0, -8.0))
+	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	if vp == null:
+		push_error("drive_smoke: viewpoint spawn failed for npc travel")
+		quit(1)
+		return false
+	await physics_frame
+	await physics_frame
+
+	gt.call("set_narrative_time", 0, 10, 0)
+	sched.call("refresh_all")
+	await physics_frame
+
+	var rafa: Node3D = vp.find_child("Rafa", true, false) as Node3D
+	var mira: Node3D = vp.find_child("Mira", true, false) as Node3D
+	if rafa == null or mira == null:
+		push_error("drive_smoke: Rafa/Mira missing before travel")
+		quit(1)
+		return false
+	if str(ns.call("get_location_id", RAFA)) != "roadside_pullout":
+		push_error(
+			"drive_smoke: Rafa should start at roadside_pullout (got '%s')"
+			% str(ns.call("get_location_id", RAFA))
+		)
+		quit(1)
+		return false
+	if str(ns.call("get_travel_state", RAFA)) != "AT_LOCATION":
+		push_error("drive_smoke: Rafa travel_state should start AT_LOCATION")
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate", cond.call("make_npc_at_location", RAFA, "roadside_pullout"))):
+		push_error("drive_smoke: NPC_AT_LOCATION roadside_pullout failed")
+		quit(1)
+		return false
+
+	# DialogueAction START_NPC_TRAVEL → destination debug_waystation, +60 narrative minutes.
+	var ActionScript: Script = load("res://scripts/dialogue/dialogue_action.gd") as Script
+	var ExecScript: Script = load("res://scripts/dialogue/dialogue_action_executor.gd") as Script
+	var action: Resource = ActionScript.new() as Resource
+	action.set("type", 16)  # START_NPC_TRAVEL
+	action.set("target_id", RAFA)
+	action.set("string_value", DEST)
+	action.set("secondary_id", "rafa_leave_viewpoint")
+	action.set("int_value", 60)
+	action.set("float_value", 0.0)
+	var executor = ExecScript.new()
+	if not bool(executor.call("execute", action)):
+		push_error("drive_smoke: START_NPC_TRAVEL action failed")
+		quit(1)
+		return false
+	await physics_frame
+	await physics_frame
+	await physics_frame
+
+	if str(ns.call("get_travel_state", RAFA)) != "TRAVELING":
+		push_error("drive_smoke: Rafa should be TRAVELING after start")
+		quit(1)
+		return false
+	if str(ns.call("get_destination_location_id", RAFA)) != DEST:
+		push_error("drive_smoke: Rafa destination should be debug_waystation")
+		quit(1)
+		return false
+	if str(ns.call("get_previous_location_id", RAFA)) != "roadside_pullout":
+		push_error("drive_smoke: Rafa previous_location should be roadside_pullout")
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate", cond.call("make_npc_travel_state", RAFA, "TRAVELING"))):
+		push_error("drive_smoke: NPC_TRAVEL_STATE TRAVELING failed")
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate", cond.call("make_npc_destination", RAFA, DEST))):
+		push_error("drive_smoke: NPC_DESTINATION failed")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate", cond.call("make_npc_at_location", RAFA, "roadside_pullout"))):
+		push_error("drive_smoke: NPC_AT_LOCATION must be false while TRAVELING")
+		quit(1)
+		return false
+
+	rafa = vp.find_child("Rafa", true, false) as Node3D
+	mira = vp.find_child("Mira", true, false) as Node3D
+	if rafa != null and is_instance_valid(rafa):
+		push_error("drive_smoke: Rafa physical presence should leave Sunset Viewpoint")
+		quit(1)
+		return false
+	if mira == null or not is_instance_valid(mira):
+		push_error("drive_smoke: Mira must remain while Rafa travels")
+		quit(1)
+		return false
+
+	# Persist mid-travel.
+	if not bool(save.call("save_game")):
+		push_error("drive_smoke: npc travel mid-save failed")
+		quit(1)
+		return false
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	ns.call("reset_for_tests")
+	gt.call("reset_for_tests")
+	if not bool(save.call("load_game")):
+		push_error("drive_smoke: npc travel mid-load failed")
+		quit(1)
+		return false
+	await physics_frame
+	if str(ns.call("get_travel_state", RAFA)) != "TRAVELING":
+		push_error("drive_smoke: Rafa TRAVELING not restored after save/load")
+		quit(1)
+		return false
+	if str(ns.call("get_destination_location_id", RAFA)) != DEST:
+		push_error("drive_smoke: Rafa destination not restored after save/load")
+		quit(1)
+		return false
+
+	# Reload POI while traveling — must not respawn Rafa (no duplicate / ghost).
+	vp = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	await physics_frame
+	await physics_frame
+	await physics_frame
+	rafa = vp.find_child("Rafa", true, false) as Node3D if vp != null else null
+	if rafa != null and is_instance_valid(rafa):
+		push_error("drive_smoke: Rafa must not spawn at Sunset while TRAVELING")
+		quit(1)
+		return false
+
+	# Narrative arrival (+60 minutes from start; clock restored from save).
+	gt.call("advance_narrative_minutes", 60.0)
+	travel.call("refresh_arrivals")
+	await physics_frame
+	if str(ns.call("get_travel_state", RAFA)) != "AT_LOCATION":
+		push_error("drive_smoke: Rafa should arrive AT_LOCATION after narrative delay")
+		quit(1)
+		return false
+	if str(ns.call("get_location_id", RAFA)) != DEST:
+		push_error(
+			"drive_smoke: Rafa should be at debug_waystation after arrival (got '%s')"
+			% str(ns.call("get_location_id", RAFA))
+		)
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate", cond.call("make_npc_at_location", RAFA, DEST))):
+		push_error("drive_smoke: NPC_AT_LOCATION debug_waystation failed")
+		quit(1)
+		return false
+
+	# Still no physical Rafa at Sunset (logical-only destination).
+	rafa = vp.find_child("Rafa", true, false) as Node3D if vp != null else null
+	if rafa != null and is_instance_valid(rafa):
+		push_error("drive_smoke: Rafa must not appear at Sunset after arriving at logical dest")
+		quit(1)
+		return false
+
+	# SET_NPC_LOCATION instant place + presence return path.
+	var set_loc: Resource = ActionScript.new() as Resource
+	set_loc.set("type", 10)  # SET_NPC_LOCATION
+	set_loc.set("target_id", RAFA)
+	set_loc.set("string_value", "roadside_pullout")
+	set_loc.set("secondary_id", "test_return")
+	if not bool(executor.call("execute", set_loc)):
+		push_error("drive_smoke: SET_NPC_LOCATION failed")
+		quit(1)
+		return false
+	# Returning via SET does not auto-resume local schedule; re-enable for presence spawn.
+	ns.call("set_follow_local_schedule", RAFA, true)
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	await physics_frame
+	vp = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	await physics_frame
+	await physics_frame
+	rafa = vp.find_child("Rafa", true, false) as Node3D if vp != null else null
+	if rafa == null:
+		push_error("drive_smoke: Rafa should respawn at Sunset after SET_NPC_LOCATION home")
+		quit(1)
+		return false
+
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	save.call("delete_save")
+	ns.call("reset_for_tests")
+	gt.call("reset_for_tests")
+	sched.call("reset_for_tests")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print(
+		"drive_smoke: npc_travel OK (leave + TRAVELING persist + narrative arrive + no duplicate)"
+	)
 	return true
 
 

@@ -20,15 +20,17 @@ enum Type {
 	SET_RELATIONSHIP,
 	ADD_REPUTATION,
 	SET_REPUTATION,
+	START_NPC_TRAVEL,
 }
 
 @export var type: Type = Type.SET_FLAG
 ## flag / quest / item / poi / world-state entity / npc id / group id
 @export var target_id: String = ""
-## World-state key, NPC custom flag id, or optional POI display name.
+## World-state key, NPC custom flag id, transition id, arrival flag id, or POI display name.
 @export var secondary_id: String = ""
 @export var string_value: String = ""
 @export var int_value: int = 1
+@export var float_value: float = 0.0
 @export var bool_value: bool = true
 
 
@@ -66,5 +68,7 @@ func get_type_name() -> String:
 			return "ADD_REPUTATION"
 		Type.SET_REPUTATION:
 			return "SET_REPUTATION"
+		Type.START_NPC_TRAVEL:
+			return "START_NPC_TRAVEL"
 		_:
 			return "UNKNOWN"

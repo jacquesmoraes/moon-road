@@ -31,6 +31,10 @@ enum Type {
 	NARRATIVE_DAY_MIN,
 	NARRATIVE_DAY_MAX,
 	NARRATIVE_TIME_RANGE,
+	## Logical traveler relocation (NpcTravelSystem / NpcStateSystem).
+	NPC_TRAVEL_STATE,
+	NPC_DESTINATION,
+	NPC_AT_LOCATION,
 }
 
 @export var type: Type = Type.FLAG_EQUALS
@@ -100,5 +104,11 @@ func get_type_name() -> String:
 			return "NARRATIVE_DAY_MAX"
 		Type.NARRATIVE_TIME_RANGE:
 			return "NARRATIVE_TIME_RANGE"
+		Type.NPC_TRAVEL_STATE:
+			return "NPC_TRAVEL_STATE"
+		Type.NPC_DESTINATION:
+			return "NPC_DESTINATION"
+		Type.NPC_AT_LOCATION:
+			return "NPC_AT_LOCATION"
 		_:
 			return "UNKNOWN"

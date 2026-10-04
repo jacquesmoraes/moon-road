@@ -74,9 +74,17 @@ func execute(action: Resource) -> bool:
 			if not ok:
 				reason = "set_npc_enabled_failed"
 		DialogueAction.Type.SET_NPC_LOCATION:
-			ok = _set_npc_location(target_id, str(action.get("string_value")))
+			ok = _set_npc_location(
+				target_id,
+				str(action.get("string_value")),
+				str(action.get("secondary_id"))
+			)
 			if not ok:
 				reason = "set_npc_location_failed"
+		DialogueAction.Type.START_NPC_TRAVEL:
+			ok = _start_npc_travel(action)
+			if not ok:
+				reason = "start_npc_travel_failed"
 		DialogueAction.Type.SET_NPC_FLAG:
 			ok = _set_npc_flag(
 				target_id, str(action.get("secondary_id")), bool(action.get("bool_value"))
@@ -249,16 +257,54 @@ func _set_npc_enabled(npc_id: String, value: bool) -> bool:
 	return true
 
 
-func _set_npc_location(npc_id: String, location_id: String) -> bool:
+func _set_npc_location(npc_id: String, location_id: String, transition_id: String = "") -> bool:
 	if npc_id.is_empty():
 		push_warning("DialogueActionExecutor: SET_NPC_LOCATION missing target_id")
 		return false
+	var travel := _node("/root/NpcTravelSystem")
+	if travel != null and travel.has_method("set_at_location"):
+		return bool(travel.call("set_at_location", npc_id, location_id, transition_id))
 	var ns := _node("/root/NpcStateSystem")
 	if ns == null or not ns.has_method("set_location_id"):
 		push_warning("DialogueActionExecutor: NpcStateSystem unavailable")
 		return false
 	ns.call("set_location_id", npc_id, location_id)
 	return true
+
+
+func _start_npc_travel(action: Resource) -> bool:
+	var npc_id := str(action.get("target_id"))
+	var destination := str(action.get("string_value"))
+	if npc_id.is_empty() or destination.is_empty():
+		push_warning("DialogueActionExecutor: START_NPC_TRAVEL needs target_id + string_value destination")
+		return false
+	var travel := _node("/root/NpcTravelSystem")
+	if travel == null or not travel.has_method("start_travel"):
+		push_warning("DialogueActionExecutor: NpcTravelSystem unavailable")
+		return false
+	var transition_id := str(action.get("secondary_id"))
+	var narrative_delay := int(action.get("int_value"))
+	# int_value default on DialogueAction is 1 — treat as minutes when >= 0; use -1 to skip.
+	# Authors set int_value explicitly for delay; 0 = arrive on next refresh.
+	var journey_km := float(action.get("float_value"))
+	var arrival_flag := ""
+	# Optional: secondary_id "flag:<id>" means arrival flag; transition_id empty then.
+	if transition_id.begins_with("flag:"):
+		arrival_flag = transition_id.substr(5)
+		transition_id = ""
+	if journey_km <= 0.0:
+		journey_km = -1.0
+	return bool(
+		travel.call(
+			"start_travel",
+			npc_id,
+			destination,
+			transition_id,
+			narrative_delay,
+			journey_km,
+			arrival_flag
+		)
+	)
 
 
 func _set_npc_flag(npc_id: String, flag_id: String, value: bool) -> bool:

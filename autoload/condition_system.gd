@@ -145,6 +145,24 @@ func make_npc_location(npc_id: String, location_id: String) -> Resource:
 	return c
 
 
+func make_npc_travel_state(npc_id: String, travel_state: String) -> Resource:
+	var c := make(ConditionDataScript.Type.NPC_TRAVEL_STATE, npc_id)
+	c.set("string_value", travel_state.to_upper())
+	return c
+
+
+func make_npc_destination(npc_id: String, destination_location_id: String) -> Resource:
+	var c := make(ConditionDataScript.Type.NPC_DESTINATION, npc_id)
+	c.set("string_value", destination_location_id)
+	return c
+
+
+func make_npc_at_location(npc_id: String, location_id: String) -> Resource:
+	var c := make(ConditionDataScript.Type.NPC_AT_LOCATION, npc_id)
+	c.set("string_value", location_id)
+	return c
+
+
 func make_relationship_min(npc_id: String, min_value: int) -> Resource:
 	var c := make(ConditionDataScript.Type.RELATIONSHIP_MIN, npc_id)
 	c.set("int_value", min_value)
@@ -256,6 +274,12 @@ func _evaluate_typed(condition: Resource) -> bool:
 			return _eval_npc_enabled(key, bool(condition.get("bool_value")))
 		ConditionDataScript.Type.NPC_LOCATION:
 			return _eval_npc_location(key, str(condition.get("string_value")))
+		ConditionDataScript.Type.NPC_TRAVEL_STATE:
+			return _eval_npc_travel_state(key, str(condition.get("string_value")))
+		ConditionDataScript.Type.NPC_DESTINATION:
+			return _eval_npc_destination(key, str(condition.get("string_value")))
+		ConditionDataScript.Type.NPC_AT_LOCATION:
+			return _eval_npc_at_location(key, str(condition.get("string_value")))
 		ConditionDataScript.Type.RELATIONSHIP_MIN:
 			return _eval_relationship_min(key, int(condition.get("int_value")))
 		ConditionDataScript.Type.RELATIONSHIP_MAX:
@@ -428,6 +452,39 @@ func _eval_npc_enabled(npc_id: String, expected: bool) -> bool:
 func _eval_npc_location(npc_id: String, location_id: String) -> bool:
 	var ns := get_node_or_null("/root/NpcStateSystem")
 	if ns == null or npc_id.is_empty() or location_id.is_empty():
+		return false
+	if not ns.has_method("get_location_id"):
+		return false
+	return str(ns.call("get_location_id", npc_id)) == location_id
+
+
+func _eval_npc_travel_state(npc_id: String, travel_state: String) -> bool:
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns == null or npc_id.is_empty() or not ns.has_method("get_travel_state"):
+		return false
+	var want := travel_state.strip_edges().to_upper()
+	if want.is_empty():
+		return false
+	return str(ns.call("get_travel_state", npc_id)).to_upper() == want
+
+
+func _eval_npc_destination(npc_id: String, destination_location_id: String) -> bool:
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns == null or npc_id.is_empty() or destination_location_id.is_empty():
+		return false
+	if not ns.has_method("get_destination_location_id"):
+		return false
+	return str(ns.call("get_destination_location_id", npc_id)) == destination_location_id
+
+
+func _eval_npc_at_location(npc_id: String, location_id: String) -> bool:
+	var travel := get_node_or_null("/root/NpcTravelSystem")
+	if travel != null and travel.has_method("is_at_location"):
+		return bool(travel.call("is_at_location", npc_id, location_id))
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns == null or npc_id.is_empty() or location_id.is_empty():
+		return false
+	if ns.has_method("get_travel_state") and str(ns.call("get_travel_state", npc_id)) != "AT_LOCATION":
 		return false
 	if not ns.has_method("get_location_id"):
 		return false
