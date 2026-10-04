@@ -146,6 +146,18 @@ Generic gate layer — no quest/NPC-specific ifs inside ConditionSystem.
 | `ConditionSystem` | `evaluate` / `evaluate_all` / `evaluate_any` |
 | `GameFlags` | `set_flag` / `get_flag` / `has_flag` — persisted via SaveSystem |
 
+**Fail-closed:** missing peer system, empty/unknown id, or unknown type → `false`. Never treat “system missing” as “value is false/true” (e.g. `FLAG_EQUALS false` / `NPC_MET false` / `NPC_ENABLED true` do **not** pass when peers are absent).
+
+| API | Empty / special |
+|-----|-----------------|
+| `evaluate(null)` | Vacuous **true** (no gate authored) |
+| `evaluate_all([])` | Vacuous **true** |
+| `evaluate_any([])` | **false** (no alternative) |
+| `evaluate_all` with `null` entry | **false** |
+| Negation | No dedicated NOT operator — author the expected bool / opposite compare |
+
+`debug_verbose` on ConditionSystem logs every miss; otherwise one warning per peer+type per session.
+
 Extension points: `DialogueSystem.resolve_dialogue_id(entries)`, NPC `conditional_dialogues`, QuestSystem completed path also consults ConditionSystem.
 
 ### Save (`SaveSystem`)

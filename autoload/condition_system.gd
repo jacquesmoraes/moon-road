@@ -2,6 +2,9 @@ extends Node
 ## Generic gameplay condition evaluator. Queries other systems — never embeds
 ## quest/NPC-specific branches. DialogueSystem / QuestSystem / NPCs call this API.
 ## Peer systems are resolved lazily at evaluate-time (no _ready order dependence).
+##
+## Fail-closed hard rule: missing peer system, empty/invalid id, unknown type → false.
+## Never treat "system missing" as "value is false/true" — that opens misconfiguration.
 
 const ConditionDataScript = preload("res://scripts/conditions/condition_data.gd")
 const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
@@ -9,7 +12,14 @@ const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
 signal condition_evaluated(condition: Resource, result: bool)
 signal init_state_changed(state: String)
 
+## When true, log every fail-closed miss. When false, log each peer+type once per session.
+@export var debug_verbose: bool = false
+
 var _init_state: String = Bootstrap.STATE_UNINITIALIZED
+## path → Node|null override for tests (null forces missing peer).
+var _peer_overrides: Dictionary = {}
+## "peer|type" → true — rate-limit missing-peer warnings.
+var _missing_logged: Dictionary = {}
 
 
 func _ready() -> void:
@@ -25,7 +35,10 @@ func is_system_ready() -> bool:
 	return _init_state == Bootstrap.STATE_READY
 
 
+## --- Evaluation API ---
+
 func evaluate(condition: Resource) -> bool:
+	## null condition = "no gate authored" (vacuous true). Invalid typed data → false.
 	if condition == null:
 		return true
 	var result := _evaluate_typed(condition)
@@ -34,19 +47,20 @@ func evaluate(condition: Resource) -> bool:
 
 
 func evaluate_all(conditions: Array) -> bool:
-	## Vacuous truth: empty list passes.
+	## Vacuous truth: empty list passes. Null entries in the list are invalid → false.
 	if conditions.is_empty():
 		return true
 	for entry in conditions:
 		if entry == null:
-			continue
+			_log_fail("invalid", "null_entry_in_all", "evaluate_all contains null condition")
+			return false
 		if not evaluate(entry):
 			return false
 	return true
 
 
 func evaluate_any(conditions: Array) -> bool:
-	## Empty list fails (no alternative succeeded).
+	## Empty list fails (no alternative succeeded). Null entries never count as success.
 	if conditions.is_empty():
 		return false
 	for entry in conditions:
@@ -55,6 +69,22 @@ func evaluate_any(conditions: Array) -> bool:
 		if evaluate(entry):
 			return true
 	return false
+
+
+## --- Test / debug peer overrides (not gameplay) ---
+
+func debug_force_peer_missing(path: String) -> void:
+	if path.is_empty():
+		return
+	_peer_overrides[path] = null
+
+
+func debug_clear_peer_overrides() -> void:
+	_peer_overrides.clear()
+
+
+func debug_clear_missing_log() -> void:
+	_missing_logged.clear()
 
 
 ## --- Factory helpers (tests / runtime authoring) ---
@@ -250,7 +280,35 @@ func make_day_index_min(day_index: int) -> Resource:
 	return make_narrative_day_min(day_index)
 
 
+## --- Internals ---
+
+func _resolve_peer(path: String) -> Node:
+	if _peer_overrides.has(path):
+		return _peer_overrides[path] as Node
+	return get_node_or_null(path)
+
+
+func _fail_missing(peer_path: String, type_name: String) -> bool:
+	_log_fail(peer_path, type_name, "missing peer → false")
+	return false
+
+
+func _fail_invalid(type_name: String, reason: String) -> bool:
+	_log_fail("invalid", type_name, reason)
+	return false
+
+
+func _log_fail(peer_or_scope: String, type_name: String, detail: String) -> void:
+	var key := "%s|%s" % [peer_or_scope, type_name]
+	if not debug_verbose and _missing_logged.has(key):
+		return
+	_missing_logged[key] = true
+	push_warning("ConditionSystem fail-closed [%s] %s: %s" % [type_name, peer_or_scope, detail])
+
+
 func _evaluate_typed(condition: Resource) -> bool:
+	if not ("type" in condition):
+		return _fail_invalid("UNKNOWN", "condition missing type field")
 	var type_value := int(condition.get("type"))
 	var key := str(condition.get("key"))
 	match type_value:
@@ -319,64 +377,64 @@ func _evaluate_typed(condition: Resource) -> bool:
 				int(condition.get("int_value")), float(condition.get("float_value"))
 			)
 		_:
-			push_warning("ConditionSystem: unknown condition type %d" % type_value)
-			return false
+			return _fail_invalid("UNKNOWN", "unknown condition type %d" % type_value)
 
 
 func _eval_flag_equals(flag_id: String, expected: bool) -> bool:
-	var flags := get_node_or_null("/root/GameFlags")
-	if flags == null:
-		return expected == false
-	if flags.has_method("get_flag"):
-		return bool(flags.call("get_flag", flag_id, false)) == expected
-	return false
+	if flag_id.is_empty():
+		return _fail_invalid("FLAG_EQUALS", "empty flag_id")
+	var flags := _resolve_peer("/root/GameFlags")
+	if flags == null or not flags.has_method("get_flag"):
+		return _fail_missing("/root/GameFlags", "FLAG_EQUALS")
+	# System present: compare actual stored value (default false if unset).
+	return bool(flags.call("get_flag", flag_id, false)) == expected
 
 
 func _eval_quest_state(quest_id: String, state_name: String) -> bool:
-	var qs := get_node_or_null("/root/QuestSystem")
-	if qs == null or quest_id.is_empty():
-		return false
+	if quest_id.is_empty():
+		return _fail_invalid("QUEST_STATE", "empty quest_id")
 	var want := state_name.strip_edges().to_upper()
 	if want.is_empty():
-		return false
-	if qs.has_method("get_state_name"):
-		return str(qs.call("get_state_name", quest_id)).to_upper() == want
-	return false
+		return _fail_invalid("QUEST_STATE", "empty state name")
+	var qs := _resolve_peer("/root/QuestSystem")
+	if qs == null or not qs.has_method("get_state_name"):
+		return _fail_missing("/root/QuestSystem", "QUEST_STATE")
+	return str(qs.call("get_state_name", quest_id)).to_upper() == want
 
 
 func _eval_has_item(item_id: String, amount: int) -> bool:
-	var inv := get_node_or_null("/root/InventorySystem")
-	if inv == null or item_id.is_empty():
-		return false
-	if inv.has_method("has_item"):
-		return bool(inv.call("has_item", item_id, amount))
-	return false
+	if item_id.is_empty():
+		return _fail_invalid("HAS_ITEM", "empty item_id")
+	var inv := _resolve_peer("/root/InventorySystem")
+	if inv == null or not inv.has_method("has_item"):
+		return _fail_missing("/root/InventorySystem", "HAS_ITEM")
+	return bool(inv.call("has_item", item_id, amount))
 
 
 func _eval_item_quantity(item_id: String, min_amount: int) -> bool:
-	var inv := get_node_or_null("/root/InventorySystem")
-	if inv == null or item_id.is_empty():
-		return false
-	if inv.has_method("get_quantity"):
-		return int(inv.call("get_quantity", item_id)) >= min_amount
-	return false
+	if item_id.is_empty():
+		return _fail_invalid("ITEM_QUANTITY", "empty item_id")
+	var inv := _resolve_peer("/root/InventorySystem")
+	if inv == null or not inv.has_method("get_quantity"):
+		return _fail_missing("/root/InventorySystem", "ITEM_QUANTITY")
+	return int(inv.call("get_quantity", item_id)) >= min_amount
 
 
 func _eval_poi_discovered(poi_id: String) -> bool:
-	var poi := get_node_or_null("/root/POISystem")
-	if poi == null or poi_id.is_empty():
-		return false
-	if poi.has_method("is_discovered"):
-		return bool(poi.call("is_discovered", poi_id))
-	return false
+	if poi_id.is_empty():
+		return _fail_invalid("POI_DISCOVERED", "empty poi_id")
+	var poi := _resolve_peer("/root/POISystem")
+	if poi == null or not poi.has_method("is_discovered"):
+		return _fail_missing("/root/POISystem", "POI_DISCOVERED")
+	return bool(poi.call("is_discovered", poi_id))
 
 
 func _eval_world_state_equals(entity_id: String, state_key: String, expected: String) -> bool:
-	var ws := get_node_or_null("/root/WorldStateSystem")
-	if ws == null or entity_id.is_empty() or state_key.is_empty():
-		return false
-	if not ws.has_method("get_value"):
-		return false
+	if entity_id.is_empty() or state_key.is_empty():
+		return _fail_invalid("WORLD_STATE_EQUALS", "empty entity_id or state_key")
+	var ws := _resolve_peer("/root/WorldStateSystem")
+	if ws == null or not ws.has_method("get_value"):
+		return _fail_missing("/root/WorldStateSystem", "WORLD_STATE_EQUALS")
 	var value: Variant = ws.call("get_value", entity_id, state_key, null)
 	if value == null:
 		return false
@@ -384,192 +442,219 @@ func _eval_world_state_equals(entity_id: String, state_key: String, expected: St
 
 
 func _eval_vehicle_has_upgrade(upgrade_id: String) -> bool:
-	var vs := get_node_or_null("/root/VehicleStateSystem")
-	if vs == null or upgrade_id.is_empty():
-		return false
-	if vs.has_method("has_upgrade"):
-		return bool(vs.call("has_upgrade", upgrade_id))
-	return false
+	if upgrade_id.is_empty():
+		return _fail_invalid("VEHICLE_HAS_UPGRADE", "empty upgrade_id")
+	var vs := _resolve_peer("/root/VehicleStateSystem")
+	if vs == null or not vs.has_method("has_upgrade"):
+		return _fail_missing("/root/VehicleStateSystem", "VEHICLE_HAS_UPGRADE")
+	return bool(vs.call("has_upgrade", upgrade_id))
 
 
 func _eval_region_is(region_id: String) -> bool:
-	var regions := get_node_or_null("/root/WorldRegionSystem")
-	if regions == null or region_id.is_empty():
-		return false
-	if regions.has_method("get_current_region_id"):
-		return str(regions.call("get_current_region_id")) == region_id
-	return false
+	if region_id.is_empty():
+		return _fail_invalid("REGION_IS", "empty region_id")
+	var regions := _resolve_peer("/root/WorldRegionSystem")
+	if regions == null or not regions.has_method("get_current_region_id"):
+		return _fail_missing("/root/WorldRegionSystem", "REGION_IS")
+	return str(regions.call("get_current_region_id")) == region_id
 
 
 func _eval_journey_min(km: float) -> bool:
-	var journey := get_node_or_null("/root/JourneySystem")
+	var journey := _resolve_peer("/root/JourneySystem")
 	if journey == null or not journey.has_method("get_current_distance_km"):
-		return false
+		return _fail_missing("/root/JourneySystem", "JOURNEY_DISTANCE_MIN")
 	return float(journey.call("get_current_distance_km")) >= km
 
 
 func _eval_journey_max(km: float) -> bool:
-	var journey := get_node_or_null("/root/JourneySystem")
+	var journey := _resolve_peer("/root/JourneySystem")
 	if journey == null or not journey.has_method("get_current_distance_km"):
-		return false
+		return _fail_missing("/root/JourneySystem", "JOURNEY_DISTANCE_MAX")
 	return float(journey.call("get_current_distance_km")) <= km
 
 
 func _eval_dialogue_seen(dialogue_id: String) -> bool:
-	var memory := get_node_or_null("/root/DialogueMemorySystem")
-	if memory == null or dialogue_id.is_empty() or not memory.has_method("has_seen_dialogue"):
-		return false
+	if dialogue_id.is_empty():
+		return _fail_invalid("DIALOGUE_SEEN", "empty dialogue_id")
+	var memory := _resolve_peer("/root/DialogueMemorySystem")
+	if memory == null or not memory.has_method("has_seen_dialogue"):
+		return _fail_missing("/root/DialogueMemorySystem", "DIALOGUE_SEEN")
 	return bool(memory.call("has_seen_dialogue", dialogue_id))
 
 
 func _eval_dialogue_completed(dialogue_id: String) -> bool:
-	var memory := get_node_or_null("/root/DialogueMemorySystem")
-	if memory == null or dialogue_id.is_empty() or not memory.has_method("has_completed_dialogue"):
-		return false
+	if dialogue_id.is_empty():
+		return _fail_invalid("DIALOGUE_COMPLETED", "empty dialogue_id")
+	var memory := _resolve_peer("/root/DialogueMemorySystem")
+	if memory == null or not memory.has_method("has_completed_dialogue"):
+		return _fail_missing("/root/DialogueMemorySystem", "DIALOGUE_COMPLETED")
 	return bool(memory.call("has_completed_dialogue", dialogue_id))
 
 
 func _eval_dialogue_choice_selected(choice_id: String) -> bool:
-	var memory := get_node_or_null("/root/DialogueMemorySystem")
-	if memory == null or choice_id.is_empty() or not memory.has_method("has_selected_choice"):
-		return false
+	if choice_id.is_empty():
+		return _fail_invalid("DIALOGUE_CHOICE_SELECTED", "empty choice_id")
+	var memory := _resolve_peer("/root/DialogueMemorySystem")
+	if memory == null or not memory.has_method("has_selected_choice"):
+		return _fail_missing("/root/DialogueMemorySystem", "DIALOGUE_CHOICE_SELECTED")
 	return bool(memory.call("has_selected_choice", choice_id))
 
 
 func _eval_dialogue_completion_count_min(dialogue_id: String, min_count: int) -> bool:
-	var memory := get_node_or_null("/root/DialogueMemorySystem")
-	if memory == null or dialogue_id.is_empty() or not memory.has_method("get_times_completed"):
-		return false
+	if dialogue_id.is_empty():
+		return _fail_invalid("DIALOGUE_COMPLETION_COUNT_MIN", "empty dialogue_id")
+	var memory := _resolve_peer("/root/DialogueMemorySystem")
+	if memory == null or not memory.has_method("get_times_completed"):
+		return _fail_missing("/root/DialogueMemorySystem", "DIALOGUE_COMPLETION_COUNT_MIN")
 	return int(memory.call("get_times_completed", dialogue_id)) >= min_count
 
 
 func _eval_npc_state(npc_id: String, state_tag: String) -> bool:
-	var ns := get_node_or_null("/root/NpcStateSystem")
-	if ns == null or npc_id.is_empty() or not ns.has_method("get_current_state"):
-		return false
+	if npc_id.is_empty():
+		return _fail_invalid("NPC_STATE", "empty npc_id")
 	var want := state_tag.strip_edges().to_upper()
 	if want.is_empty():
-		return false
+		return _fail_invalid("NPC_STATE", "empty state tag")
+	var ns := _resolve_peer("/root/NpcStateSystem")
+	if ns == null or not ns.has_method("get_current_state"):
+		return _fail_missing("/root/NpcStateSystem", "NPC_STATE")
 	return str(ns.call("get_current_state", npc_id)).to_upper() == want
 
 
 func _eval_npc_met(npc_id: String, expected: bool) -> bool:
-	var ns := get_node_or_null("/root/NpcStateSystem")
-	if ns == null or npc_id.is_empty() or not ns.has_method("has_met_player"):
-		return expected == false
+	if npc_id.is_empty():
+		return _fail_invalid("NPC_MET", "empty npc_id")
+	var ns := _resolve_peer("/root/NpcStateSystem")
+	if ns == null or not ns.has_method("has_met_player"):
+		return _fail_missing("/root/NpcStateSystem", "NPC_MET")
 	return bool(ns.call("has_met_player", npc_id)) == expected
 
 
 func _eval_npc_enabled(npc_id: String, expected: bool) -> bool:
-	var ns := get_node_or_null("/root/NpcStateSystem")
-	if ns == null or npc_id.is_empty() or not ns.has_method("is_enabled"):
-		return expected == true
+	if npc_id.is_empty():
+		return _fail_invalid("NPC_ENABLED", "empty npc_id")
+	var ns := _resolve_peer("/root/NpcStateSystem")
+	if ns == null or not ns.has_method("is_enabled"):
+		return _fail_missing("/root/NpcStateSystem", "NPC_ENABLED")
 	return bool(ns.call("is_enabled", npc_id)) == expected
 
 
 func _eval_npc_location(npc_id: String, location_id: String) -> bool:
-	var ns := get_node_or_null("/root/NpcStateSystem")
-	if ns == null or npc_id.is_empty() or location_id.is_empty():
-		return false
-	if not ns.has_method("get_location_id"):
-		return false
+	if npc_id.is_empty() or location_id.is_empty():
+		return _fail_invalid("NPC_LOCATION", "empty npc_id or location_id")
+	var ns := _resolve_peer("/root/NpcStateSystem")
+	if ns == null or not ns.has_method("get_location_id"):
+		return _fail_missing("/root/NpcStateSystem", "NPC_LOCATION")
 	return str(ns.call("get_location_id", npc_id)) == location_id
 
 
 func _eval_npc_travel_state(npc_id: String, travel_state: String) -> bool:
-	var ns := get_node_or_null("/root/NpcStateSystem")
-	if ns == null or npc_id.is_empty() or not ns.has_method("get_travel_state"):
-		return false
+	if npc_id.is_empty():
+		return _fail_invalid("NPC_TRAVEL_STATE", "empty npc_id")
 	var want := travel_state.strip_edges().to_upper()
 	if want.is_empty():
-		return false
+		return _fail_invalid("NPC_TRAVEL_STATE", "empty travel_state")
+	var ns := _resolve_peer("/root/NpcStateSystem")
+	if ns == null or not ns.has_method("get_travel_state"):
+		return _fail_missing("/root/NpcStateSystem", "NPC_TRAVEL_STATE")
 	return str(ns.call("get_travel_state", npc_id)).to_upper() == want
 
 
 func _eval_npc_destination(npc_id: String, destination_location_id: String) -> bool:
-	var ns := get_node_or_null("/root/NpcStateSystem")
-	if ns == null or npc_id.is_empty() or destination_location_id.is_empty():
-		return false
-	if not ns.has_method("get_destination_location_id"):
-		return false
+	if npc_id.is_empty() or destination_location_id.is_empty():
+		return _fail_invalid("NPC_DESTINATION", "empty npc_id or destination")
+	var ns := _resolve_peer("/root/NpcStateSystem")
+	if ns == null or not ns.has_method("get_destination_location_id"):
+		return _fail_missing("/root/NpcStateSystem", "NPC_DESTINATION")
 	return str(ns.call("get_destination_location_id", npc_id)) == destination_location_id
 
 
 func _eval_npc_at_location(npc_id: String, location_id: String) -> bool:
-	var travel := get_node_or_null("/root/NpcTravelSystem")
+	if npc_id.is_empty() or location_id.is_empty():
+		return _fail_invalid("NPC_AT_LOCATION", "empty npc_id or location_id")
+	var travel := _resolve_peer("/root/NpcTravelSystem")
 	if travel != null and travel.has_method("is_at_location"):
 		return bool(travel.call("is_at_location", npc_id, location_id))
-	var ns := get_node_or_null("/root/NpcStateSystem")
-	if ns == null or npc_id.is_empty() or location_id.is_empty():
-		return false
+	# Fallback requires NpcStateSystem — missing either path → false.
+	var ns := _resolve_peer("/root/NpcStateSystem")
+	if ns == null:
+		return _fail_missing("/root/NpcStateSystem", "NPC_AT_LOCATION")
 	if ns.has_method("get_travel_state") and str(ns.call("get_travel_state", npc_id)) != "AT_LOCATION":
 		return false
 	if not ns.has_method("get_location_id"):
-		return false
+		return _fail_missing("/root/NpcStateSystem", "NPC_AT_LOCATION")
 	return str(ns.call("get_location_id", npc_id)) == location_id
 
 
 func _eval_relationship_min(npc_id: String, min_value: int) -> bool:
-	var rs := get_node_or_null("/root/RelationshipSystem")
-	if rs == null or npc_id.is_empty() or not rs.has_method("get_relationship"):
-		return false
+	if npc_id.is_empty():
+		return _fail_invalid("RELATIONSHIP_MIN", "empty npc_id")
+	var rs := _resolve_peer("/root/RelationshipSystem")
+	if rs == null or not rs.has_method("get_relationship"):
+		return _fail_missing("/root/RelationshipSystem", "RELATIONSHIP_MIN")
 	return int(rs.call("get_relationship", npc_id)) >= min_value
 
 
 func _eval_relationship_max(npc_id: String, max_value: int) -> bool:
-	var rs := get_node_or_null("/root/RelationshipSystem")
-	if rs == null or npc_id.is_empty() or not rs.has_method("get_relationship"):
-		return false
+	if npc_id.is_empty():
+		return _fail_invalid("RELATIONSHIP_MAX", "empty npc_id")
+	var rs := _resolve_peer("/root/RelationshipSystem")
+	if rs == null or not rs.has_method("get_relationship"):
+		return _fail_missing("/root/RelationshipSystem", "RELATIONSHIP_MAX")
 	return int(rs.call("get_relationship", npc_id)) <= max_value
 
 
 func _eval_reputation_min(group_id: String, min_value: int) -> bool:
-	var rs := get_node_or_null("/root/RelationshipSystem")
-	if rs == null or group_id.is_empty() or not rs.has_method("get_reputation"):
-		return false
+	if group_id.is_empty():
+		return _fail_invalid("REPUTATION_MIN", "empty group_id")
+	var rs := _resolve_peer("/root/RelationshipSystem")
+	if rs == null or not rs.has_method("get_reputation"):
+		return _fail_missing("/root/RelationshipSystem", "REPUTATION_MIN")
 	return int(rs.call("get_reputation", group_id)) >= min_value
 
 
 func _eval_reputation_max(group_id: String, max_value: int) -> bool:
-	var rs := get_node_or_null("/root/RelationshipSystem")
-	if rs == null or group_id.is_empty() or not rs.has_method("get_reputation"):
-		return false
+	if group_id.is_empty():
+		return _fail_invalid("REPUTATION_MAX", "empty group_id")
+	var rs := _resolve_peer("/root/RelationshipSystem")
+	if rs == null or not rs.has_method("get_reputation"):
+		return _fail_missing("/root/RelationshipSystem", "REPUTATION_MAX")
 	return int(rs.call("get_reputation", group_id)) <= max_value
 
 
 func _eval_narrative_hour_min(hour: int) -> bool:
-	var gt := get_node_or_null("/root/GameTimeSystem")
+	var gt := _resolve_peer("/root/GameTimeSystem")
 	if gt == null or not gt.has_method("get_narrative_hour"):
-		return false
+		return _fail_missing("/root/GameTimeSystem", "NARRATIVE_HOUR_MIN")
 	return int(gt.call("get_narrative_hour")) >= clampi(hour, 0, 23)
 
 
 func _eval_narrative_hour_max(hour: int) -> bool:
-	var gt := get_node_or_null("/root/GameTimeSystem")
+	var gt := _resolve_peer("/root/GameTimeSystem")
 	if gt == null or not gt.has_method("get_narrative_hour"):
-		return false
+		return _fail_missing("/root/GameTimeSystem", "NARRATIVE_HOUR_MAX")
 	return int(gt.call("get_narrative_hour")) <= clampi(hour, 0, 23)
 
 
 func _eval_narrative_day_min(day_index: int) -> bool:
-	var gt := get_node_or_null("/root/GameTimeSystem")
+	var gt := _resolve_peer("/root/GameTimeSystem")
 	if gt == null or not gt.has_method("get_narrative_day_index"):
-		return false
+		return _fail_missing("/root/GameTimeSystem", "NARRATIVE_DAY_MIN")
 	return int(gt.call("get_narrative_day_index")) >= maxi(day_index, 0)
 
 
 func _eval_narrative_day_max(day_index: int) -> bool:
-	var gt := get_node_or_null("/root/GameTimeSystem")
+	var gt := _resolve_peer("/root/GameTimeSystem")
 	if gt == null or not gt.has_method("get_narrative_day_index"):
-		return false
+		return _fail_missing("/root/GameTimeSystem", "NARRATIVE_DAY_MAX")
 	return int(gt.call("get_narrative_day_index")) <= maxi(day_index, 0)
 
 
 func _eval_narrative_time_range(start_minutes: int, end_minutes: float) -> bool:
 	## Minutes-of-day window. Cross-midnight when start > end (e.g. 22:00–06:00).
-	var gt := get_node_or_null("/root/GameTimeSystem")
+	var gt := _resolve_peer("/root/GameTimeSystem")
 	if gt == null or not gt.has_method("get_narrative_minutes_of_day"):
-		return false
+		return _fail_missing("/root/GameTimeSystem", "NARRATIVE_TIME_RANGE")
 	var now := float(gt.call("get_narrative_minutes_of_day"))
 	var start_m := float(posmod(start_minutes, 24 * 60))
 	var end_m := fposmod(end_minutes, 24.0 * 60.0)

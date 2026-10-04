@@ -2684,6 +2684,96 @@ func _verify_condition_system() -> bool:
 		push_error("drive_smoke: FLAG_EQUALS expected false should fail")
 		quit(1)
 		return false
+	# Unset flag + expected false = true (system present, value false).
+	if not bool(cond.call("evaluate", cond.call("make_flag_equals", "never_set_smoke_flag", false))):
+		push_error("drive_smoke: FLAG_EQUALS false should pass when flag unset (system present)")
+		quit(1)
+		return false
+
+	# Fail-closed: missing peer ≠ "value is false/true".
+	if cond.has_method("debug_force_peer_missing"):
+		cond.call("debug_clear_missing_log")
+		cond.call("debug_force_peer_missing", "/root/GameFlags")
+		if bool(cond.call("evaluate", cond.call("make_flag_equals", "smoke_flag_a", false))):
+			push_error("drive_smoke: FLAG_EQUALS false must be false when GameFlags missing")
+			quit(1)
+			return false
+		if bool(cond.call("evaluate", cond.call("make_flag_equals", "smoke_flag_a", true))):
+			push_error("drive_smoke: FLAG_EQUALS true must be false when GameFlags missing")
+			quit(1)
+			return false
+		cond.call("debug_clear_peer_overrides")
+
+		var ns_cond: Node = root.get_node_or_null("NpcStateSystem")
+		if ns_cond != null:
+			cond.call("debug_force_peer_missing", "/root/NpcStateSystem")
+			if bool(cond.call("evaluate", cond.call("make_npc_met", "mira_viewpoint_keeper", false))):
+				push_error("drive_smoke: NPC_MET false must be false when NpcStateSystem missing")
+				quit(1)
+				return false
+			if bool(cond.call("evaluate", cond.call("make_npc_enabled", "mira_viewpoint_keeper", true))):
+				push_error("drive_smoke: NPC_ENABLED true must be false when NpcStateSystem missing")
+				quit(1)
+				return false
+			cond.call("debug_clear_peer_overrides")
+			# System present: expected false/true vs actual values.
+			ns_cond.call("reset_for_tests")
+			if not bool(cond.call("evaluate", cond.call("make_npc_met", "mira_viewpoint_keeper", false))):
+				push_error("drive_smoke: NPC_MET false should pass when unmet (system present)")
+				quit(1)
+				return false
+			if not bool(cond.call("evaluate", cond.call("make_npc_enabled", "mira_viewpoint_keeper", true))):
+				push_error("drive_smoke: NPC_ENABLED true should pass by default (system present)")
+				quit(1)
+				return false
+
+	# Nonexistent / empty ids → false.
+	if bool(cond.call("evaluate", cond.call("make_flag_equals", "", true))):
+		push_error("drive_smoke: empty flag_id must fail closed")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate", cond.call("make_quest_state", "no_such_quest_zzz", "ACTIVE"))):
+		push_error("drive_smoke: nonexistent quest id must fail closed")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate", cond.call("make_has_item", "no_such_item_zzz", 1))):
+		push_error("drive_smoke: nonexistent item id must fail closed")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate", cond.call("make_dialogue_seen", "no_such_dialogue_zzz"))):
+		push_error("drive_smoke: nonexistent dialogue id must fail closed")
+		quit(1)
+		return false
+
+	# Invalid / unknown type → false.
+	var bogus: Resource = cond.call("make", -999, "x")
+	if bool(cond.call("evaluate", bogus)):
+		push_error("drive_smoke: unknown condition type must fail closed")
+		quit(1)
+		return false
+
+	# Empty ALL / ANY semantics; null entry in ALL fails.
+	if not bool(cond.call("evaluate_all", [])):
+		push_error("drive_smoke: evaluate_all([]) must be true")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate_any", [])):
+		push_error("drive_smoke: evaluate_any([]) must be false")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate_all", [null])):
+		push_error("drive_smoke: evaluate_all([null]) must be false")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate_any", [null])):
+		push_error("drive_smoke: evaluate_any([null]) must be false")
+		quit(1)
+		return false
+	# null condition resource alone remains vacuous true (no gate authored).
+	if not bool(cond.call("evaluate", null)):
+		push_error("drive_smoke: evaluate(null) must stay vacuous true")
+		quit(1)
+		return false
 
 	# QUEST_STATE
 	if qs != null:

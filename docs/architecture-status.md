@@ -1,7 +1,7 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** hardened autoload init (`fix: harden autoload initialization and dependency binding`)  
+**As of:** fail-closed conditions (`fix: enforce fail-closed gameplay conditions`)  
 **Engine:** Godot 4.7 Forward Plus
 
 This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.  
@@ -304,7 +304,7 @@ Scale rule: **dozens/hundreds of NPCs and dialogues via Resources** — add `.tr
 
 ### Conditions / actions / memory
 
-- **Conditions:** flags, quest, items, POI, world state, vehicle, region, journey, dialogue memory, NPC fields, relationship/reputation, narrative time, travel presence.  
+- **Conditions:** flags, quest, items, POI, world state, vehicle, region, journey, dialogue memory, NPC fields, relationship/reputation, narrative time, travel presence. **Fail-closed** if peer missing (never open via expected-false defaults). `evaluate_all([])=true`, `evaluate_any([])=false`; no NOT operator.  
 - **Actions:** SET_FLAG, quest start/complete, items, world/POI, SET_NPC_*, relationship/reputation, START_NPC_TRAVEL.  
 - **Memory:** start→seen; finish→completed; cancel/interrupt≠completed; choices on confirm.  
 
@@ -340,7 +340,7 @@ No portraits/VO/localization/cinematics/facial/romance/crowds/quest log UI/tree 
 2. **Offline rewrite on load** — intentional; tools that inspect the file immediately after load should re-read disk.
 3. **Dictionary provider registration** — save/load now uses explicit `_provider_order()`; keep new providers listed there.
 4. **Travel Mode + detours** — autopilot stays on main road; exit is player-steered (blocking “auto POI” behavior).
-5. **ConditionSystem empty catalogs / missing peers** — evaluations fail closed (return false) when systems/ids missing.
+5. **ConditionSystem fail-closed** — missing peer / empty or unknown id / unknown type → `false`. Do not confuse with “value is false” when the peer **is** present (e.g. unset flag + `FLAG_EQUALS false` is true).
 6. **Non-stackable upgrades** — install refuses duplicates; effects summed from catalog at runtime (safe on reload).
 
 ---

@@ -1,6 +1,7 @@
 extends Resource
 class_name ConditionData
 ## Data-driven gameplay condition. Evaluated by ConditionSystem — no quest/NPC ifs here.
+## ConditionSystem is fail-closed: missing peers / empty ids / unknown type → false.
 
 enum Type {
 	FLAG_EQUALS,
