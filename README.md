@@ -62,7 +62,7 @@ Reusable world-object interaction — terminals, logs, and NPCs share the same d
 | `NpcStateSystem` | Mutable campaign NPC state by `npc_id` — SaveSystem provider `npc_state` |
 | `RelationshipSystem` | Per-NPC relationship + group reputation (−100..+100) — provider `relationship` |
 
-**E key UX:** On foot, a focused interactable wins (`player_interact`). If none, E enters the parked vehicle. In vehicle (parked), E still exits. Prompt only shows while a valid object is in range/front cone. During dialogue, movement is locked; `dialogue_continue` advances linear lines or confirms the selected choice (↑/↓ to change selection).
+**E key UX:** On foot, a focused interactable wins (`player_interact`). If none, E enters the parked vehicle. In vehicle (parked), E still exits. Prompt only shows while a valid object is in range/front cone. During dialogue, movement is locked; `dialogue_continue` advances linear lines or confirms the selected choice (↑/↓ to change selection). `dialogue_cancel` (Esc) interrupts without completing; re-talk resumes the same line without re-firing once-guards.
 
 **ViewpointTerminal choice:** one-shot **ON** (not a toggle). First successful interact powers it; `can_interact` becomes false; `powered` persists in `WorldStateSystem` across unload/save.
 
@@ -77,7 +77,7 @@ Data-driven talk with optional player choices. No VO, relationship effects, or t
 | `DialogueAction` | Declarative effect (`SET_FLAG`, `START_QUEST`, `ADD_ITEM`, …) — no scripts in resources |
 | `DialogueActionExecutor` | Type dispatch → GameFlags / Quest / Inventory / WorldState / POI / NpcState / Relationship |
 | `DialogueCatalog` | Flat registry (`resources/dialogue/default_catalog.tres`) |
-| `DialogueSystem` | Flow only — ConditionSystem for gates, Executor for effects; auto-records memory |
+| `DialogueSystem` | Flow + session IDLE/ACTIVE/INTERRUPTED; ConditionSystem gates; Executor effects; memory |
 | `DialogueMemorySystem` | Seen / completed / choice counts — SaveSystem provider `dialogue_memory` |
 | `NpcStateSystem` | `enabled` / `met_player` / `current_state` / location / last dialogue / custom flags |
 | `DialogueUI` | Bottom box + choices; `[indisponível]` for failed enable_conditions |
@@ -414,7 +414,7 @@ Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later w
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
-# Expect: … npc_travel=OK … npc_move=OK … npc_sched=OK … time_npc=OK … game_time=OK … drive_smoke: OK
+# Expect: … dlg_interrupt=OK … npc_travel=OK … npc_move=OK … drive_smoke: OK
 ```
 
 
