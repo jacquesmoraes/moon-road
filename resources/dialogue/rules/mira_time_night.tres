@@ -2,13 +2,13 @@
 
 [ext_resource type="Script" path="res://scripts/npc/npc_dialogue_rule.gd" id="1_script"]
 [ext_resource type="Resource" path="res://resources/conditions/mira_npc_met.tres" id="2_met"]
-[ext_resource type="Resource" path="res://resources/conditions/time_hour_min_18.tres" id="3_min"]
+[ext_resource type="Resource" path="res://resources/conditions/narrative_time_range_18_8.tres" id="3_range"]
 
 [resource]
 script = ExtResource("1_script")
-id = "mira_time_night_late"
+id = "mira_time_night"
 dialogue_id = "mira_time_night"
 priority = 55
-conditions = [ExtResource("2_met"), ExtResource("3_min")]
+conditions = [ExtResource("2_met"), ExtResource("3_range")]
 require_all = true
 enabled = true

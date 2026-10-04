@@ -28,6 +28,8 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	_handle_narrative_debug_input()
+
 	if _vehicle == null or not is_instance_valid(_vehicle):
 		_resolve_vehicle()
 		if _vehicle == null:
@@ -62,6 +64,28 @@ func _process(_delta: float) -> void:
 		_label.text = "\n".join(_build_full_lines())
 
 
+func _handle_narrative_debug_input() -> void:
+	## Debug-only narrative clock controls (separate from gameplay).
+	if _game_time == null:
+		_game_time = get_node_or_null("/root/GameTimeSystem")
+	if _game_time == null:
+		return
+	if Input.is_action_just_pressed("narrative_debug_plus_hour"):
+		if _game_time.has_method("debug_advance_narrative_hours"):
+			_game_time.call("debug_advance_narrative_hours", 1.0)
+	if Input.is_action_just_pressed("narrative_debug_plus_six_hours"):
+		if _game_time.has_method("debug_advance_narrative_hours"):
+			_game_time.call("debug_advance_narrative_hours", 6.0)
+	if Input.is_action_just_pressed("narrative_debug_set_morning"):
+		if _game_time.has_method("set_narrative_time"):
+			var day := int(_game_time.call("get_narrative_day_index")) if _game_time.has_method("get_narrative_day_index") else 0
+			_game_time.call("set_narrative_time", day, 8, 0)
+	if Input.is_action_just_pressed("narrative_debug_set_night"):
+		if _game_time.has_method("set_narrative_time"):
+			var day2 := int(_game_time.call("get_narrative_day_index")) if _game_time.has_method("get_narrative_day_index") else 0
+			_game_time.call("set_narrative_time", day2, 22, 0)
+
+
 func _build_on_foot_lines() -> PackedStringArray:
 	var char_node: Node3D = null
 	if _occupancy != null and _occupancy.has_method("get_character"):
@@ -92,6 +116,8 @@ func _build_on_foot_lines() -> PackedStringArray:
 			_format_game_time_play(),
 			_format_game_time_travel(),
 		],
+		"World: %s · scale %s" % [_format_narrative_time(), _format_narrative_scale()],
+		"Narr dbg: F7 +1h · Shift+F7 +6h · F8 08:00 · Shift+F8 22:00",
 		"Walk: WASD · Run: Shift · Look: mouse",
 		"%s" % _format_on_foot_e_hint(char_node, can_enter),
 		"Camera: %s (on-foot)" % cam_mode,
@@ -126,6 +152,7 @@ func _build_travel_mode_lines() -> PackedStringArray:
 		"Speed: %.0f / %.0f km/h" % [speed_kmh, target_kmh],
 		"Fuel: %s" % _format_fuel_short(),
 		"Time: play %s · travel %s" % [_format_game_time_play(), _format_game_time_travel()],
+		"World: %s · scale %s" % [_format_narrative_time(), _format_narrative_scale()],
 		"Camera: %s (M cine · F / Shift+F)" % _format_camera_mode(),
 		"Cancel: V / T / X / Esc / brake / steer",
 	]
@@ -174,6 +201,8 @@ func _build_full_lines() -> PackedStringArray:
 			_format_game_time_travel(),
 			"TRAVELING" if _format_game_time_traveling() else "idle",
 		],
+		"World: %s · scale %s" % [_format_narrative_time(), _format_narrative_scale()],
+		"Narr dbg: F7 +1h · Shift+F7 +6h · F8 08:00 · Shift+F8 22:00",
 		"Vehicle: %s" % _format_vehicle_state(),
 		"Speed: %.1f / max %.0f km/h" % [speed_kmh, _format_vehicle_max_kmh()],
 		"Cruise: %s" % _format_cruise_state(),
@@ -346,6 +375,20 @@ func _format_game_time_traveling() -> bool:
 	if _game_time.has_method("is_traveling"):
 		return bool(_game_time.call("is_traveling"))
 	return false
+
+
+func _format_narrative_time() -> String:
+	if _game_time == null:
+		return "n/a"
+	if _game_time.has_method("get_narrative_time_string"):
+		return str(_game_time.call("get_narrative_time_string"))
+	return "n/a"
+
+
+func _format_narrative_scale() -> String:
+	if _game_time == null or not _game_time.has_method("get_narrative_time_scale"):
+		return "?"
+	return "%.0f" % float(_game_time.call("get_narrative_time_scale"))
 
 
 func _format_vehicle_state() -> String:

@@ -1560,8 +1560,7 @@ func _verify_game_time_system() -> bool:
 			quit(1)
 			return false
 
-	# Wall-clock / FPS independence: tick via Time.get_ticks_msec, not delta alone.
-	# Narrative hour/day are derived from play time — no lighting / art coupling.
+	# Wall-clock / FPS independence; narrative is a separate persistent clock (no lighting).
 	var gt_script: Script = load("res://autoload/game_time_system.gd") as Script
 	if gt_script != null:
 		var src := gt_script.source_code
@@ -1576,8 +1575,15 @@ func _verify_game_time_system() -> bool:
 				return false
 
 	for required_narrative in [
-		"get_hour_of_day",
-		"get_day_index",
+		"get_narrative_day_index",
+		"get_narrative_hour",
+		"get_narrative_minute",
+		"get_narrative_minutes_of_day",
+		"set_narrative_time",
+		"advance_narrative_seconds",
+		"get_narrative_time_string",
+		"wait_until_narrative_time",
+		"advance_narrative_minutes",
 		"debug_set_narrative_time",
 	]:
 		if not gt.has_method(required_narrative):
@@ -1585,32 +1591,106 @@ func _verify_game_time_system() -> bool:
 			quit(1)
 			return false
 
+	# Journey / vehicle must not drive off narrative time.
+	for path in ["res://autoload/journey_system.gd", "res://autoload/vehicle_state_system.gd"]:
+		var peer: Script = load(path) as Script
+		if peer != null:
+			var peer_src := peer.source_code
+			for banned in ["get_narrative_", "narrative_time", "narrative_day", "narrative_minutes"]:
+				if peer_src.find(banned) >= 0:
+					push_error("drive_smoke: %s must not use narrative time ('%s')" % [path, banned])
+					quit(1)
+					return false
+
 	gt.call("reset_for_tests")
 	if float(gt.call("get_total_play_time")) != 0.0 or float(gt.call("get_total_travel_time")) != 0.0:
 		push_error("drive_smoke: GameTimeSystem reset_for_tests did not clear accumulators")
 		quit(1)
 		return false
 
-	# Narrative clock: start hour 8 on day 0; scale 60 ⇒ 1 real min = 1 narrative hour.
-	if int(gt.call("get_hour_of_day")) != 8 or int(gt.call("get_day_index")) != 0:
+	# Independent narrative clock: day 0 08:00; scale 60 ⇒ 1 real min = 1 narrative hour.
+	if int(gt.call("get_narrative_day_index")) != 0 or int(gt.call("get_narrative_hour")) != 8:
 		push_error(
 			"drive_smoke: narrative clock expected day0/h8 got day%d/h%d"
-			% [int(gt.call("get_day_index")), int(gt.call("get_hour_of_day"))]
+			% [int(gt.call("get_narrative_day_index")), int(gt.call("get_narrative_hour"))]
 		)
 		quit(1)
 		return false
-	gt.call("debug_advance", 60.0, false)  # 1 real minute → +60 narrative minutes → hour 9
-	if int(gt.call("get_hour_of_day")) != 9:
+	if not is_equal_approx(float(gt.call("get_narrative_time_scale")), 60.0):
+		push_error("drive_smoke: default narrative_time_scale should be 60")
+		quit(1)
+		return false
+
+	# Narrative independent of travel accumulator.
+	gt.call("set_narrative_time", 0, 10, 0)
+	var narr_before := float(gt.call("get_narrative_minutes_of_day"))
+	gt.set("total_travel_time_seconds", float(gt.call("get_total_travel_time")) + 999.0)
+	if not is_equal_approx(float(gt.call("get_narrative_minutes_of_day")), narr_before):
+		push_error("drive_smoke: narrative must not change when travel time is bumped alone")
+		quit(1)
+		return false
+
+	# Drive 10 real min while traveling: travel≈600, narrative +10h, journey untouched by time alone.
+	var journey: Node = root.get_node_or_null("JourneySystem")
+	var km_before := 0.0
+	if journey != null and journey.has_method("get_current_distance_km"):
+		km_before = float(journey.call("get_current_distance_km"))
+	gt.call("reset_for_tests")
+	gt.call("debug_advance", 600.0, true)
+	if not is_equal_approx(float(gt.call("get_total_travel_time")), 600.0):
 		push_error(
-			"drive_smoke: after 60s play hour should be 9, got %d" % int(gt.call("get_hour_of_day"))
+			"drive_smoke: travel expected 600 after 10min drive, got %.3f"
+			% float(gt.call("get_total_travel_time"))
 		)
 		quit(1)
 		return false
-	gt.call("debug_set_narrative_time", 1, 22)
-	if int(gt.call("get_day_index")) != 1 or int(gt.call("get_hour_of_day")) != 22:
+	if int(gt.call("get_narrative_hour")) != 18:
 		push_error(
-			"drive_smoke: debug_set_narrative_time failed (day%d/h%d)"
-			% [int(gt.call("get_day_index")), int(gt.call("get_hour_of_day"))]
+			"drive_smoke: after 10 real min (scale 60) hour should be 18, got %d"
+			% int(gt.call("get_narrative_hour"))
+		)
+		quit(1)
+		return false
+	if journey != null and journey.has_method("get_current_distance_km"):
+		if not is_equal_approx(float(journey.call("get_current_distance_km")), km_before):
+			push_error("drive_smoke: narrative/play advance must not add journey km")
+			quit(1)
+			return false
+
+	# Parked 10 min: no travel growth; narrative still advances.
+	gt.call("reset_for_tests")
+	gt.call("debug_advance", 600.0, false)
+	if not is_equal_approx(float(gt.call("get_total_travel_time")), 0.0):
+		push_error("drive_smoke: parked 10min must not add travel time")
+		quit(1)
+		return false
+	if int(gt.call("get_narrative_hour")) != 18:
+		push_error(
+			"drive_smoke: parked 10min should still advance narrative to hour 18, got %d"
+			% int(gt.call("get_narrative_hour"))
+		)
+		quit(1)
+		return false
+
+	gt.call("set_narrative_time", 1, 22, 30)
+	if int(gt.call("get_narrative_day_index")) != 1 or int(gt.call("get_narrative_hour")) != 22:
+		push_error("drive_smoke: set_narrative_time failed")
+		quit(1)
+		return false
+	if int(gt.call("get_narrative_minute")) != 30:
+		push_error("drive_smoke: narrative minute should be 30")
+		quit(1)
+		return false
+	if str(gt.call("get_narrative_time_string")).find("22:30") < 0:
+		push_error("drive_smoke: get_narrative_time_string missing 22:30")
+		quit(1)
+		return false
+	# Future wait API: advance to next 06:00 → day 2 06:00.
+	gt.call("wait_until_narrative_time", 6, 0)
+	if int(gt.call("get_narrative_day_index")) != 2 or int(gt.call("get_narrative_hour")) != 6:
+		push_error(
+			"drive_smoke: wait_until_narrative_time failed (day%d/h%d)"
+			% [int(gt.call("get_narrative_day_index")), int(gt.call("get_narrative_hour"))]
 		)
 		quit(1)
 		return false
@@ -1739,28 +1819,28 @@ func _verify_game_time_system() -> bool:
 		"total_travel_time_seconds",
 		"last_save_timestamp",
 		"last_exit_timestamp",
-		"narrative_minutes_per_real_minute",
-		"narrative_start_hour",
 		"narrative_day_index",
-		"narrative_hour_of_day",
+		"narrative_minutes_of_day",
+		"narrative_time_scale",
 	]:
 		if not gt_payload.has(key):
 			push_error("drive_smoke: game_time save missing '%s'" % key)
 			quit(1)
 			return false
 
-	# Pin narrative clock before save so hour/day round-trip is deterministic.
-	gt.call("debug_set_narrative_time", 2, 14)
+	# Pin narrative clock before save so day+time round-trip is deterministic.
+	gt.call("set_narrative_time", 2, 14, 15)
 	play_saved = float(gt.call("get_total_play_time"))
 	travel_saved = float(gt.call("get_total_travel_time"))
-	var hour_saved := int(gt.call("get_hour_of_day"))
-	var day_saved := int(gt.call("get_day_index"))
+	var hour_saved := int(gt.call("get_narrative_hour"))
+	var minute_saved := int(gt.call("get_narrative_minute"))
+	var day_saved := int(gt.call("get_narrative_day_index"))
 	if not bool(save.call("save_game")):
 		push_error("drive_smoke: narrative clock save_game failed")
 		quit(1)
 		return false
 
-	# Wipe runtime then reload — accumulators must restore; session start refreshes.
+	# Wipe runtime then reload — accumulators + narrative must restore.
 	gt.call("reset_for_tests")
 	if float(gt.call("get_total_play_time")) != 0.0:
 		push_error("drive_smoke: reset before load failed")
@@ -1784,14 +1864,20 @@ func _verify_game_time_system() -> bool:
 		)
 		quit(1)
 		return false
-	if int(gt.call("get_hour_of_day")) != hour_saved or int(gt.call("get_day_index")) != day_saved:
+	if (
+		int(gt.call("get_narrative_hour")) != hour_saved
+		or int(gt.call("get_narrative_minute")) != minute_saved
+		or int(gt.call("get_narrative_day_index")) != day_saved
+	):
 		push_error(
-			"drive_smoke: narrative clock not restored (day%d/h%d vs day%d/h%d)"
+			"drive_smoke: narrative clock not restored (day%d %02d:%02d vs day%d %02d:%02d)"
 			% [
-				int(gt.call("get_day_index")),
-				int(gt.call("get_hour_of_day")),
+				int(gt.call("get_narrative_day_index")),
+				int(gt.call("get_narrative_hour")),
+				int(gt.call("get_narrative_minute")),
 				day_saved,
 				hour_saved,
+				minute_saved,
 			]
 		)
 		quit(1)
@@ -1813,6 +1899,89 @@ func _verify_game_time_system() -> bool:
 		quit(1)
 		return false
 
+	# Offline narrative: OFF (not traveling at save) → clock unchanged on load.
+	var vs_off: Node = root.get_node_or_null("VehicleStateSystem")
+	if vs_off != null:
+		gt.call("set_narrative_time", 3, 12, 0)
+		vs_off.set("was_traveling_at_save", false)
+		gt.set("last_exit_timestamp", float(Time.get_unix_time_from_system()) - 3600.0)
+		if not bool(save.call("save_game")):
+			push_error("drive_smoke: offline-OFF narrative save failed")
+			quit(1)
+			return false
+		# Ensure payload says not traveling.
+		var path_off := str(save.call("get_save_path"))
+		var raw_off := FileAccess.get_file_as_string(path_off)
+		var parsed_off: Variant = JSON.parse_string(raw_off)
+		if typeof(parsed_off) == TYPE_DICTIONARY:
+			var systems_off: Dictionary = parsed_off.get("systems", {})
+			if systems_off.has("vehicle_state"):
+				systems_off["vehicle_state"]["was_traveling_at_save"] = false
+				parsed_off["systems"] = systems_off
+				var f_off := FileAccess.open(path_off, FileAccess.WRITE)
+				if f_off != null:
+					f_off.store_string(JSON.stringify(parsed_off))
+					f_off.close()
+		gt.call("reset_for_tests")
+		if not bool(save.call("load_game")):
+			push_error("drive_smoke: offline-OFF load failed")
+			quit(1)
+			return false
+		if int(gt.call("get_narrative_day_index")) != 3 or int(gt.call("get_narrative_hour")) != 12:
+			push_error(
+				"drive_smoke: offline progress OFF must not advance narrative (got day%d/h%d)"
+				% [int(gt.call("get_narrative_day_index")), int(gt.call("get_narrative_hour"))]
+			)
+			quit(1)
+			return false
+
+		# Offline narrative: applied travel advances by fuel-capped duration only.
+		gt.call("set_narrative_time", 4, 8, 0)
+		if vs_off.has_method("reset_for_tests"):
+			vs_off.call("reset_for_tests")
+		vs_off.set("fuel_current", 50.0)
+		vs_off.set("offline_cruise_speed_kmh", 60.0)
+		vs_off.set("was_traveling_at_save", true)
+		gt.set("last_exit_timestamp", float(Time.get_unix_time_from_system()) - 600.0)  # 10 real min
+		if not bool(save.call("save_game")):
+			push_error("drive_smoke: offline-ON narrative save failed")
+			quit(1)
+			return false
+		var path_on := str(save.call("get_save_path"))
+		var parsed_on: Variant = JSON.parse_string(FileAccess.get_file_as_string(path_on))
+		if typeof(parsed_on) == TYPE_DICTIONARY:
+			var systems_on: Dictionary = parsed_on.get("systems", {})
+			if systems_on.has("vehicle_state"):
+				systems_on["vehicle_state"]["was_traveling_at_save"] = true
+				systems_on["vehicle_state"]["fuel_current"] = 50.0
+				systems_on["vehicle_state"]["offline_cruise_speed_kmh"] = 60.0
+			if systems_on.has("game_time"):
+				systems_on["game_time"]["last_exit_timestamp"] = (
+					float(Time.get_unix_time_from_system()) - 600.0
+				)
+				systems_on["game_time"]["narrative_day_index"] = 4
+				systems_on["game_time"]["narrative_minutes_of_day"] = 8.0 * 60.0
+			parsed_on["systems"] = systems_on
+			var f_on := FileAccess.open(path_on, FileAccess.WRITE)
+			if f_on != null:
+				f_on.store_string(JSON.stringify(parsed_on))
+				f_on.close()
+		gt.call("reset_for_tests")
+		if vs_off.has_method("reset_for_tests"):
+			vs_off.call("reset_for_tests")
+		if not bool(save.call("load_game")):
+			push_error("drive_smoke: offline-ON load failed")
+			quit(1)
+			return false
+		# 10 real min offline at scale 60 → +10 narrative hours → 18:00 day 4.
+		if int(gt.call("get_narrative_day_index")) != 4 or int(gt.call("get_narrative_hour")) != 18:
+			push_error(
+				"drive_smoke: offline applied should advance narrative to day4/h18 (got day%d/h%d)"
+				% [int(gt.call("get_narrative_day_index")), int(gt.call("get_narrative_hour"))]
+			)
+			quit(1)
+			return false
+
 	# Cleanup.
 	save.call("delete_save")
 	gt.call("reset_for_tests")
@@ -1821,7 +1990,7 @@ func _verify_game_time_system() -> bool:
 	if _vehicle.has_method("try_unpark"):
 		_vehicle.call("try_unpark")
 	print(
-		"drive_smoke: game_time OK (play/travel + narrative hour/day + save + offline)"
+		"drive_smoke: game_time OK (play/travel + independent narrative + save + offline gates)"
 	)
 	return true
 
@@ -2551,28 +2720,44 @@ func _verify_condition_system() -> bool:
 			quit(1)
 			return false
 
-	# TIME_HOUR_MIN / TIME_HOUR_MAX / DAY_INDEX_MIN (narrative clock)
+	# NARRATIVE_* conditions (world clock — never system/play hour).
 	var gt_cond: Node = root.get_node_or_null("GameTimeSystem")
-	if gt_cond != null and gt_cond.has_method("debug_set_narrative_time"):
-		gt_cond.call("debug_set_narrative_time", 1, 10)
-		if not bool(cond.call("evaluate", cond.call("make_time_hour_min", 8))):
-			push_error("drive_smoke: TIME_HOUR_MIN 8 should pass at hour 10")
+	if gt_cond != null and gt_cond.has_method("set_narrative_time"):
+		gt_cond.call("set_narrative_time", 1, 10, 0)
+		if not bool(cond.call("evaluate", cond.call("make_narrative_hour_min", 8))):
+			push_error("drive_smoke: NARRATIVE_HOUR_MIN 8 should pass at hour 10")
 			quit(1)
 			return false
-		if not bool(cond.call("evaluate", cond.call("make_time_hour_max", 17))):
-			push_error("drive_smoke: TIME_HOUR_MAX 17 should pass at hour 10")
+		if not bool(cond.call("evaluate", cond.call("make_narrative_hour_max", 17))):
+			push_error("drive_smoke: NARRATIVE_HOUR_MAX 17 should pass at hour 10")
 			quit(1)
 			return false
-		if bool(cond.call("evaluate", cond.call("make_time_hour_min", 18))):
-			push_error("drive_smoke: TIME_HOUR_MIN 18 should fail at hour 10")
+		if bool(cond.call("evaluate", cond.call("make_narrative_hour_min", 18))):
+			push_error("drive_smoke: NARRATIVE_HOUR_MIN 18 should fail at hour 10")
 			quit(1)
 			return false
-		if not bool(cond.call("evaluate", cond.call("make_day_index_min", 1))):
-			push_error("drive_smoke: DAY_INDEX_MIN 1 should pass on day 1")
+		if not bool(cond.call("evaluate", cond.call("make_narrative_day_min", 1))):
+			push_error("drive_smoke: NARRATIVE_DAY_MIN 1 should pass on day 1")
 			quit(1)
 			return false
-		if bool(cond.call("evaluate", cond.call("make_day_index_min", 2))):
-			push_error("drive_smoke: DAY_INDEX_MIN 2 should fail on day 1")
+		if bool(cond.call("evaluate", cond.call("make_narrative_day_max", 0))):
+			push_error("drive_smoke: NARRATIVE_DAY_MAX 0 should fail on day 1")
+			quit(1)
+			return false
+		# Cross-midnight range 22:00–06:00.
+		gt_cond.call("set_narrative_time", 0, 23, 0)
+		if not bool(cond.call("evaluate", cond.call("make_narrative_time_range", 22, 6))):
+			push_error("drive_smoke: NARRATIVE_TIME_RANGE 22–6 should pass at 23:00")
+			quit(1)
+			return false
+		gt_cond.call("set_narrative_time", 0, 3, 0)
+		if not bool(cond.call("evaluate", cond.call("make_narrative_time_range", 22, 6))):
+			push_error("drive_smoke: NARRATIVE_TIME_RANGE 22–6 should pass at 03:00")
+			quit(1)
+			return false
+		gt_cond.call("set_narrative_time", 0, 12, 0)
+		if bool(cond.call("evaluate", cond.call("make_narrative_time_range", 22, 6))):
+			push_error("drive_smoke: NARRATIVE_TIME_RANGE 22–6 should fail at 12:00")
 			quit(1)
 			return false
 		gt_cond.call("reset_for_tests")
@@ -4810,8 +4995,8 @@ func _verify_npc_dialogue_rules(_occupancy: Node, character: CharacterBody3D, _f
 	dlg.call("reload_catalog")
 	dlg.call("reload_npc_catalog")
 	var gt_rules: Node = root.get_node_or_null("GameTimeSystem")
-	if gt_rules != null and gt_rules.has_method("debug_set_narrative_time"):
-		gt_rules.call("debug_set_narrative_time", 0, 10)
+	if gt_rules != null and gt_rules.has_method("set_narrative_time"):
+		gt_rules.call("set_narrative_time", 0, 10, 0)
 
 	# 1) First meet → fallback intro (time rules require NPC_MET).
 	var first := str(dlg.call("resolve_dialogue_for_npc", MIRA))
@@ -5401,7 +5586,7 @@ func _verify_relationship_system(_occupancy: Node, character: CharacterBody3D, _
 func _verify_time_npc_availability(
 	_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D
 ) -> bool:
-	## Narrative hour/day → Mira 08–18 window + day/night dialogue lines (no lighting).
+	## Narrative world clock → Mira 08–18 window + day/night dialogue (ConditionSystem rules).
 	var gt: Node = root.get_node_or_null("GameTimeSystem")
 	var dlg: Node = root.get_node_or_null("DialogueSystem")
 	var cond: Node = root.get_node_or_null("ConditionSystem")
@@ -5416,13 +5601,18 @@ func _verify_time_npc_availability(
 
 	const MIRA := "mira_viewpoint_keeper"
 
-	# No lighting / art wiring in NPC availability path.
 	var npc_script: Script = load("res://scripts/npc/npc_character.gd") as Script
 	if npc_script != null:
 		var src := npc_script.source_code
-		for banned in ["DirectionalLight", "WorldEnvironment", "sky_energy"]:
+		for banned in [
+			"DirectionalLight",
+			"WorldEnvironment",
+			"sky_energy",
+			"Time.get_datetime_dict_from_system",
+			"Time.get_datetime_string_from_system",
+		]:
 			if src.find(banned) >= 0:
-				push_error("drive_smoke: NpcCharacter must not wire visuals '%s'" % banned)
+				push_error("drive_smoke: NpcCharacter must not contain '%s'" % banned)
 				quit(1)
 				return false
 
@@ -5462,19 +5652,23 @@ func _verify_time_npc_availability(
 		quit(1)
 		return false
 
-	# Daytime: visible + interactable; after met → "Bom dia."
-	gt.call("debug_set_narrative_time", 0, 10)
+	# Persist met flag across hide/show — availability must not wipe NpcState.
+	ns.call("set_met_player", MIRA, true)
+	if ns.has_method("set_current_state"):
+		ns.call("set_current_state", MIRA, "QUEST_RELATED")
+
+	# Daytime: visible + interactable → "Bom dia." via dialogue rules / conditions.
+	gt.call("set_narrative_time", 0, 10, 0)
 	await physics_frame
 	await physics_frame
 	if not bool(mira.call("is_within_availability_window")):
-		push_error("drive_smoke: Mira should be available at hour 10")
+		push_error("drive_smoke: Mira should be available at narrative hour 10")
 		quit(1)
 		return false
 	if not bool(mira.visible):
-		push_error("drive_smoke: Mira should be visible at hour 10")
+		push_error("drive_smoke: Mira should be visible at narrative hour 10")
 		quit(1)
 		return false
-	ns.call("set_met_player", MIRA, true)
 	var day_id := str(dlg.call("resolve_dialogue_for_npc", MIRA))
 	if day_id != "mira_time_day":
 		push_error("drive_smoke: day resolve expected mira_time_day, got %s" % day_id)
@@ -5483,7 +5677,7 @@ func _verify_time_npc_availability(
 	character.global_position = (mira as Node3D).global_position + Vector3(0.0, 0.05, 1.5)
 	await physics_frame
 	if not bool(mira.call("can_interact", character)):
-		push_error("drive_smoke: Mira should be interactable at hour 10")
+		push_error("drive_smoke: Mira should be interactable at narrative hour 10")
 		quit(1)
 		return false
 	if not bool(mira.call("interact", character)):
@@ -5503,20 +5697,29 @@ func _verify_time_npc_availability(
 	dlg.call("end_dialogue", false)
 	await physics_frame
 
-	# Night: hidden / unavailable; resolve still yields night line for gates.
-	gt.call("debug_set_narrative_time", 0, 22)
+	# Night outside window: hidden; dialogue rules still resolve night line.
+	gt.call("set_narrative_time", 0, 22, 0)
 	await physics_frame
 	await physics_frame
 	if bool(mira.call("is_within_availability_window")):
-		push_error("drive_smoke: Mira should be outside window at hour 22")
+		push_error("drive_smoke: Mira should be outside window at narrative hour 22")
 		quit(1)
 		return false
 	if bool(mira.visible):
-		push_error("drive_smoke: Mira should be hidden at hour 22")
+		push_error("drive_smoke: Mira should be hidden at narrative hour 22")
 		quit(1)
 		return false
 	if bool(mira.call("can_interact", character)):
-		push_error("drive_smoke: Mira should not be interactable at hour 22")
+		push_error("drive_smoke: Mira should not be interactable at narrative hour 22")
+		quit(1)
+		return false
+	# Persistent state kept while hidden.
+	if ns.has_method("has_met_player") and not bool(ns.call("has_met_player", MIRA)):
+		push_error("drive_smoke: hiding Mira must not clear met_player")
+		quit(1)
+		return false
+	if ns.has_method("get_current_state") and str(ns.call("get_current_state", MIRA)) != "QUEST_RELATED":
+		push_error("drive_smoke: hiding Mira must not clear current_state")
 		quit(1)
 		return false
 	var night_id := str(dlg.call("resolve_dialogue_for_npc", MIRA))
@@ -5530,23 +5733,25 @@ func _verify_time_npc_availability(
 		quit(1)
 		return false
 
-	# DAY_INDEX_MIN condition + hour advance across midnight.
-	gt.call("debug_set_narrative_time", 0, 23)
-	if bool(cond.call("evaluate", cond.call("make_day_index_min", 1))):
-		push_error("drive_smoke: DAY_INDEX_MIN 1 should fail on day 0")
+	# Cross-midnight range condition 22–06.
+	if not bool(cond.call("evaluate", cond.call("make_narrative_time_range", 22, 6))):
+		push_error("drive_smoke: range 22–6 should pass at 22:00")
 		quit(1)
 		return false
-	# Scale 60: 60 real seconds → +1 narrative hour → day 1 hour 0.
-	gt.call("debug_advance", 60.0, false)
-	if int(gt.call("get_day_index")) != 1 or int(gt.call("get_hour_of_day")) != 0:
+	gt.call("set_narrative_time", 0, 5, 0)
+	if not bool(cond.call("evaluate", cond.call("make_narrative_time_range", 22, 6))):
+		push_error("drive_smoke: range 22–6 should pass at 05:00")
+		quit(1)
+		return false
+
+	# Midnight wrap via advance_narrative_seconds.
+	gt.call("set_narrative_time", 0, 23, 0)
+	gt.call("advance_narrative_seconds", 60.0)  # scale 60 → +1 hour
+	if int(gt.call("get_narrative_day_index")) != 1 or int(gt.call("get_narrative_hour")) != 0:
 		push_error(
-			"drive_smoke: hour advance across midnight failed (day%d/h%d)"
-			% [int(gt.call("get_day_index")), int(gt.call("get_hour_of_day"))]
+			"drive_smoke: narrative midnight wrap failed (day%d/h%d)"
+			% [int(gt.call("get_narrative_day_index")), int(gt.call("get_narrative_hour"))]
 		)
-		quit(1)
-		return false
-	if not bool(cond.call("evaluate", cond.call("make_day_index_min", 1))):
-		push_error("drive_smoke: DAY_INDEX_MIN 1 should pass after midnight")
 		quit(1)
 		return false
 
@@ -5559,7 +5764,7 @@ func _verify_time_npc_availability(
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print(
-		"drive_smoke: time_npc OK (Mira 08–18 window + mira_time_day/night + hour/day + conditions)"
+		"drive_smoke: time_npc OK (independent narrative + Mira window + day/night + range 22–6)"
 	)
 	return true
 

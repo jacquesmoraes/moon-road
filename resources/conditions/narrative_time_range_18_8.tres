@@ -4,5 +4,6 @@
 
 [resource]
 script = ExtResource("1_script")
-type = 22
-int_value = 18
+type = 26
+int_value = 1080
+float_value = 480.0

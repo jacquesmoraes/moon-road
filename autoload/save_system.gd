@@ -206,12 +206,20 @@ func _apply_offline_travel_hook() -> void:
 	var result: Variant = vs.call("apply_offline_travel", offline)
 	vs.set("was_traveling_at_save", false)
 	_rewrite_save_after_offline = true
+	# Narrative world clock advances only for offline progress actually applied (fuel-capped).
+	# If offline progress was OFF (was_traveling_at_save false), this hook never runs.
 	if typeof(result) == TYPE_DICTIONARY:
 		var reason := str(result.get("stopped_reason", ""))
 		var km := float(result.get("distance_applied_km", 0.0))
+		var speed := float(vs.get("offline_cruise_speed_kmh"))
+		var applied_seconds := 0.0
+		if speed > 0.0 and km > 0.0:
+			applied_seconds = (km / speed) * 3600.0
+		if gt.has_method("apply_offline_narrative_progress") and applied_seconds > 0.0:
+			gt.call("apply_offline_narrative_progress", applied_seconds)
 		print(
-			"SaveSystem: offline travel +%.3f km (offline=%.1fs reason=%s)"
-			% [km, offline, reason if not reason.is_empty() else "ok"]
+			"SaveSystem: offline travel +%.3f km (offline=%.1fs narr+=%.1fs reason=%s)"
+			% [km, offline, applied_seconds, reason if not reason.is_empty() else "ok"]
 		)
 
 

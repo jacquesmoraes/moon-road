@@ -106,7 +106,7 @@ func get_interaction_prompt() -> String:
 
 
 func is_within_availability_window() -> bool:
-	## Data-driven window from NpcDefinition; no schedule/pathfinding.
+	## Data-driven narrative-hour window from NpcDefinition (never system clock).
 	_apply_definition_to_exports()
 	if definition == null or not definition.has_method("has_availability_window"):
 		return true
@@ -114,7 +114,9 @@ func is_within_availability_window() -> bool:
 		return true
 	var gt := get_node_or_null("/root/GameTimeSystem")
 	var hour := 0
-	if gt != null and gt.has_method("get_hour_of_day"):
+	if gt != null and gt.has_method("get_narrative_hour"):
+		hour = int(gt.call("get_narrative_hour"))
+	elif gt != null and gt.has_method("get_hour_of_day"):
 		hour = int(gt.call("get_hour_of_day"))
 	if definition.has_method("is_hour_within_availability"):
 		return bool(definition.call("is_hour_within_availability", hour))
@@ -297,12 +299,13 @@ func _connect_narrative_time() -> void:
 		gt.narrative_time_changed.connect(_on_narrative_time_changed)
 
 
-func _on_narrative_time_changed(_day_index: int, _hour_of_day: int) -> void:
+func _on_narrative_time_changed(_day_index: int, _hour: int, _minute: int = 0) -> void:
 	_refresh_time_availability()
 
 
 func _refresh_time_availability() -> void:
-	## Outside the authored window: hidden + non-interactable (no art/lighting).
+	## Outside the authored window: hidden + non-interactable.
+	## Does not wipe NpcStateSystem persistence — only scene presence/interaction.
 	var available := is_within_availability_window()
 	visible = available
 	monitorable = available

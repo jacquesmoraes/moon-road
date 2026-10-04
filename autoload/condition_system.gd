@@ -169,22 +169,49 @@ func make_reputation_max(group_id: String, max_value: int) -> Resource:
 	return c
 
 
-func make_time_hour_min(hour: int) -> Resource:
-	var c := make(ConditionDataScript.Type.TIME_HOUR_MIN)
+func make_narrative_hour_min(hour: int) -> Resource:
+	var c := make(ConditionDataScript.Type.NARRATIVE_HOUR_MIN)
 	c.set("int_value", clampi(hour, 0, 23))
 	return c
+
+
+func make_narrative_hour_max(hour: int) -> Resource:
+	var c := make(ConditionDataScript.Type.NARRATIVE_HOUR_MAX)
+	c.set("int_value", clampi(hour, 0, 23))
+	return c
+
+
+func make_narrative_day_min(day_index: int) -> Resource:
+	var c := make(ConditionDataScript.Type.NARRATIVE_DAY_MIN)
+	c.set("int_value", maxi(day_index, 0))
+	return c
+
+
+func make_narrative_day_max(day_index: int) -> Resource:
+	var c := make(ConditionDataScript.Type.NARRATIVE_DAY_MAX)
+	c.set("int_value", maxi(day_index, 0))
+	return c
+
+
+func make_narrative_time_range(start_hour: int, end_hour: int) -> Resource:
+	## Inclusive start hour, exclusive end hour. Cross-midnight supported (e.g. 22→6).
+	var c := make(ConditionDataScript.Type.NARRATIVE_TIME_RANGE)
+	c.set("int_value", clampi(start_hour, 0, 23) * 60)
+	c.set("float_value", float(clampi(end_hour, 0, 23) * 60))
+	return c
+
+
+## Retired aliases — map to narrative world clock (never play/system time).
+func make_time_hour_min(hour: int) -> Resource:
+	return make_narrative_hour_min(hour)
 
 
 func make_time_hour_max(hour: int) -> Resource:
-	var c := make(ConditionDataScript.Type.TIME_HOUR_MAX)
-	c.set("int_value", clampi(hour, 0, 23))
-	return c
+	return make_narrative_hour_max(hour)
 
 
 func make_day_index_min(day_index: int) -> Resource:
-	var c := make(ConditionDataScript.Type.DAY_INDEX_MIN)
-	c.set("int_value", maxi(day_index, 0))
-	return c
+	return make_narrative_day_min(day_index)
 
 
 func _evaluate_typed(condition: Resource) -> bool:
@@ -237,12 +264,18 @@ func _evaluate_typed(condition: Resource) -> bool:
 			return _eval_reputation_min(key, int(condition.get("int_value")))
 		ConditionDataScript.Type.REPUTATION_MAX:
 			return _eval_reputation_max(key, int(condition.get("int_value")))
-		ConditionDataScript.Type.TIME_HOUR_MIN:
-			return _eval_time_hour_min(int(condition.get("int_value")))
-		ConditionDataScript.Type.TIME_HOUR_MAX:
-			return _eval_time_hour_max(int(condition.get("int_value")))
-		ConditionDataScript.Type.DAY_INDEX_MIN:
-			return _eval_day_index_min(int(condition.get("int_value")))
+		ConditionDataScript.Type.NARRATIVE_HOUR_MIN:
+			return _eval_narrative_hour_min(int(condition.get("int_value")))
+		ConditionDataScript.Type.NARRATIVE_HOUR_MAX:
+			return _eval_narrative_hour_max(int(condition.get("int_value")))
+		ConditionDataScript.Type.NARRATIVE_DAY_MIN:
+			return _eval_narrative_day_min(int(condition.get("int_value")))
+		ConditionDataScript.Type.NARRATIVE_DAY_MAX:
+			return _eval_narrative_day_max(int(condition.get("int_value")))
+		ConditionDataScript.Type.NARRATIVE_TIME_RANGE:
+			return _eval_narrative_time_range(
+				int(condition.get("int_value")), float(condition.get("float_value"))
+			)
 		_:
 			push_warning("ConditionSystem: unknown condition type %d" % type_value)
 			return false
@@ -429,22 +462,44 @@ func _eval_reputation_max(group_id: String, max_value: int) -> bool:
 	return int(rs.call("get_reputation", group_id)) <= max_value
 
 
-func _eval_time_hour_min(hour: int) -> bool:
+func _eval_narrative_hour_min(hour: int) -> bool:
 	var gt := get_node_or_null("/root/GameTimeSystem")
-	if gt == null or not gt.has_method("get_hour_of_day"):
+	if gt == null or not gt.has_method("get_narrative_hour"):
 		return false
-	return int(gt.call("get_hour_of_day")) >= clampi(hour, 0, 23)
+	return int(gt.call("get_narrative_hour")) >= clampi(hour, 0, 23)
 
 
-func _eval_time_hour_max(hour: int) -> bool:
+func _eval_narrative_hour_max(hour: int) -> bool:
 	var gt := get_node_or_null("/root/GameTimeSystem")
-	if gt == null or not gt.has_method("get_hour_of_day"):
+	if gt == null or not gt.has_method("get_narrative_hour"):
 		return false
-	return int(gt.call("get_hour_of_day")) <= clampi(hour, 0, 23)
+	return int(gt.call("get_narrative_hour")) <= clampi(hour, 0, 23)
 
 
-func _eval_day_index_min(day_index: int) -> bool:
+func _eval_narrative_day_min(day_index: int) -> bool:
 	var gt := get_node_or_null("/root/GameTimeSystem")
-	if gt == null or not gt.has_method("get_day_index"):
+	if gt == null or not gt.has_method("get_narrative_day_index"):
 		return false
-	return int(gt.call("get_day_index")) >= maxi(day_index, 0)
+	return int(gt.call("get_narrative_day_index")) >= maxi(day_index, 0)
+
+
+func _eval_narrative_day_max(day_index: int) -> bool:
+	var gt := get_node_or_null("/root/GameTimeSystem")
+	if gt == null or not gt.has_method("get_narrative_day_index"):
+		return false
+	return int(gt.call("get_narrative_day_index")) <= maxi(day_index, 0)
+
+
+func _eval_narrative_time_range(start_minutes: int, end_minutes: float) -> bool:
+	## Minutes-of-day window. Cross-midnight when start > end (e.g. 22:00–06:00).
+	var gt := get_node_or_null("/root/GameTimeSystem")
+	if gt == null or not gt.has_method("get_narrative_minutes_of_day"):
+		return false
+	var now := float(gt.call("get_narrative_minutes_of_day"))
+	var start_m := float(posmod(start_minutes, 24 * 60))
+	var end_m := fposmod(end_minutes, 24.0 * 60.0)
+	if is_equal_approx(start_m, end_m):
+		return true
+	if start_m < end_m:
+		return now >= start_m and now < end_m
+	return now >= start_m or now < end_m

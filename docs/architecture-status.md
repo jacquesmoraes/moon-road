@@ -1,7 +1,7 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** time-based NPC availability (`feat: add time-based npc availability`)  
+**As of:** narrative world time + NPC availability (`feat: add narrative world time and npc availability`)  
 **Engine:** Godot 4.7 Forward Plus
 
 This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.
@@ -12,7 +12,7 @@ This document describes the **current implemented foundation**, not the full des
 
 | Autoload | Owns | Does **not** own |
 |----------|------|------------------|
-| `JourneySystem` | Logical Earth→Moon distance (km), physical→journey scale | Vehicle physics, road mesh |
+| `JourneySystem` | Logical Earth→Moon distance (km), physical→journey scale | Vehicle physics, road mesh, narrative clock |
 | `WorldRegionSystem` | Region band from journey distance | Visuals/audio of regions |
 | `POISystem` | Discovery flags + spawn/despawn of viewpoint scenes | Quest/terminal logic |
 | `DialogueSystem` | Linear + choice runner; NPC rule resolve (`resolve_dialogue_for_npc`); gates/effects/memory | Action type dispatch, NPC placement |
@@ -23,8 +23,8 @@ This document describes the **current implemented foundation**, not the full des
 | `CraftingSystem` | Recipes; consume→output via Inventory | Workbench UX beyond debug UI |
 | `SaveSystem` | Versioned JSON coordinator + offline hook trigger | Provider internals |
 | `WorldStateSystem` | Serializable entity/key bag (terminals, pickups) | Node refs, POI discovery |
-| `GameTimeSystem` | Play / travel / offline + narrative `hour_of_day` / `day_index` (play×scale) | Lighting, art, full calendar / schedules |
-| `VehicleStateSystem` | Persistent car attrs, fuel, upgrades, offline travel apply | CharacterBody3D motion |
+| `GameTimeSystem` | **Three clocks:** play/travel · narrative world · system timestamps | Lighting, art, calendar, journey km |
+| `VehicleStateSystem` | Persistent car attrs, fuel, upgrades, offline travel apply | CharacterBody3D motion, narrative clock |
 | `GameFlags` | Boolean flags by id | Condition evaluation |
 | `ConditionSystem` | Evaluate `ConditionData` against other systems | Quest/NPC-specific branches |
 | `RelationshipSystem` | Per-NPC relationship + group reputation (−100..+100) | Romance, DialogueSystem coupling, auto grants |
@@ -33,7 +33,25 @@ Scene/runtime (not autoloads): `PlayerVehicle`, `DrivingModeController`, `RoadFo
 
 ---
 
-## 2. Dependency flow (acyclic intent)
+## 2. Three time concepts (`GameTimeSystem`)
+
+| Clock | Purpose | Drives NPCs? | Drives journey/fuel? |
+|-------|---------|--------------|----------------------|
+| **Real play / travel** | `total_play_time_seconds`, `total_travel_time_seconds` | No | Yes (ETA / offline window / travel stats) |
+| **Narrative world** | Persistent `narrative_day_index` + `narrative_minutes_of_day` × `narrative_time_scale` | Yes | **Never** |
+| **System clock** | Unix/datetime for save stamps + offline gap | **Never** | Only to measure offline seconds |
+
+**Narrative advance while running:** every session tick (drive, park, explore, talk) advances narrative via  
+`narrative_minutes += (real_seconds / 60) × narrative_time_scale`  
+Default scale **60** ⇒ 1 real minute = 1 narrative hour. Configurable export — not a magic constant in logic.
+
+**API:** `get_narrative_day_index` / `hour` / `minute` / `minutes_of_day`, `set_narrative_time`, `advance_narrative_seconds`, `get_narrative_time_string`, future `wait_until_narrative_time` / `advance_narrative_minutes`.
+
+**Offline:** narrative advances only when SaveSystem actually applies offline travel (fuel-capped applied seconds). If offline progress is OFF (`was_traveling_at_save` false), narrative does **not** move while closed.
+
+---
+
+## 3. Dependency flow (acyclic intent)
 
 ```
 JourneySystem ← WorldRegionSystem (read distance)
@@ -47,25 +65,26 @@ POISystem / WorldStateSystem / VehicleStateSystem / GameFlags / JourneySystem / 
 
 DialogueSystem → ConditionSystem (gates + NPC rules) + DialogueActionExecutor (effects) + DialogueMemorySystem (record)
 DialogueActionExecutor → GameFlags / QuestSystem / InventorySystem / WorldStateSystem / POISystem / NpcStateSystem / RelationshipSystem
-ConditionSystem → DialogueMemorySystem (DIALOGUE_*) + NpcStateSystem (NPC_*) + RelationshipSystem (RELATIONSHIP_*/REPUTATION_*) + GameTimeSystem (TIME_*/DAY_*)
-NpcCharacter → DialogueSystem.resolve_dialogue_for_npc (no rule internals) + NpcStateSystem (spawn/talk) + GameTimeSystem hour window (hide outside)
-NpcDefinition → static authoring: dialogue_rules + fallback + available_hour_min/max; never mutable campaign fields
+ConditionSystem → DialogueMemorySystem (DIALOGUE_*) + NpcStateSystem (NPC_*) + RelationshipSystem (RELATIONSHIP_*/REPUTATION_*)
+                → GameTimeSystem narrative API only (NARRATIVE_*)
+NpcCharacter → DialogueSystem.resolve_dialogue_for_npc + NpcStateSystem + narrative hour window (hide outside)
+NpcDefinition → static: dialogue_rules + fallback + available_hour_min/max
 
 QuestSystem → InventorySystem (requirements)
             → DialogueActionExecutor (optional QuestData.on_complete_actions)
-            → (legacy) DialogueSystem.dialogue_finished may still start quests if start_dialogue_id set
 RelationshipSystem ← executor / conditions only (never DialogueSystem)
 
 GameTimeSystem ← VehicleStateSystem.get_save_data (was_traveling snapshot)
 SaveSystem → all providers; after load may call VehicleStateSystem.apply_offline_travel
-VehicleStateSystem → JourneySystem (offline distance add only)
+           → then GameTimeSystem.apply_offline_narrative_progress(applied_seconds)
+VehicleStateSystem → JourneySystem (offline distance add only) — never narrative
 ```
 
 **Rule of thumb:** autoloads may *read* peers via `get_node_or_null`; they must not create hard cycles at `_ready`. ConditionSystem is a pure query façade.
 
 ---
 
-## 3. Persisted data (`user://savegame.json`)
+## 4. Persisted data (`user://savegame.json`)
 
 Header: `save_version` (1), `created_at`, `updated_at`.
 
@@ -76,7 +95,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 | `quest` | `states` {quest_id→ACTIVE\|COMPLETED} |
 | `poi` | `discovered` [poi_id…] |
 | `world_state` | `entities` {entity_id→{key→value}} |
-| `game_time` | play/travel totals, session/save/exit stamps, narrative scale/start + derived day/hour |
+| `game_time` | play/travel totals, session/save/exit stamps, **`narrative_day_index` / `narrative_minutes_of_day` / `narrative_time_scale`** |
 | `vehicle_state` | fuel, condition, upgrades[], speed/economy fields, `was_traveling_at_save`, `stopped_reason` |
 | `game_flags` | `flags` {id→bool} |
 | `dialogue_memory` | `dialogues` {id→seen/counts/timestamps}, `choices` {id→count} |
@@ -85,11 +104,11 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 
 **Not persisted:** vehicle transform/velocity, road pool, camera mode, dialogue UI, occupancy pose (sandbox respawns), NPC Node instances.
 
-**Offline:** if `was_traveling_at_save` and offline seconds > 0, SaveSystem applies fuel-capped journey progress once, then rewrites the save so a second load cannot double-apply.
+**Offline:** if `was_traveling_at_save` and offline seconds > 0, SaveSystem applies fuel-capped journey progress once, advances narrative by applied duration, then rewrites the save so a second load cannot double-apply.
 
 ---
 
-## 4. Important id conventions
+## 5. Important id conventions
 
 | Domain | Pattern / examples |
 |--------|--------------------|
@@ -99,9 +118,10 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 | Quest | `power_the_viewpoint` |
 | Items / upgrades / recipes | `cruise_module_mk1`, `scrap_metal`, … |
 | Dialogue | `mira_intro`, `mira_returning`, `mira_time_day`, `mira_time_night`, `mira_quest_done_01`, … |
-| NpcDialogueRule | `mira_quest_done` / `mira_quest_active` / `mira_time_*` / `mira_returning` (priority + conditions) |
+| NpcDialogueRule | `mira_quest_done` / `mira_quest_active` / `mira_time_day` / `mira_time_night` / `mira_returning` |
 | NPC availability | `available_hour_min`/`max` on `NpcDefinition` (Mira 8–18 exclusive end) |
-| Reputation groups | `sunset_viewpoint` (example community/POI id) |
+| Conditions (time) | `NARRATIVE_HOUR_MIN/MAX`, `NARRATIVE_DAY_MIN/MAX`, `NARRATIVE_TIME_RANGE` |
+| Reputation groups | `sunset_viewpoint` |
 | DialogueChoice | `accept_help`, `refuse_help`, `moon_yes`, `buy_part`, … |
 | DialogueAction | `SET_FLAG` / `START_QUEST` / `ADD_ITEM` / … via `target_id` + value fields |
 | Dialogue memory | conversation start id (`rafa_01`); choice ids (`rafa_far`, `rafa_pass`) |
@@ -112,7 +132,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 
 ---
 
-## 5. Signals (selected)
+## 6. Signals (selected)
 
 - `JourneySystem.distance_changed`
 - `WorldRegionSystem.region_changed`
@@ -123,7 +143,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 - `CraftingSystem.craft_succeeded` / `craft_failed`
 - `SaveSystem.save_completed` / `load_completed` / `save_failed` / `load_failed`
 - `VehicleStateSystem.upgrade_installed` / `fuel_changed` / `fuel_depleted`
-- `GameTimeSystem.play_time_changed` / `travel_time_changed` / `traveling_changed` / `narrative_time_changed`
+- `GameTimeSystem.play_time_changed` / `travel_time_changed` / `traveling_changed` / `narrative_time_changed(day, hour, minute)`
 - `GameFlags.flag_changed`
 - `NpcStateSystem.npc_state_changed` / `npc_met_player` / `npc_states_cleared`
 - `RelationshipSystem.relationship_changed` / `reputation_changed` / `relationships_cleared`
@@ -132,11 +152,12 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 
 ---
 
-## 6. Temporary / debug surfaces
+## 7. Temporary / debug surfaces
 
 - Dev main: `scenes/test/DrivingSandbox.tscn`
 - Hotkeys: F5/F9/F6 save debug; I inventory; Workbench CraftingDebugUI (Tab Install)
-- `DrivingDebugHUD` time/fuel/vehicle lines
+- Narrative debug: **F7** +1h · **Shift+F7** +6h · **F8** 08:00 · **Shift+F8** 22:00 (HUD shows Day + HH:MM + scale)
+- `DrivingDebugHUD` play/travel + world clock lines
 - Placeholder NPC meshes, procedural road, no final art
 - Offline travel is a **minimal hook** (cruise speed × time, fuel cap) — not the full design offline policy
 - Narrative clock is logical only (no lighting/sky); no NPC schedules/routines yet
@@ -144,16 +165,16 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 
 ---
 
-## 7. Vertical slice (what works today)
+## 8. Vertical slice (what works today)
 
-Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira (`met_player`) → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → talk to Rafa (`rafa_far` → `BUSY`) → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time/dialogue memory/NPC state without duplication → limited offline progress respects fuel.
+Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira (`met_player`) → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → talk to Rafa (`rafa_far` → `BUSY`) → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time/dialogue memory/NPC state without duplication → limited offline progress respects fuel (+ narrative when applied).
 
 Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `time_npc=OK`, `relationship=OK`, `npc_rules=OK`, `game_time=OK`, `quest=OK`, and the full `drive_smoke: OK …` line.
+Look for `time_npc=OK`, `game_time=OK`, `relationship=OK`, `quest=OK`, and the full `drive_smoke: OK …` line.
 
 ---
 
-## 8. Known risks
+## 9. Known risks
 
 1. **Occupancy / vehicle pose not in save** — reload respawns sandbox defaults; logical progression persists, physical placement does not.
 2. **Offline rewrite on load** — intentional; tools that inspect the file immediately after load should re-read disk.
@@ -164,7 +185,7 @@ Look for `time_npc=OK`, `relationship=OK`, `npc_rules=OK`, `game_time=OK`, `ques
 
 ---
 
-## 9. Recommended next systems (design order)
+## 10. Recommended next systems (design order)
 
 1. **Gas / service stop POI** — refuel interaction (fuel is already functional).
 2. **Offline policy UI** — expose capped offline window from GAME_DESIGN §8.
@@ -177,7 +198,7 @@ Look for `time_npc=OK`, `relationship=OK`, `npc_rules=OK`, `game_time=OK`, `ques
 
 ---
 
-## 10. Doc map
+## 11. Doc map
 
 | Doc | Role |
 |-----|------|

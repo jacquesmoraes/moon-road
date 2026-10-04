@@ -25,9 +25,12 @@ enum Type {
 	RELATIONSHIP_MAX,
 	REPUTATION_MIN,
 	REPUTATION_MAX,
-	TIME_HOUR_MIN,
-	TIME_HOUR_MAX,
-	DAY_INDEX_MIN,
+	## Narrative world clock (GameTimeSystem) — never system/play/travel clock.
+	NARRATIVE_HOUR_MIN,
+	NARRATIVE_HOUR_MAX,
+	NARRATIVE_DAY_MIN,
+	NARRATIVE_DAY_MAX,
+	NARRATIVE_TIME_RANGE,
 }
 
 @export var type: Type = Type.FLAG_EQUALS
@@ -87,11 +90,15 @@ func get_type_name() -> String:
 			return "REPUTATION_MIN"
 		Type.REPUTATION_MAX:
 			return "REPUTATION_MAX"
-		Type.TIME_HOUR_MIN:
-			return "TIME_HOUR_MIN"
-		Type.TIME_HOUR_MAX:
-			return "TIME_HOUR_MAX"
-		Type.DAY_INDEX_MIN:
-			return "DAY_INDEX_MIN"
+		Type.NARRATIVE_HOUR_MIN:
+			return "NARRATIVE_HOUR_MIN"
+		Type.NARRATIVE_HOUR_MAX:
+			return "NARRATIVE_HOUR_MAX"
+		Type.NARRATIVE_DAY_MIN:
+			return "NARRATIVE_DAY_MIN"
+		Type.NARRATIVE_DAY_MAX:
+			return "NARRATIVE_DAY_MAX"
+		Type.NARRATIVE_TIME_RANGE:
+			return "NARRATIVE_TIME_RANGE"
 		_:
 			return "UNKNOWN"

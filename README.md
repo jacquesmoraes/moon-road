@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **time-based NPC availability** — narrative `hour_of_day` / `day_index` on GameTimeSystem, Mira 08:00–18:00 window, day/night dialogue lines. See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **narrative world time** — independent 24h clock for NPCs/dialogues (separate from play/travel/system clocks), Mira 08:00–18:00 window, day/night lines. See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -139,21 +139,27 @@ Corrupt / unknown-version files are refused and **kept** (never auto-deleted). N
 
 ### Game time (`GameTimeSystem`)
 
-Central real-time foundation plus a simple **narrative clock** (hour/day only — no lighting, no full calendar).
+Three separated clocks (no lighting / calendar):
 
 | Clock | Meaning |
 |-------|---------|
-| Real system time | Wall clock (`Time.get_unix_time_from_system` / datetime string) |
-| Play time | Accumulates whenever a session is running |
-| Travel time | Only while an actual trip is happening |
-| Offline | `now − last_exit_timestamp` between sessions |
-| Narrative hour / day | Derived from play time × `narrative_minutes_per_real_minute` (default 60 ⇒ 1 real min = 1 narrative hour), starting at `narrative_start_hour` (default 8) |
+| Play / travel | Real session accumulators for journey stats / fuel / ETA |
+| Narrative world | Independent persistent 24h clock for NPCs / dialogues / future schedules |
+| System clock | Machine unix/datetime for save stamps + offline gap **only** |
 
-API: `get_hour_of_day()` / `get_day_index()` / `debug_set_narrative_time(day, hour)`. Conditions: `TIME_HOUR_MIN`, `TIME_HOUR_MAX`, `DAY_INDEX_MIN`. NPCs may set `available_hour_min`/`max` on `NpcDefinition` (Mira 8–18 → hidden outside). Example lines: `mira_time_day` (“Bom dia.”), `mira_time_night` (“Está ficando tarde.”).
+| Narrative field | Role |
+|-----------------|------|
+| `narrative_day_index` | Day counter (wraps at 24:00) |
+| `narrative_minutes_of_day` | Minutes past midnight (0–1440) |
+| `narrative_time_scale` | 1 real game minute → this many narrative minutes (default **60**) |
 
-Travel detection: in vehicle, not parked, and either Travel Mode **or** `|speed| > 0.35 m/s`. Parked / on-foot POI explore do **not** count.
+Advances while the game is running (drive, park, explore, talk). Does **not** add journey km. Offline: advances only when offline travel is actually applied (fuel-capped); if offline progress is OFF, narrative stays put.
 
-Persisted via SaveSystem (`systems.game_time`): play/travel totals, session/save/exit stamps, narrative scale/start + derived day/hour. Clock uses `Time.get_ticks_msec` (FPS-independent). Dev HUD shows `Time: play · travel · TRAVELING|idle`.
+API: `get_narrative_day_index/hour/minute/minutes_of_day`, `set_narrative_time`, `advance_narrative_seconds`, `get_narrative_time_string`, `wait_until_narrative_time` / `advance_narrative_minutes` (future sleep). Conditions: `NARRATIVE_HOUR_MIN/MAX`, `NARRATIVE_DAY_MIN/MAX`, `NARRATIVE_TIME_RANGE` (cross-midnight). Mira: `available_hour_min/max` 8–18 → hidden outside. Lines: `mira_time_day` (“Bom dia.”), `mira_time_night` (“Está ficando tarde.”).
+
+Travel detection: in vehicle, not parked, and either Travel Mode **or** `|speed| > 0.35 m/s`. Parked / on-foot do **not** count as travel time (narrative still advances).
+
+Debug HUD: `World: Day N HH:MM · scale`; **F7** +1h · **Shift+F7** +6h · **F8** 08:00 · **Shift+F8** 22:00.
 
 ### Vehicle state (`VehicleStateSystem`)
 
@@ -438,8 +444,8 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Inventory: `InventorySystem` + `ItemData` catalog + `InventoryDebugUI` (I to toggle)
 - Crafting: `CraftingSystem` + `RecipeData` + Workbench + `CraftingDebugUI`
 - Save: `SaveSystem` → `user://savegame.json` (F5/F9/F6 debug)
-- Game time: `GameTimeSystem` (play / travel / offline + narrative hour/day; HUD debug)
-- NPC time window: `NpcDefinition.available_hour_*` (Mira 08–18; hide outside)
+- Game time: `GameTimeSystem` (play/travel + independent narrative world clock + system stamps)
+- NPC time window: `NpcDefinition.available_hour_*` (Mira 08–18 narrative; hide outside)
 - Vehicle state: `VehicleStateSystem` (`starter_car` attrs / upgrades / fuel; drives max speed)
 - Upgrades: `UpgradeData` + Cruise Module Mk I (+10 km/h via Workbench Install)
 - World state: `WorldStateSystem` (terminal powered / pickup collected)
