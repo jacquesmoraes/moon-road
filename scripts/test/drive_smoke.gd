@@ -5073,17 +5073,40 @@ func _verify_world_items(_occupancy: Node, character: CharacterBody3D, foot_cam:
 		return false
 
 	var scrap: Node = vp.find_child("ScrapMetalPickup", true, false)
+	var scrap_b: Node = vp.find_child("ScrapMetalPickupB", true, false)
+	var scrap_c: Node = vp.find_child("ScrapMetalPickupC", true, false)
 	var wire: Node = vp.find_child("CopperWirePickup", true, false)
-	if scrap == null or wire == null:
-		push_error("drive_smoke: ScrapMetalPickup / CopperWirePickup missing on ViewpointPOI")
+	if scrap == null or scrap_b == null or scrap_c == null or wire == null:
+		push_error("drive_smoke: ScrapMetalPickup(A/B/C) / CopperWirePickup missing on ViewpointPOI")
 		quit(1)
 		return false
 	if not InteractionDetector.is_interactable_node(scrap) or not InteractionDetector.is_interactable_node(wire):
 		push_error("drive_smoke: pickups must duck-type Interactable")
 		quit(1)
 		return false
+	if not InteractionDetector.is_interactable_node(scrap_c):
+		push_error("drive_smoke: outdoor ScrapMetalPickupC must be interactable")
+		quit(1)
+		return false
 	if str(scrap.call("get_item_id")) != "scrap_metal" or str(wire.call("get_item_id")) != "copper_wire":
 		push_error("drive_smoke: pickup item_id mismatch")
+		quit(1)
+		return false
+	if str(scrap_c.call("get_item_id")) != "scrap_metal" or int(scrap_c.call("get_quantity")) < 1:
+		push_error("drive_smoke: outdoor scrap_03 should grant scrap_metal")
+		quit(1)
+		return false
+	var scrap_total := (
+		int(scrap.call("get_quantity"))
+		+ int(scrap_b.call("get_quantity"))
+		+ int(scrap_c.call("get_quantity"))
+	)
+	if scrap_total < 3:
+		push_error("drive_smoke: viewpoint scrap pickups total %d < quest need 3" % scrap_total)
+		quit(1)
+		return false
+	if int(wire.call("get_quantity")) < 1:
+		push_error("drive_smoke: copper wire pickup missing quantity")
 		quit(1)
 		return false
 	if bool(scrap.call("is_collected")) or bool(wire.call("is_collected")):
@@ -5140,7 +5163,28 @@ func _verify_world_items(_occupancy: Node, character: CharacterBody3D, foot_cam:
 		quit(1)
 		return false
 
-	# Copper wire outside (quantity 2).
+	# Outdoor scrap (quest overflow / discoverability).
+	var scrap_c_pos: Vector3 = (scrap_c as Node3D).global_position
+	character.global_position = scrap_c_pos + Vector3(0.0, 0.05, 1.2)
+	face = scrap_c_pos - character.global_position
+	yaw = atan2(-face.x, -face.z)
+	character.rotation.y = yaw
+	if foot_cam.has_method("set_look_angles"):
+		foot_cam.call("set_look_angles", yaw, deg_to_rad(-12.0))
+	for _oc in range(12):
+		await physics_frame
+	var before_scrap_c := int(inv.call("get_quantity", "scrap_metal"))
+	if not bool(scrap_c.call("interact", character)):
+		push_error("drive_smoke: outdoor Scrap Metal collect failed")
+		quit(1)
+		return false
+	await physics_frame
+	if int(inv.call("get_quantity", "scrap_metal")) != before_scrap_c + int(scrap_c.call("get_quantity")):
+		push_error("drive_smoke: outdoor scrap quantity not applied")
+		quit(1)
+		return false
+
+	# Copper wire outside near booth entrance.
 	var wire_pos: Vector3 = (wire as Node3D).global_position
 	character.global_position = wire_pos + Vector3(0.0, 0.05, 1.2)
 	face = wire_pos - character.global_position
@@ -5176,7 +5220,7 @@ func _verify_world_items(_occupancy: Node, character: CharacterBody3D, foot_cam:
 		inv.call("clear_inventory")
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
-	print("drive_smoke: world items OK (scrap + copper → inventory, no double-collect)")
+	print("drive_smoke: world items OK (booth scrap + outdoor scrap + copper → inventory)")
 	return true
 
 
@@ -5209,9 +5253,25 @@ func _verify_side_quest(occupancy: Node, character: CharacterBody3D, foot_cam: N
 	var terminal: Node = vp.find_child("ViewpointTerminal", true, false)
 	var scrap_a: Node = vp.find_child("ScrapMetalPickup", true, false)
 	var scrap_b: Node = vp.find_child("ScrapMetalPickupB", true, false)
+	var scrap_c: Node = vp.find_child("ScrapMetalPickupC", true, false)
 	var wire: Node = vp.find_child("CopperWirePickup", true, false)
-	if mira == null or terminal == null or scrap_a == null or scrap_b == null or wire == null:
+	if (
+		mira == null or terminal == null or scrap_a == null or scrap_b == null
+		or scrap_c == null or wire == null
+	):
 		push_error("drive_smoke: quest scene nodes missing")
+		quit(1)
+		return false
+	var quest_scrap_available := (
+		int(scrap_a.call("get_quantity"))
+		+ int(scrap_b.call("get_quantity"))
+		+ int(scrap_c.call("get_quantity"))
+	)
+	if quest_scrap_available < 3 or int(wire.call("get_quantity")) < 1:
+		push_error(
+			"drive_smoke: viewpoint collectibles insufficient for quest (scrap=%d wire=%d)"
+			% [quest_scrap_available, int(wire.call("get_quantity"))]
+		)
 		quit(1)
 		return false
 
@@ -5254,8 +5314,8 @@ func _verify_side_quest(occupancy: Node, character: CharacterBody3D, foot_cam: N
 		quit(1)
 		return false
 
-	# 2) Collect resources (3 scrap + 1 copper).
-	for pickup in [scrap_a, scrap_b, wire]:
+	# 2) Collect resources (booth scrap + outdoor scrap + copper ≥ quest need).
+	for pickup in [scrap_a, scrap_b, scrap_c, wire]:
 		var ppos: Vector3 = (pickup as Node3D).global_position
 		character.global_position = ppos + Vector3(0.0, 0.05, 1.15)
 		face = ppos - character.global_position
@@ -5276,6 +5336,11 @@ func _verify_side_quest(occupancy: Node, character: CharacterBody3D, foot_cam: N
 			"drive_smoke: missing required items after pickups (scrap=%d wire=%d)"
 			% [int(inv.call("get_quantity", "scrap_metal")), int(inv.call("get_quantity", "copper_wire"))]
 		)
+		quit(1)
+		return false
+	# Quest consumes only 3 scrap + 1 wire; outdoor scrap leaves overflow.
+	if int(inv.call("get_quantity", "scrap_metal")) < 3:
+		push_error("drive_smoke: expected ≥3 scrap after collecting all viewpoint pickups")
 		quit(1)
 		return false
 
@@ -5312,8 +5377,16 @@ func _verify_side_quest(occupancy: Node, character: CharacterBody3D, foot_cam: N
 		push_error("drive_smoke: quest_completed signal missing")
 		quit(1)
 		return false
-	if int(inv.call("get_quantity", "scrap_metal")) != 0 or int(inv.call("get_quantity", "copper_wire")) != 0:
-		push_error("drive_smoke: resources not consumed on turn-in")
+	# Quest need is 3 scrap + 1 wire; outdoor scrap leaves overflow.
+	if int(inv.call("get_quantity", "scrap_metal")) != quest_scrap_available - 3:
+		push_error(
+			"drive_smoke: scrap not consumed correctly on turn-in (left=%d expected=%d)"
+			% [int(inv.call("get_quantity", "scrap_metal")), quest_scrap_available - 3]
+		)
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "copper_wire")) != 0:
+		push_error("drive_smoke: copper wire not consumed on turn-in")
 		quit(1)
 		return false
 
@@ -5328,6 +5401,7 @@ func _verify_side_quest(occupancy: Node, character: CharacterBody3D, foot_cam: N
 		push_error("drive_smoke: try_turn_in succeeded twice")
 		quit(1)
 		return false
+	var scrap_before_dup := int(inv.call("get_quantity", "scrap_metal"))
 	if int(inv.call("add_item", "scrap_metal", 3)) != 3:
 		push_error("drive_smoke: could not re-add scrap for duplicate check")
 		quit(1)
@@ -5335,6 +5409,10 @@ func _verify_side_quest(occupancy: Node, character: CharacterBody3D, foot_cam: N
 	# Even with items again, completed quest must not consume/re-complete.
 	if bool(qs.call("try_turn_in", "power_the_viewpoint")):
 		push_error("drive_smoke: completed quest consumed items again")
+		quit(1)
+		return false
+	if int(inv.call("get_quantity", "scrap_metal")) != scrap_before_dup + 3:
+		push_error("drive_smoke: completed quest altered scrap after duplicate try_turn_in")
 		quit(1)
 		return false
 	if int(inv.call("get_quantity", "scrap_metal")) != 3:

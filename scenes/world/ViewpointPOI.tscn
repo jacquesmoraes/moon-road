@@ -51,7 +51,7 @@ quantity = 2
 interaction_name_override = "Scrap Metal"
 
 [node name="ScrapMetalPickupB" parent="ObservationBooth" instance=ExtResource("7_pickup")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.5, 0.05, 0.8)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.2, 0.05, 0.4)
 pickup_id = "poi.sunset_viewpoint.pickup.scrap_02"
 item_id = "scrap_metal"
 quantity = 1
@@ -65,8 +65,15 @@ definition = ExtResource("5_mira")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.2, 0.0, 2.5)
 definition = ExtResource("6_rafa")
 
+[node name="ScrapMetalPickupC" parent="." instance=ExtResource("7_pickup")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.0, 0.05, 2.2)
+pickup_id = "poi.sunset_viewpoint.pickup.scrap_03"
+item_id = "scrap_metal"
+quantity = 1
+interaction_name_override = "Scrap Metal"
+
 [node name="CopperWirePickup" parent="." instance=ExtResource("7_pickup")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.2, 0.05, 1.8)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.8, 0.05, 3.5)
 pickup_id = "poi.sunset_viewpoint.pickup.copper_01"
 item_id = "copper_wire"
 quantity = 1

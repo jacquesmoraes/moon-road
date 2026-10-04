@@ -208,7 +208,7 @@ Physical collectibles using the shared Interactable detector + InventorySystem.
 | `pickup_id` / `get_collected_state()` | Clear collected flag for future persistence |
 | `PickupFeedbackUI` | Debug toast e.g. `+1 Scrap Metal` |
 
-Sunset Viewpoint: **Scrap Metal** inside the Observation Booth, **Copper Wire** (x2) just outside. No loot tables, respawn, or animation.
+Sunset Viewpoint: enough on-foot pickups for `power_the_viewpoint` — **Scrap Metal** in the Observation Booth (2+1) plus another scrap pile on the outdoor platform (1), and **Copper Wire** (1) near the booth entrance. No loot tables, respawn, or animation.
 
 ### Inventory (`InventorySystem` + `ItemData`)
 
