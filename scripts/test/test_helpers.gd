@@ -218,6 +218,13 @@ func park_and_exit_to_foot() -> Dictionary:
 		fail("occupancy/character/foot camera missing for on-foot setup")
 		return result
 	await ensure_in_vehicle_manual()
+	# Settle onto the road: brief accel then brake so is_on_floor() is reliable.
+	Input.action_press("vehicle_accelerate")
+	for _a in range(20):
+		await physics_frame
+		if _vehicle.is_on_floor() and absf(float(_vehicle.call("get_signed_speed"))) > 0.2:
+			break
+	Input.action_release("vehicle_accelerate")
 	Input.action_press("vehicle_brake")
 	for _j in range(240):
 		await physics_frame
@@ -225,9 +232,22 @@ func park_and_exit_to_foot() -> Dictionary:
 			break
 	Input.action_release("vehicle_brake")
 	clear_vehicle_input()
-	await await_physics_frames(8)
+	await await_physics_frames(12)
+	if not _vehicle.is_on_floor():
+		fail(
+			"vehicle not on floor before park (speed=%.3f)"
+			% absf(float(_vehicle.call("get_signed_speed")))
+		)
+		return result
 	if not bool(_vehicle.call("try_park")):
-		fail("park failed before on-foot setup")
+		fail(
+			"park failed before on-foot setup (speed=%.3f on_floor=%s state=%s)"
+			% [
+				absf(float(_vehicle.call("get_signed_speed"))),
+				str(_vehicle.is_on_floor()),
+				str(_vehicle.call("get_motion_state_name")) if _vehicle.has_method("get_motion_state_name") else "?",
+			]
+		)
 		return result
 	if str(occupancy.call("get_state_name")) == "ON_FOOT":
 		result["ok"] = true
@@ -255,6 +275,8 @@ func bootstrap_sandbox(wait_sec: float = 0.5, require_scenery_exit: bool = true)
 	await get_tree_timer(wait_sec)
 	if not resolve_sandbox_nodes(require_scenery_exit):
 		return false
+	# Let CharacterBody3D contact the road before suite setup.
+	await await_physics_frames(30)
 	reset_autoloads_for_tests()
 	return true
 
