@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="DialogueCatalog" load_steps=21 format=3]
+[gd_resource type="Resource" script_class="DialogueCatalog" load_steps=23 format=3]
 
 [ext_resource type="Script" path="res://scripts/dialogue/dialogue_catalog.gd" id="1_script"]
 [ext_resource type="Resource" path="res://resources/dialogue/mira_01.tres" id="2_mira1"]
@@ -20,7 +20,9 @@
 [ext_resource type="Resource" path="res://resources/dialogue/rafa_busy_01.tres" id="18_busy"]
 [ext_resource type="Resource" path="res://resources/dialogue/mira_intro.tres" id="19_intro"]
 [ext_resource type="Resource" path="res://resources/dialogue/mira_returning.tres" id="20_returning"]
+[ext_resource type="Resource" path="res://resources/dialogue/mira_time_day.tres" id="21_day"]
+[ext_resource type="Resource" path="res://resources/dialogue/mira_time_night.tres" id="22_night"]
 
 [resource]
 script = ExtResource("1_script")
-entries = [ExtResource("2_mira1"), ExtResource("3_mira2"), ExtResource("4_rafa1"), ExtResource("5_rafa2"), ExtResource("6_offer1"), ExtResource("7_offer2"), ExtResource("8_active"), ExtResource("9_done"), ExtResource("10_ask"), ExtResource("11_yes"), ExtResource("12_unsure"), ExtResource("13_pass"), ExtResource("14_repaired"), ExtResource("15_buy"), ExtResource("16_ret"), ExtResource("17_far"), ExtResource("18_busy"), ExtResource("19_intro"), ExtResource("20_returning")]
+entries = [ExtResource("2_mira1"), ExtResource("3_mira2"), ExtResource("4_rafa1"), ExtResource("5_rafa2"), ExtResource("6_offer1"), ExtResource("7_offer2"), ExtResource("8_active"), ExtResource("9_done"), ExtResource("10_ask"), ExtResource("11_yes"), ExtResource("12_unsure"), ExtResource("13_pass"), ExtResource("14_repaired"), ExtResource("15_buy"), ExtResource("16_ret"), ExtResource("17_far"), ExtResource("18_busy"), ExtResource("19_intro"), ExtResource("20_returning"), ExtResource("21_day"), ExtResource("22_night")]

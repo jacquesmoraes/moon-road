@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **relationship & reputation** — per-NPC relationship and place/group reputation via RelationshipSystem. See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **time-based NPC availability** — narrative `hour_of_day` / `day_index` on GameTimeSystem, Mira 08:00–18:00 window, day/night dialogue lines. See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -139,7 +139,7 @@ Corrupt / unknown-version files are refused and **kept** (never auto-deleted). N
 
 ### Game time (`GameTimeSystem`)
 
-Central real-time foundation — not narrative journey distance, not a day/night cycle.
+Central real-time foundation plus a simple **narrative clock** (hour/day only — no lighting, no full calendar).
 
 | Clock | Meaning |
 |-------|---------|
@@ -147,10 +147,13 @@ Central real-time foundation — not narrative journey distance, not a day/night
 | Play time | Accumulates whenever a session is running |
 | Travel time | Only while an actual trip is happening |
 | Offline | `now − last_exit_timestamp` between sessions |
+| Narrative hour / day | Derived from play time × `narrative_minutes_per_real_minute` (default 60 ⇒ 1 real min = 1 narrative hour), starting at `narrative_start_hour` (default 8) |
+
+API: `get_hour_of_day()` / `get_day_index()` / `debug_set_narrative_time(day, hour)`. Conditions: `TIME_HOUR_MIN`, `TIME_HOUR_MAX`, `DAY_INDEX_MIN`. NPCs may set `available_hour_min`/`max` on `NpcDefinition` (Mira 8–18 → hidden outside). Example lines: `mira_time_day` (“Bom dia.”), `mira_time_night` (“Está ficando tarde.”).
 
 Travel detection: in vehicle, not parked, and either Travel Mode **or** `|speed| > 0.35 m/s`. Parked / on-foot POI explore do **not** count.
 
-Persisted via SaveSystem (`systems.game_time`): `current_session_started_at`, `total_play_time_seconds`, `total_travel_time_seconds`, `last_save_timestamp`, `last_exit_timestamp`. Clock uses `Time.get_ticks_msec` (FPS-independent). Dev HUD shows `Time: play · travel · TRAVELING|idle`.
+Persisted via SaveSystem (`systems.game_time`): play/travel totals, session/save/exit stamps, narrative scale/start + derived day/hour. Clock uses `Time.get_ticks_msec` (FPS-independent). Dev HUD shows `Time: play · travel · TRAVELING|idle`.
 
 ### Vehicle state (`VehicleStateSystem`)
 
@@ -404,8 +407,9 @@ Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later w
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
-# Expect: … relationship=OK … npc_rules=OK … npc_state=OK … drive_smoke: OK
+# Expect: … time_npc=OK … relationship=OK … game_time=OK … drive_smoke: OK
 ```
+
 
 Architecture snapshot: [`docs/architecture-status.md`](docs/architecture-status.md).
 
@@ -434,7 +438,8 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - Inventory: `InventorySystem` + `ItemData` catalog + `InventoryDebugUI` (I to toggle)
 - Crafting: `CraftingSystem` + `RecipeData` + Workbench + `CraftingDebugUI`
 - Save: `SaveSystem` → `user://savegame.json` (F5/F9/F6 debug)
-- Game time: `GameTimeSystem` (play / travel / offline; HUD debug)
+- Game time: `GameTimeSystem` (play / travel / offline + narrative hour/day; HUD debug)
+- NPC time window: `NpcDefinition.available_hour_*` (Mira 08–18; hide outside)
 - Vehicle state: `VehicleStateSystem` (`starter_car` attrs / upgrades / fuel; drives max speed)
 - Upgrades: `UpgradeData` + Cruise Module Mk I (+10 km/h via Workbench Install)
 - World state: `WorldStateSystem` (terminal powered / pickup collected)

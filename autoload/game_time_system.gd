@@ -1,21 +1,29 @@
 extends Node
-## Central real-time / play-time / travel-time foundation.
-## Wall-clock based (Time.get_ticks_msec) — not FPS-coupled, not narrative journey time.
+## Central real-time / play-time / travel-time foundation + simple narrative clock.
+## Wall-clock based (Time.get_ticks_msec) — not FPS-coupled.
 ##
 ## Separates:
 ## 1) real system time (unix / datetime)
 ## 2) accumulated play time (any active session)
 ## 3) accumulated travel time (in-vehicle trip only)
 ## 4) offline gap (now − last_exit_timestamp)
+## 5) narrative hour_of_day / day_index (derived from play time × scale — no lighting)
 
 signal play_time_changed(total_play_time_seconds: float)
 signal travel_time_changed(total_travel_time_seconds: float)
 signal traveling_changed(traveling: bool)
+signal narrative_time_changed(day_index: int, hour_of_day: int)
 
 ## Speed (m/s) above which MANUAL/CRUISE counts as traveling. Travel Mode always counts.
 const MOVING_SPEED_THRESHOLD: float = 0.35
 ## Ignore absurd frame gaps (debugger pause, hitch) so accumulators stay sane.
 const MAX_TICK_SECONDS: float = 0.25
+const MINUTES_PER_DAY: float = 24.0 * 60.0
+
+## 1 real/play minute → this many narrative minutes. Default 60 ⇒ 1 real min = 1 narrative hour.
+@export var narrative_minutes_per_real_minute: float = 60.0
+## Narrative hour at play-time zero (0–23).
+@export var narrative_start_hour: int = 8
 
 var current_session_started_at: float = 0.0
 var total_play_time_seconds: float = 0.0
@@ -29,10 +37,13 @@ var _vehicle: Node = null
 var _occupancy: Node = null
 ## Cached offline seconds computed at load (or session start if none).
 var _offline_seconds_at_session_start: float = 0.0
+var _last_emitted_day: int = -1
+var _last_emitted_hour: int = -1
 
 
 func _ready() -> void:
 	_begin_session()
+	_emit_narrative_if_changed(true)
 	set_process(true)
 	# Capture exit stamp for offline calc next launch (in-memory until next save).
 	if not tree_exiting.is_connected(_on_tree_exiting):
@@ -129,6 +140,28 @@ func get_current_session_started_at() -> float:
 	return current_session_started_at
 
 
+## --- Narrative clock (deterministic from play time × scale) ---
+
+func get_narrative_elapsed_minutes() -> float:
+	var scale := maxf(narrative_minutes_per_real_minute, 0.0)
+	var start_hour := clampi(narrative_start_hour, 0, 23)
+	return float(start_hour) * 60.0 + (total_play_time_seconds / 60.0) * scale
+
+
+func get_day_index() -> int:
+	return int(floor(get_narrative_elapsed_minutes() / MINUTES_PER_DAY))
+
+
+func get_hour_of_day() -> int:
+	var within_day := fposmod(get_narrative_elapsed_minutes(), MINUTES_PER_DAY)
+	return int(floor(within_day / 60.0)) % 24
+
+
+func get_narrative_minute_of_hour() -> int:
+	var within_day := fposmod(get_narrative_elapsed_minutes(), MINUTES_PER_DAY)
+	return int(floor(fposmod(within_day, 60.0)))
+
+
 func format_duration(seconds: float) -> String:
 	var s := int(floor(maxf(seconds, 0.0)))
 	var h := s / 3600
@@ -148,6 +181,19 @@ func debug_advance(seconds: float, traveling: bool = false) -> void:
 		_apply_travel(seconds)
 
 
+## Test helper — set narrative clock by adjusting play time (keeps derivation deterministic).
+func debug_set_narrative_time(day_index: int, hour_of_day: int) -> void:
+	var day := maxi(day_index, 0)
+	var hour := clampi(hour_of_day, 0, 23)
+	var target_minutes := float(day) * MINUTES_PER_DAY + float(hour) * 60.0
+	var start_minutes := float(clampi(narrative_start_hour, 0, 23)) * 60.0
+	var needed := maxf(target_minutes - start_minutes, 0.0)
+	var scale := maxf(narrative_minutes_per_real_minute, 0.0001)
+	total_play_time_seconds = (needed / scale) * 60.0
+	play_time_changed.emit(total_play_time_seconds)
+	_emit_narrative_if_changed(true)
+
+
 func reset_for_tests() -> void:
 	total_play_time_seconds = 0.0
 	total_travel_time_seconds = 0.0
@@ -155,7 +201,10 @@ func reset_for_tests() -> void:
 	last_exit_timestamp = 0.0
 	_offline_seconds_at_session_start = 0.0
 	_was_traveling = false
+	_last_emitted_day = -1
+	_last_emitted_hour = -1
 	_begin_session()
+	_emit_narrative_if_changed(true)
 
 
 ## --- SaveSystem provider API ---
@@ -170,21 +219,33 @@ func get_save_data() -> Dictionary:
 		"total_travel_time_seconds": total_travel_time_seconds,
 		"last_save_timestamp": last_save_timestamp,
 		"last_exit_timestamp": last_exit_timestamp,
+		"narrative_minutes_per_real_minute": narrative_minutes_per_real_minute,
+		"narrative_start_hour": narrative_start_hour,
+		"narrative_day_index": get_day_index(),
+		"narrative_hour_of_day": get_hour_of_day(),
 	}
 
 
 func load_save_data(data: Dictionary) -> void:
 	if data == null or data.is_empty():
 		_begin_session()
+		_emit_narrative_if_changed(true)
 		return
 	total_play_time_seconds = maxf(float(data.get("total_play_time_seconds", 0.0)), 0.0)
 	total_travel_time_seconds = maxf(float(data.get("total_travel_time_seconds", 0.0)), 0.0)
 	last_save_timestamp = maxf(float(data.get("last_save_timestamp", 0.0)), 0.0)
 	last_exit_timestamp = maxf(float(data.get("last_exit_timestamp", 0.0)), 0.0)
+	if data.has("narrative_minutes_per_real_minute"):
+		narrative_minutes_per_real_minute = maxf(
+			float(data.get("narrative_minutes_per_real_minute")), 0.0
+		)
+	if data.has("narrative_start_hour"):
+		narrative_start_hour = clampi(int(data.get("narrative_start_hour")), 0, 23)
 	# New session clock — do not reuse previous session start as "now".
 	_begin_session()
 	play_time_changed.emit(total_play_time_seconds)
 	travel_time_changed.emit(total_travel_time_seconds)
+	_emit_narrative_if_changed(true)
 
 
 func _accumulate(dt: float) -> void:
@@ -200,11 +261,21 @@ func _accumulate(dt: float) -> void:
 func _apply_play(dt: float) -> void:
 	total_play_time_seconds += dt
 	play_time_changed.emit(total_play_time_seconds)
+	_emit_narrative_if_changed(false)
 
 
 func _apply_travel(dt: float) -> void:
 	total_travel_time_seconds += dt
 	travel_time_changed.emit(total_travel_time_seconds)
+
+
+func _emit_narrative_if_changed(force: bool) -> void:
+	var day := get_day_index()
+	var hour := get_hour_of_day()
+	if force or day != _last_emitted_day or hour != _last_emitted_hour:
+		_last_emitted_day = day
+		_last_emitted_hour = hour
+		narrative_time_changed.emit(day, hour)
 
 
 func _stamp_exit() -> void:

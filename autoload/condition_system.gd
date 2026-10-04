@@ -169,6 +169,24 @@ func make_reputation_max(group_id: String, max_value: int) -> Resource:
 	return c
 
 
+func make_time_hour_min(hour: int) -> Resource:
+	var c := make(ConditionDataScript.Type.TIME_HOUR_MIN)
+	c.set("int_value", clampi(hour, 0, 23))
+	return c
+
+
+func make_time_hour_max(hour: int) -> Resource:
+	var c := make(ConditionDataScript.Type.TIME_HOUR_MAX)
+	c.set("int_value", clampi(hour, 0, 23))
+	return c
+
+
+func make_day_index_min(day_index: int) -> Resource:
+	var c := make(ConditionDataScript.Type.DAY_INDEX_MIN)
+	c.set("int_value", maxi(day_index, 0))
+	return c
+
+
 func _evaluate_typed(condition: Resource) -> bool:
 	var type_value := int(condition.get("type"))
 	var key := str(condition.get("key"))
@@ -219,6 +237,12 @@ func _evaluate_typed(condition: Resource) -> bool:
 			return _eval_reputation_min(key, int(condition.get("int_value")))
 		ConditionDataScript.Type.REPUTATION_MAX:
 			return _eval_reputation_max(key, int(condition.get("int_value")))
+		ConditionDataScript.Type.TIME_HOUR_MIN:
+			return _eval_time_hour_min(int(condition.get("int_value")))
+		ConditionDataScript.Type.TIME_HOUR_MAX:
+			return _eval_time_hour_max(int(condition.get("int_value")))
+		ConditionDataScript.Type.DAY_INDEX_MIN:
+			return _eval_day_index_min(int(condition.get("int_value")))
 		_:
 			push_warning("ConditionSystem: unknown condition type %d" % type_value)
 			return false
@@ -403,3 +427,24 @@ func _eval_reputation_max(group_id: String, max_value: int) -> bool:
 	if rs == null or group_id.is_empty() or not rs.has_method("get_reputation"):
 		return false
 	return int(rs.call("get_reputation", group_id)) <= max_value
+
+
+func _eval_time_hour_min(hour: int) -> bool:
+	var gt := get_node_or_null("/root/GameTimeSystem")
+	if gt == null or not gt.has_method("get_hour_of_day"):
+		return false
+	return int(gt.call("get_hour_of_day")) >= clampi(hour, 0, 23)
+
+
+func _eval_time_hour_max(hour: int) -> bool:
+	var gt := get_node_or_null("/root/GameTimeSystem")
+	if gt == null or not gt.has_method("get_hour_of_day"):
+		return false
+	return int(gt.call("get_hour_of_day")) <= clampi(hour, 0, 23)
+
+
+func _eval_day_index_min(day_index: int) -> bool:
+	var gt := get_node_or_null("/root/GameTimeSystem")
+	if gt == null or not gt.has_method("get_day_index"):
+		return false
+	return int(gt.call("get_day_index")) >= maxi(day_index, 0)

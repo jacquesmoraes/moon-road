@@ -25,6 +25,9 @@ enum Type {
 	RELATIONSHIP_MAX,
 	REPUTATION_MIN,
 	REPUTATION_MAX,
+	TIME_HOUR_MIN,
+	TIME_HOUR_MAX,
+	DAY_INDEX_MIN,
 }
 
 @export var type: Type = Type.FLAG_EQUALS
@@ -84,5 +87,11 @@ func get_type_name() -> String:
 			return "REPUTATION_MIN"
 		Type.REPUTATION_MAX:
 			return "REPUTATION_MAX"
+		Type.TIME_HOUR_MIN:
+			return "TIME_HOUR_MIN"
+		Type.TIME_HOUR_MAX:
+			return "TIME_HOUR_MAX"
+		Type.DAY_INDEX_MIN:
+			return "DAY_INDEX_MIN"
 		_:
 			return "UNKNOWN"

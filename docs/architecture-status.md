@@ -1,7 +1,7 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** relationship & reputation (`feat: add relationship and reputation systems`)  
+**As of:** time-based NPC availability (`feat: add time-based npc availability`)  
 **Engine:** Godot 4.7 Forward Plus
 
 This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.
@@ -23,7 +23,7 @@ This document describes the **current implemented foundation**, not the full des
 | `CraftingSystem` | Recipes; consume→output via Inventory | Workbench UX beyond debug UI |
 | `SaveSystem` | Versioned JSON coordinator + offline hook trigger | Provider internals |
 | `WorldStateSystem` | Serializable entity/key bag (terminals, pickups) | Node refs, POI discovery |
-| `GameTimeSystem` | Play / travel / offline wall-clock accumulators | Day/night, narrative calendar |
+| `GameTimeSystem` | Play / travel / offline + narrative `hour_of_day` / `day_index` (play×scale) | Lighting, art, full calendar / schedules |
 | `VehicleStateSystem` | Persistent car attrs, fuel, upgrades, offline travel apply | CharacterBody3D motion |
 | `GameFlags` | Boolean flags by id | Condition evaluation |
 | `ConditionSystem` | Evaluate `ConditionData` against other systems | Quest/NPC-specific branches |
@@ -47,9 +47,9 @@ POISystem / WorldStateSystem / VehicleStateSystem / GameFlags / JourneySystem / 
 
 DialogueSystem → ConditionSystem (gates + NPC rules) + DialogueActionExecutor (effects) + DialogueMemorySystem (record)
 DialogueActionExecutor → GameFlags / QuestSystem / InventorySystem / WorldStateSystem / POISystem / NpcStateSystem / RelationshipSystem
-ConditionSystem → DialogueMemorySystem (DIALOGUE_*) + NpcStateSystem (NPC_*) + RelationshipSystem (RELATIONSHIP_*/REPUTATION_*)
-NpcCharacter → DialogueSystem.resolve_dialogue_for_npc (no rule internals) + NpcStateSystem (spawn/talk)
-NpcDefinition → static authoring: dialogue_rules + fallback_dialogue_id; never mutable campaign fields
+ConditionSystem → DialogueMemorySystem (DIALOGUE_*) + NpcStateSystem (NPC_*) + RelationshipSystem (RELATIONSHIP_*/REPUTATION_*) + GameTimeSystem (TIME_*/DAY_*)
+NpcCharacter → DialogueSystem.resolve_dialogue_for_npc (no rule internals) + NpcStateSystem (spawn/talk) + GameTimeSystem hour window (hide outside)
+NpcDefinition → static authoring: dialogue_rules + fallback + available_hour_min/max; never mutable campaign fields
 
 QuestSystem → InventorySystem (requirements)
             → DialogueActionExecutor (optional QuestData.on_complete_actions)
@@ -76,7 +76,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 | `quest` | `states` {quest_id→ACTIVE\|COMPLETED} |
 | `poi` | `discovered` [poi_id…] |
 | `world_state` | `entities` {entity_id→{key→value}} |
-| `game_time` | play/travel totals, session/save/exit unix stamps |
+| `game_time` | play/travel totals, session/save/exit stamps, narrative scale/start + derived day/hour |
 | `vehicle_state` | fuel, condition, upgrades[], speed/economy fields, `was_traveling_at_save`, `stopped_reason` |
 | `game_flags` | `flags` {id→bool} |
 | `dialogue_memory` | `dialogues` {id→seen/counts/timestamps}, `choices` {id→count} |
@@ -98,8 +98,9 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 | WorldState pickup | `poi.<poi_id>.pickup.<name>` → `collected` |
 | Quest | `power_the_viewpoint` |
 | Items / upgrades / recipes | `cruise_module_mk1`, `scrap_metal`, … |
-| Dialogue | `mira_intro`, `mira_returning`, `mira_quest_done_01`, … |
-| NpcDialogueRule | `mira_quest_done` / `mira_quest_active` / `mira_returning` (priority + conditions) |
+| Dialogue | `mira_intro`, `mira_returning`, `mira_time_day`, `mira_time_night`, `mira_quest_done_01`, … |
+| NpcDialogueRule | `mira_quest_done` / `mira_quest_active` / `mira_time_*` / `mira_returning` (priority + conditions) |
+| NPC availability | `available_hour_min`/`max` on `NpcDefinition` (Mira 8–18 exclusive end) |
 | Reputation groups | `sunset_viewpoint` (example community/POI id) |
 | DialogueChoice | `accept_help`, `refuse_help`, `moon_yes`, `buy_part`, … |
 | DialogueAction | `SET_FLAG` / `START_QUEST` / `ADD_ITEM` / … via `target_id` + value fields |
@@ -122,7 +123,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 - `CraftingSystem.craft_succeeded` / `craft_failed`
 - `SaveSystem.save_completed` / `load_completed` / `save_failed` / `load_failed`
 - `VehicleStateSystem.upgrade_installed` / `fuel_changed` / `fuel_depleted`
-- `GameTimeSystem.play_time_changed` / `travel_time_changed` / `traveling_changed`
+- `GameTimeSystem.play_time_changed` / `travel_time_changed` / `traveling_changed` / `narrative_time_changed`
 - `GameFlags.flag_changed`
 - `NpcStateSystem.npc_state_changed` / `npc_met_player` / `npc_states_cleared`
 - `RelationshipSystem.relationship_changed` / `reputation_changed` / `relationships_cleared`
@@ -138,7 +139,8 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 - `DrivingDebugHUD` time/fuel/vehicle lines
 - Placeholder NPC meshes, procedural road, no final art
 - Offline travel is a **minimal hook** (cruise speed × time, fuel cap) — not the full design offline policy
-- No gas stations, garage, multi-vehicle, day/night, quest log UI, dialogue choices
+- Narrative clock is logical only (no lighting/sky); no NPC schedules/routines yet
+- No gas stations, garage, multi-vehicle, quest log UI
 
 ---
 
@@ -147,7 +149,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira (`met_player`) → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → talk to Rafa (`rafa_far` → `BUSY`) → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time/dialogue memory/NPC state without duplication → limited offline progress respects fuel.
 
 Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `relationship=OK`, `npc_rules=OK`, `npc_state=OK`, `quest=OK`, and the full `drive_smoke: OK …` line.
+Look for `time_npc=OK`, `relationship=OK`, `npc_rules=OK`, `game_time=OK`, `quest=OK`, and the full `drive_smoke: OK …` line.
 
 ---
 
@@ -166,7 +168,7 @@ Look for `relationship=OK`, `npc_rules=OK`, `npc_state=OK`, `quest=OK`, and the 
 
 1. **Gas / service stop POI** — refuel interaction (fuel is already functional).
 2. **Offline policy UI** — expose capped offline window from GAME_DESIGN §8.
-3. **NPC schedules / routines** — `current_schedule_id` is persisted; no runtime yet.
+3. **NPC schedules / routines** — hour window exists; full routines/`current_schedule_id` runtime not yet.
 4. **Quest log + more ConditionSystem gates** on NPCs/lines.
 5. **Vehicle condition / wear** — fields exist; no drain yet.
 6. **Region-driven atmosphere** — WorldRegionSystem already tracks bands.

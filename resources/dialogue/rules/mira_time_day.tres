@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="NpcDialogueRule" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/npc/npc_dialogue_rule.gd" id="1_script"]
+[ext_resource type="Resource" path="res://resources/conditions/mira_npc_met.tres" id="2_met"]
+[ext_resource type="Resource" path="res://resources/conditions/time_hour_min_8.tres" id="3_min"]
+[ext_resource type="Resource" path="res://resources/conditions/time_hour_max_17.tres" id="4_max"]
+
+[resource]
+script = ExtResource("1_script")
+id = "mira_time_day"
+dialogue_id = "mira_time_day"
+priority = 55
+conditions = [ExtResource("2_met"), ExtResource("3_min"), ExtResource("4_max")]
+require_all = true
+enabled = true

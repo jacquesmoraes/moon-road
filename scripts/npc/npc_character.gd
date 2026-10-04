@@ -33,6 +33,8 @@ func _ready() -> void:
 	call_deferred("_sync_spawn_location")
 	_cache_nodes()
 	_refresh_name_label()
+	_connect_narrative_time()
+	_refresh_time_availability()
 
 
 func get_npc_id() -> String:
@@ -103,8 +105,26 @@ func get_interaction_prompt() -> String:
 	return "E — Falar: %s" % get_display_name()
 
 
+func is_within_availability_window() -> bool:
+	## Data-driven window from NpcDefinition; no schedule/pathfinding.
+	_apply_definition_to_exports()
+	if definition == null or not definition.has_method("has_availability_window"):
+		return true
+	if not bool(definition.call("has_availability_window")):
+		return true
+	var gt := get_node_or_null("/root/GameTimeSystem")
+	var hour := 0
+	if gt != null and gt.has_method("get_hour_of_day"):
+		hour = int(gt.call("get_hour_of_day"))
+	if definition.has_method("is_hour_within_availability"):
+		return bool(definition.call("is_hour_within_availability", hour))
+	return true
+
+
 func can_interact(_actor: Node = null) -> bool:
 	if not is_npc_enabled() or not is_inside_tree() or not is_visible_in_tree():
+		return false
+	if not is_within_availability_window():
 		return false
 	var ns := get_node_or_null("/root/NpcStateSystem")
 	if ns != null and ns.has_method("get_current_state"):
@@ -267,3 +287,25 @@ func _refresh_name_label() -> void:
 	if _name_label == null:
 		return
 	_name_label.text = get_display_name()
+
+
+func _connect_narrative_time() -> void:
+	var gt := get_node_or_null("/root/GameTimeSystem")
+	if gt == null or not gt.has_signal("narrative_time_changed"):
+		return
+	if not gt.narrative_time_changed.is_connected(_on_narrative_time_changed):
+		gt.narrative_time_changed.connect(_on_narrative_time_changed)
+
+
+func _on_narrative_time_changed(_day_index: int, _hour_of_day: int) -> void:
+	_refresh_time_availability()
+
+
+func _refresh_time_availability() -> void:
+	## Outside the authored window: hidden + non-interactable (no art/lighting).
+	var available := is_within_availability_window()
+	visible = available
+	monitorable = available
+	collision_layer = 8 if available else 0
+	if _name_label != null:
+		_name_label.visible = available

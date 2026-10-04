@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK npc_rules=OK npc_state=OK relationship=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -1561,6 +1561,7 @@ func _verify_game_time_system() -> bool:
 			return false
 
 	# Wall-clock / FPS independence: tick via Time.get_ticks_msec, not delta alone.
+	# Narrative hour/day are derived from play time — no lighting / art coupling.
 	var gt_script: Script = load("res://autoload/game_time_system.gd") as Script
 	if gt_script != null:
 		var src := gt_script.source_code
@@ -1568,8 +1569,19 @@ func _verify_game_time_system() -> bool:
 			push_error("drive_smoke: GameTimeSystem must use Time.get_ticks_msec")
 			quit(1)
 			return false
-		if src.find("day/night") >= 0 or src.find("day_night") >= 0:
-			push_error("drive_smoke: GameTimeSystem must not include day/night cycle")
+		for banned in ["DirectionalLight", "WorldEnvironment", "sky_energy", "Lighting"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: GameTimeSystem must not wire visuals '%s'" % banned)
+				quit(1)
+				return false
+
+	for required_narrative in [
+		"get_hour_of_day",
+		"get_day_index",
+		"debug_set_narrative_time",
+	]:
+		if not gt.has_method(required_narrative):
+			push_error("drive_smoke: GameTimeSystem missing %s" % required_narrative)
 			quit(1)
 			return false
 
@@ -1578,6 +1590,31 @@ func _verify_game_time_system() -> bool:
 		push_error("drive_smoke: GameTimeSystem reset_for_tests did not clear accumulators")
 		quit(1)
 		return false
+
+	# Narrative clock: start hour 8 on day 0; scale 60 ⇒ 1 real min = 1 narrative hour.
+	if int(gt.call("get_hour_of_day")) != 8 or int(gt.call("get_day_index")) != 0:
+		push_error(
+			"drive_smoke: narrative clock expected day0/h8 got day%d/h%d"
+			% [int(gt.call("get_day_index")), int(gt.call("get_hour_of_day"))]
+		)
+		quit(1)
+		return false
+	gt.call("debug_advance", 60.0, false)  # 1 real minute → +60 narrative minutes → hour 9
+	if int(gt.call("get_hour_of_day")) != 9:
+		push_error(
+			"drive_smoke: after 60s play hour should be 9, got %d" % int(gt.call("get_hour_of_day"))
+		)
+		quit(1)
+		return false
+	gt.call("debug_set_narrative_time", 1, 22)
+	if int(gt.call("get_day_index")) != 1 or int(gt.call("get_hour_of_day")) != 22:
+		push_error(
+			"drive_smoke: debug_set_narrative_time failed (day%d/h%d)"
+			% [int(gt.call("get_day_index")), int(gt.call("get_hour_of_day"))]
+		)
+		quit(1)
+		return false
+	gt.call("reset_for_tests")
 
 	# Play time advances without travel.
 	gt.call("debug_advance", 10.0, false)
@@ -1702,11 +1739,26 @@ func _verify_game_time_system() -> bool:
 		"total_travel_time_seconds",
 		"last_save_timestamp",
 		"last_exit_timestamp",
+		"narrative_minutes_per_real_minute",
+		"narrative_start_hour",
+		"narrative_day_index",
+		"narrative_hour_of_day",
 	]:
 		if not gt_payload.has(key):
 			push_error("drive_smoke: game_time save missing '%s'" % key)
 			quit(1)
 			return false
+
+	# Pin narrative clock before save so hour/day round-trip is deterministic.
+	gt.call("debug_set_narrative_time", 2, 14)
+	play_saved = float(gt.call("get_total_play_time"))
+	travel_saved = float(gt.call("get_total_travel_time"))
+	var hour_saved := int(gt.call("get_hour_of_day"))
+	var day_saved := int(gt.call("get_day_index"))
+	if not bool(save.call("save_game")):
+		push_error("drive_smoke: narrative clock save_game failed")
+		quit(1)
+		return false
 
 	# Wipe runtime then reload — accumulators must restore; session start refreshes.
 	gt.call("reset_for_tests")
@@ -1729,6 +1781,18 @@ func _verify_game_time_system() -> bool:
 		push_error(
 			"drive_smoke: travel time not restored (%.3f vs %.3f)"
 			% [float(gt.call("get_total_travel_time")), travel_saved]
+		)
+		quit(1)
+		return false
+	if int(gt.call("get_hour_of_day")) != hour_saved or int(gt.call("get_day_index")) != day_saved:
+		push_error(
+			"drive_smoke: narrative clock not restored (day%d/h%d vs day%d/h%d)"
+			% [
+				int(gt.call("get_day_index")),
+				int(gt.call("get_hour_of_day")),
+				day_saved,
+				hour_saved,
+			]
 		)
 		quit(1)
 		return false
@@ -1757,7 +1821,7 @@ func _verify_game_time_system() -> bool:
 	if _vehicle.has_method("try_unpark"):
 		_vehicle.call("try_unpark")
 	print(
-		"drive_smoke: game_time OK (play/travel split + park idle + Travel Mode + save + offline)"
+		"drive_smoke: game_time OK (play/travel + narrative hour/day + save + offline)"
 	)
 	return true
 
@@ -2486,6 +2550,32 @@ func _verify_condition_system() -> bool:
 			push_error("drive_smoke: JOURNEY_DISTANCE_MAX 40 should fail at 50")
 			quit(1)
 			return false
+
+	# TIME_HOUR_MIN / TIME_HOUR_MAX / DAY_INDEX_MIN (narrative clock)
+	var gt_cond: Node = root.get_node_or_null("GameTimeSystem")
+	if gt_cond != null and gt_cond.has_method("debug_set_narrative_time"):
+		gt_cond.call("debug_set_narrative_time", 1, 10)
+		if not bool(cond.call("evaluate", cond.call("make_time_hour_min", 8))):
+			push_error("drive_smoke: TIME_HOUR_MIN 8 should pass at hour 10")
+			quit(1)
+			return false
+		if not bool(cond.call("evaluate", cond.call("make_time_hour_max", 17))):
+			push_error("drive_smoke: TIME_HOUR_MAX 17 should pass at hour 10")
+			quit(1)
+			return false
+		if bool(cond.call("evaluate", cond.call("make_time_hour_min", 18))):
+			push_error("drive_smoke: TIME_HOUR_MIN 18 should fail at hour 10")
+			quit(1)
+			return false
+		if not bool(cond.call("evaluate", cond.call("make_day_index_min", 1))):
+			push_error("drive_smoke: DAY_INDEX_MIN 1 should pass on day 1")
+			quit(1)
+			return false
+		if bool(cond.call("evaluate", cond.call("make_day_index_min", 2))):
+			push_error("drive_smoke: DAY_INDEX_MIN 2 should fail on day 1")
+			quit(1)
+			return false
+		gt_cond.call("reset_for_tests")
 
 	# ALL / ANY composites
 	var pass_a: Resource = cond.call("make_flag_equals", "smoke_flag_a", true)
@@ -3221,6 +3311,9 @@ func _verify_enter_exit_vehicle() -> bool:
 		return false
 
 	if not await _verify_relationship_system(occupancy, character, foot_cam):
+		return false
+
+	if not await _verify_time_npc_availability(occupancy, character, foot_cam):
 		return false
 
 	if not await _verify_small_interior(occupancy, character, foot_cam):
@@ -4716,31 +4809,34 @@ func _verify_npc_dialogue_rules(_occupancy: Node, character: CharacterBody3D, _f
 		memory.call("reset_for_tests")
 	dlg.call("reload_catalog")
 	dlg.call("reload_npc_catalog")
+	var gt_rules: Node = root.get_node_or_null("GameTimeSystem")
+	if gt_rules != null and gt_rules.has_method("debug_set_narrative_time"):
+		gt_rules.call("debug_set_narrative_time", 0, 10)
 
-	# 1) First meet → fallback intro.
+	# 1) First meet → fallback intro (time rules require NPC_MET).
 	var first := str(dlg.call("resolve_dialogue_for_npc", MIRA))
 	if first != "mira_intro":
 		push_error("drive_smoke: first meet should be mira_intro, got %s" % first)
 		quit(1)
 		return false
 
-	# 2) After met (no quest) → returning.
+	# 2) After met (no quest, daytime) → time-of-day greeting beats mira_returning.
 	ns.call("set_met_player", MIRA, true)
-	var returning := str(dlg.call("resolve_dialogue_for_npc", MIRA))
-	if returning != "mira_returning":
-		push_error("drive_smoke: met Mira should resolve mira_returning, got %s" % returning)
+	var day_line := str(dlg.call("resolve_dialogue_for_npc", MIRA))
+	if day_line != "mira_time_day":
+		push_error("drive_smoke: met Mira at hour 10 should resolve mira_time_day, got %s" % day_line)
 		quit(1)
 		return false
 
-	# 3) Active quest beats generic returning.
+	# 3) Active quest beats time greeting / returning.
 	qs.call("start_quest", "power_the_viewpoint")
 	var active := str(dlg.call("resolve_dialogue_for_npc", MIRA))
 	if active != "mira_quest_active_01":
-		push_error("drive_smoke: ACTIVE quest should beat returning, got %s" % active)
+		push_error("drive_smoke: ACTIVE quest should beat time greeting, got %s" % active)
 		quit(1)
 		return false
 
-	# 4) Completed beats active / returning.
+	# 4) Completed beats active / time / returning.
 	qs.call("complete_quest", "power_the_viewpoint")
 	var done := str(dlg.call("resolve_dialogue_for_npc", MIRA))
 	if done != "mira_quest_done_01":
@@ -4846,7 +4942,9 @@ func _verify_npc_dialogue_rules(_occupancy: Node, character: CharacterBody3D, _f
 		memory.call("reset_for_tests")
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
-	print("drive_smoke: npc_rules OK (intro → returning → active → done + ties + fallback)")
+	if gt_rules != null and gt_rules.has_method("reset_for_tests"):
+		gt_rules.call("reset_for_tests")
+	print("drive_smoke: npc_rules OK (intro → time_day → active → done + ties + fallback)")
 	return true
 
 
@@ -5297,6 +5395,172 @@ func _verify_relationship_system(_occupancy: Node, character: CharacterBody3D, _
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print("drive_smoke: relationship OK (Mira +5 / viewpoint +10 + clamp + conditions + save)")
+	return true
+
+
+func _verify_time_npc_availability(
+	_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D
+) -> bool:
+	## Narrative hour/day → Mira 08–18 window + day/night dialogue lines (no lighting).
+	var gt: Node = root.get_node_or_null("GameTimeSystem")
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	var cond: Node = root.get_node_or_null("ConditionSystem")
+	var ns: Node = root.get_node_or_null("NpcStateSystem")
+	var qs: Node = root.get_node_or_null("QuestSystem")
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	var memory: Node = root.get_node_or_null("DialogueMemorySystem")
+	if gt == null or dlg == null or cond == null or ns == null or qs == null or poi_sys == null:
+		push_error("drive_smoke: systems missing for time NPC availability")
+		quit(1)
+		return false
+
+	const MIRA := "mira_viewpoint_keeper"
+
+	# No lighting / art wiring in NPC availability path.
+	var npc_script: Script = load("res://scripts/npc/npc_character.gd") as Script
+	if npc_script != null:
+		var src := npc_script.source_code
+		for banned in ["DirectionalLight", "WorldEnvironment", "sky_energy"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: NpcCharacter must not wire visuals '%s'" % banned)
+				quit(1)
+				return false
+
+	qs.call("reset_all")
+	ns.call("reset_for_tests")
+	if memory != null and memory.has_method("reset_for_tests"):
+		memory.call("reset_for_tests")
+	dlg.call("reload_catalog")
+	dlg.call("reload_npc_catalog")
+	gt.call("reset_for_tests")
+
+	var mira_def: Resource = load("res://resources/npc/mira_viewpoint_keeper.tres")
+	if mira_def == null:
+		push_error("drive_smoke: Mira definition missing for time window")
+		quit(1)
+		return false
+	if int(mira_def.get("available_hour_min")) != 8 or int(mira_def.get("available_hour_max")) != 18:
+		push_error(
+			"drive_smoke: Mira window expected 8–18, got %d–%d"
+			% [int(mira_def.get("available_hour_min")), int(mira_def.get("available_hour_max"))]
+		)
+		quit(1)
+		return false
+
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	if poi_res == null or vp_scene == null:
+		push_error("drive_smoke: viewpoint resources missing for time NPC")
+		quit(1)
+		return false
+	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(8.0, 0.0, -4.0))
+	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	var mira: Node = vp.find_child("Mira", true, false) if vp != null else null
+	if mira == null:
+		push_error("drive_smoke: Mira missing for time availability")
+		quit(1)
+		return false
+
+	# Daytime: visible + interactable; after met → "Bom dia."
+	gt.call("debug_set_narrative_time", 0, 10)
+	await physics_frame
+	await physics_frame
+	if not bool(mira.call("is_within_availability_window")):
+		push_error("drive_smoke: Mira should be available at hour 10")
+		quit(1)
+		return false
+	if not bool(mira.visible):
+		push_error("drive_smoke: Mira should be visible at hour 10")
+		quit(1)
+		return false
+	ns.call("set_met_player", MIRA, true)
+	var day_id := str(dlg.call("resolve_dialogue_for_npc", MIRA))
+	if day_id != "mira_time_day":
+		push_error("drive_smoke: day resolve expected mira_time_day, got %s" % day_id)
+		quit(1)
+		return false
+	character.global_position = (mira as Node3D).global_position + Vector3(0.0, 0.05, 1.5)
+	await physics_frame
+	if not bool(mira.call("can_interact", character)):
+		push_error("drive_smoke: Mira should be interactable at hour 10")
+		quit(1)
+		return false
+	if not bool(mira.call("interact", character)):
+		push_error("drive_smoke: Mira day interact failed")
+		quit(1)
+		return false
+	await physics_frame
+	if str(dlg.call("get_current_id")) != "mira_time_day":
+		push_error("drive_smoke: day dialogue id wrong: %s" % str(dlg.call("get_current_id")))
+		quit(1)
+		return false
+	var day_text := str(dlg.call("get_current_text")) if dlg.has_method("get_current_text") else ""
+	if day_text.find("Bom dia") < 0:
+		push_error("drive_smoke: day line should contain 'Bom dia.', got '%s'" % day_text)
+		quit(1)
+		return false
+	dlg.call("end_dialogue", false)
+	await physics_frame
+
+	# Night: hidden / unavailable; resolve still yields night line for gates.
+	gt.call("debug_set_narrative_time", 0, 22)
+	await physics_frame
+	await physics_frame
+	if bool(mira.call("is_within_availability_window")):
+		push_error("drive_smoke: Mira should be outside window at hour 22")
+		quit(1)
+		return false
+	if bool(mira.visible):
+		push_error("drive_smoke: Mira should be hidden at hour 22")
+		quit(1)
+		return false
+	if bool(mira.call("can_interact", character)):
+		push_error("drive_smoke: Mira should not be interactable at hour 22")
+		quit(1)
+		return false
+	var night_id := str(dlg.call("resolve_dialogue_for_npc", MIRA))
+	if night_id != "mira_time_night":
+		push_error("drive_smoke: night resolve expected mira_time_night, got %s" % night_id)
+		quit(1)
+		return false
+	var night_res: Resource = load("res://resources/dialogue/mira_time_night.tres")
+	if night_res == null or str(night_res.get("text")).find("tarde") < 0:
+		push_error("drive_smoke: night line should be 'Está ficando tarde.'")
+		quit(1)
+		return false
+
+	# DAY_INDEX_MIN condition + hour advance across midnight.
+	gt.call("debug_set_narrative_time", 0, 23)
+	if bool(cond.call("evaluate", cond.call("make_day_index_min", 1))):
+		push_error("drive_smoke: DAY_INDEX_MIN 1 should fail on day 0")
+		quit(1)
+		return false
+	# Scale 60: 60 real seconds → +1 narrative hour → day 1 hour 0.
+	gt.call("debug_advance", 60.0, false)
+	if int(gt.call("get_day_index")) != 1 or int(gt.call("get_hour_of_day")) != 0:
+		push_error(
+			"drive_smoke: hour advance across midnight failed (day%d/h%d)"
+			% [int(gt.call("get_day_index")), int(gt.call("get_hour_of_day"))]
+		)
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate", cond.call("make_day_index_min", 1))):
+		push_error("drive_smoke: DAY_INDEX_MIN 1 should pass after midnight")
+		quit(1)
+		return false
+
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	qs.call("reset_all")
+	ns.call("reset_for_tests")
+	if memory != null and memory.has_method("reset_for_tests"):
+		memory.call("reset_for_tests")
+	gt.call("reset_for_tests")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print(
+		"drive_smoke: time_npc OK (Mira 08–18 window + mira_time_day/night + hour/day + conditions)"
+	)
 	return true
 
 
