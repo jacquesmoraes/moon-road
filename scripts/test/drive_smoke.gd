@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK npc_move=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -3504,6 +3504,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_npc_schedules(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_npc_movement(occupancy, character, foot_cam):
+		return false
+
 	if not await _verify_small_interior(occupancy, character, foot_cam):
 		return false
 
@@ -6008,6 +6011,203 @@ func _verify_npc_schedules(
 	print(
 		"drive_smoke: npc_sched OK (Mira routine + Rafa cross-midnight + fallback + save + signal)"
 	)
+	return true
+
+
+func _verify_npc_movement(
+	_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D
+) -> bool:
+	## Mira walks between Sunset Viewpoint markers; dialogue pauses; reload snaps.
+	var gt: Node = root.get_node_or_null("GameTimeSystem")
+	var ns: Node = root.get_node_or_null("NpcStateSystem")
+	var sched: Node = root.get_node_or_null("NpcScheduleSystem")
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	if gt == null or ns == null or sched == null or dlg == null or poi_sys == null:
+		push_error("drive_smoke: systems missing for npc movement")
+		quit(1)
+		return false
+
+	var move_script: Script = load("res://scripts/npc/npc_movement_controller.gd") as Script
+	if move_script != null:
+		var src := move_script.source_code
+		for banned in ["mira_viewpoint_keeper", "DialogueSystem.start_dialogue", "final anim"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: NpcMovementController must not contain '%s'" % banned)
+				quit(1)
+				return false
+
+	ns.call("reset_for_tests")
+	gt.call("reset_for_tests")
+	sched.call("reset_for_tests")
+	if dlg.has_method("reload_catalog"):
+		dlg.call("reload_catalog")
+
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(10.0, 0.0, -5.0))
+	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	if vp == null:
+		push_error("drive_smoke: viewpoint spawn failed for npc movement")
+		quit(1)
+		return false
+	await physics_frame
+	await physics_frame
+
+	var destinations: Node = vp.get_node_or_null("Destinations")
+	if destinations == null:
+		push_error("drive_smoke: Destinations node missing on ViewpointPOI")
+		quit(1)
+		return false
+	for needed in ["viewpoint_workshop", "viewpoint_diner", "viewpoint_home"]:
+		if destinations.get_node_or_null(needed) == null:
+			push_error("drive_smoke: missing destination marker '%s'" % needed)
+			quit(1)
+			return false
+	if vp.get_node_or_null("NavigationRegion3D") == null:
+		push_error("drive_smoke: NavigationRegion3D missing on ViewpointPOI")
+		quit(1)
+		return false
+
+	var mira: Node3D = vp.find_child("Mira", true, false) as Node3D
+	if mira == null:
+		push_error("drive_smoke: Mira missing for movement")
+		quit(1)
+		return false
+	var movement: Node = mira.get_node_or_null("NpcMovementController")
+	if movement == null:
+		push_error("drive_smoke: NpcMovementController missing on Mira")
+		quit(1)
+		return false
+	movement.set("max_speed", 12.0)
+	movement.set("acceleration", 40.0)
+
+	# Hour 10 → snap/arrive at workshop.
+	gt.call("set_narrative_time", 0, 10, 0)
+	sched.call("refresh_all")
+	await physics_frame
+	var workshop: Marker3D = destinations.get_node("viewpoint_workshop") as Marker3D
+	var diner: Marker3D = destinations.get_node("viewpoint_diner") as Marker3D
+	if not bool(movement.call("go_to_location", "viewpoint_workshop", true)):
+		push_error("drive_smoke: go_to_location(workshop, snap) failed")
+		quit(1)
+		return false
+	await physics_frame
+	if mira.global_position.distance_to(workshop.global_position) > 0.75:
+		push_error(
+			"drive_smoke: Mira should snap to workshop (dist=%.2f mira=%s mark=%s)"
+			% [
+				mira.global_position.distance_to(workshop.global_position),
+				str(mira.global_position),
+				str(workshop.global_position),
+			]
+		)
+		quit(1)
+		return false
+
+	# Hour 12 → walk toward diner.
+	gt.call("set_narrative_time", 0, 12, 0)
+	sched.call("refresh_all")
+	await physics_frame
+	var start_pos := mira.global_position
+	var start_dist := start_pos.distance_to(diner.global_position)
+	for _i in range(90):
+		await physics_frame
+		if mira.global_position.distance_to(diner.global_position) < 0.6:
+			break
+	var end_dist := mira.global_position.distance_to(diner.global_position)
+	if end_dist >= start_dist - 0.15:
+		push_error(
+			"drive_smoke: Mira should walk toward diner (start=%.2f end=%.2f)"
+			% [start_dist, end_dist]
+		)
+		quit(1)
+		return false
+
+	# Dialogue pauses movement; schedule may update desired target but walk waits.
+	ns.call("set_met_player", "mira_viewpoint_keeper", true)
+	character.global_position = mira.global_position + Vector3(0.0, 0.05, 1.4)
+	await physics_frame
+	if not bool(mira.call("interact", character)):
+		push_error("drive_smoke: Mira interact failed during movement pause test")
+		quit(1)
+		return false
+	await physics_frame
+	if movement.has_method("is_paused") and not bool(movement.call("is_paused")):
+		push_error("drive_smoke: movement should pause during dialogue")
+		quit(1)
+		return false
+	# Still within Mira's availability window (08–18); retarget workshop while paused.
+	gt.call("set_narrative_time", 0, 15, 0)
+	sched.call("refresh_all")
+	await physics_frame
+	var paused_pos := mira.global_position
+	for _j in range(20):
+		await physics_frame
+	if mira.global_position.distance_to(paused_pos) > 0.08:
+		push_error("drive_smoke: Mira moved during dialogue pause")
+		quit(1)
+		return false
+	if str(movement.call("get_desired_location_id")) != "viewpoint_workshop":
+		push_error("drive_smoke: paused Mira should keep updated desired workshop target")
+		quit(1)
+		return false
+	dlg.call("end_dialogue", false)
+	await physics_frame
+	await physics_frame
+	if movement.has_method("is_paused") and bool(movement.call("is_paused")):
+		push_error("drive_smoke: movement should resume after dialogue")
+		quit(1)
+		return false
+
+	# Missing destination fails safe (logical state kept).
+	ns.call("set_location_id", "mira_viewpoint_keeper", "viewpoint_workshop")
+	if not bool(movement.call("go_to_location", "no_such_marker", false)):
+		if str(ns.call("get_location_id", "mira_viewpoint_keeper")) != "viewpoint_workshop":
+			push_error("drive_smoke: missing marker must not wipe logical location")
+			quit(1)
+			return false
+	else:
+		push_error("drive_smoke: go_to_location should fail for missing marker")
+		quit(1)
+		return false
+
+	# Reload snap: despawn / respawn at hour 15 → workshop without long path sim.
+	gt.call("set_narrative_time", 0, 15, 0)
+	sched.call("refresh_all")
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	await physics_frame
+	vp = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	await physics_frame
+	await physics_frame
+	await physics_frame
+	mira = vp.find_child("Mira", true, false) as Node3D
+	destinations = vp.get_node_or_null("Destinations")
+	workshop = destinations.get_node("viewpoint_workshop") as Marker3D if destinations != null else null
+	if mira == null or workshop == null:
+		push_error("drive_smoke: Mira/workshop missing after reload snap")
+		quit(1)
+		return false
+	movement = mira.get_node_or_null("NpcMovementController")
+	if movement != null and movement.has_method("snap_to_current_schedule"):
+		movement.call("snap_to_current_schedule")
+	await physics_frame
+	if mira.global_position.distance_to(workshop.global_position) > 0.9:
+		push_error(
+			"drive_smoke: reload should snap Mira to workshop (dist=%.2f)"
+			% mira.global_position.distance_to(workshop.global_position)
+		)
+		quit(1)
+		return false
+
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	ns.call("reset_for_tests")
+	gt.call("reset_for_tests")
+	sched.call("reset_for_tests")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: npc_move OK (walk + dialogue pause + fail-safe + reload snap)")
 	return true
 
 

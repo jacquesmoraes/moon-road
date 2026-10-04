@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **data-driven NPC schedules** — daily routines from narrative hour (Mira workshop/diner/home; Rafa roadside/camp), logical location/state only. See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **basic NPC navigation** — schedule location_id → Marker3D walk via `NavigationAgent3D` (pause in dialogue, snap on POI reload). See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -413,7 +413,7 @@ Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later w
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
-# Expect: … npc_sched=OK … time_npc=OK … game_time=OK … drive_smoke: OK
+# Expect: … npc_move=OK … npc_sched=OK … time_npc=OK … game_time=OK … drive_smoke: OK
 ```
 
 

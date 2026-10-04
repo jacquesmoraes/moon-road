@@ -149,6 +149,8 @@ func _build_placeholders() -> void:
 	_observation.position = Vector3(0.0, 1.4, -4.5)
 
 	_build_platform()
+	_build_navigation_region()
+	_build_destinations()
 	_build_discover_area()
 	_build_sign()
 	_build_bounds_visual()
@@ -182,6 +184,54 @@ func _build_platform() -> void:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.35, 0.36, 0.34, 1)
 	mesh.material_override = mat
+
+
+func _build_navigation_region() -> void:
+	## Flat navmesh over the platform for basic NPC walks (no complex avoidance).
+	var region := get_node_or_null("NavigationRegion3D") as NavigationRegion3D
+	if region == null:
+		region = NavigationRegion3D.new()
+		region.name = "NavigationRegion3D"
+		add_child(region)
+	var nav_mesh := NavigationMesh.new()
+	var half_x := platform_size.x * 0.5
+	var half_z := platform_size.z * 0.5
+	var y := 0.05
+	nav_mesh.vertices = PackedVector3Array([
+		Vector3(-half_x, y, -half_z),
+		Vector3(half_x, y, -half_z),
+		Vector3(half_x, y, half_z),
+		Vector3(-half_x, y, half_z),
+	])
+	nav_mesh.add_polygon(PackedInt32Array([0, 1, 2, 3]))
+	nav_mesh.agent_radius = 0.35
+	nav_mesh.agent_height = 1.6
+	nav_mesh.agent_max_climb = 0.3
+	region.navigation_mesh = nav_mesh
+
+
+func _build_destinations() -> void:
+	## Schedule location_id → Marker3D. Logical ids only; art can move markers later.
+	var root := get_node_or_null("Destinations") as Node3D
+	if root == null:
+		root = Node3D.new()
+		root.name = "Destinations"
+		add_child(root)
+	var spots := {
+		"viewpoint_workshop": Vector3(4.5, 0.05, -2.5),
+		"viewpoint_diner": Vector3(-4.0, 0.05, 2.0),
+		"viewpoint_home": Vector3(-5.0, 0.05, -4.0),
+		"roadside_pullout": Vector3(-1.2, 0.05, 3.5),
+		"roadside_camp": Vector3(5.0, 0.05, 4.0),
+	}
+	for location_id in spots.keys():
+		var marker := root.get_node_or_null(str(location_id)) as Marker3D
+		if marker == null:
+			marker = Marker3D.new()
+			marker.name = str(location_id)
+			root.add_child(marker)
+		marker.position = spots[location_id] as Vector3
+		marker.set_meta("location_id", str(location_id))
 
 
 func _build_discover_area() -> void:

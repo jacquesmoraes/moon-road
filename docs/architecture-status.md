@@ -1,7 +1,7 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** data-driven NPC schedules (`feat: add data-driven npc schedules`)  
+**As of:** basic NPC navigation (`feat: add basic npc navigation and movement`)  
 **Engine:** Godot 4.7 Forward Plus
 
 This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.
@@ -19,6 +19,7 @@ This document describes the **current implemented foundation**, not the full des
 | `DialogueMemorySystem` | Seen/completed/choice memory + timestamps | Dialogue text, NPC names |
 | `NpcStateSystem` | Mutable NPC campaign fields by `npc_id` | Pathfinding, Node refs, schedule resolution |
 | `NpcScheduleSystem` | Resolve daily routine from narrative hour → write location/state/schedule_id | Physical NPC movement, pathfinding |
+| *(scene)* `NpcMovementController` | Walk NPC → Marker3D via `NavigationAgent3D`; pause/resume; snap on load | Dialogue text, schedule authorship, persistence |
 | `InventorySystem` | Item quantities by id + catalog | World pickups, UI layout |
 | `QuestSystem` | Quest state by id; dialogue_finished → start; turn-in API | Condition evaluation, UI log |
 | `CraftingSystem` | Recipes; consume→output via Inventory | Workbench UX beyond debug UI |
@@ -72,6 +73,8 @@ NpcCharacter → DialogueSystem.resolve_dialogue_for_npc + NpcStateSystem + narr
 NpcDefinition → static: dialogue_rules + fallback + available_hour_min/max
 NpcScheduleSystem → GameTimeSystem (narrative hour) → NpcStateSystem (location/state/schedule_id)
 NpcScheduleData / NpcScheduleEntry → authored windows; catalog by npc_id (future: flags/quests selection)
+NpcMovementController → NpcScheduleSystem / NpcStateSystem (location_id) → NpcDestinationResolver (Marker3D)
+                         → NavigationAgent3D on NPC body; pauses on dialogue / availability
 
 QuestSystem → InventorySystem (requirements)
             → DialogueActionExecutor (optional QuestData.on_complete_actions)
@@ -124,6 +127,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 | NpcDialogueRule | `mira_quest_done` / `mira_quest_active` / `mira_time_day` / `mira_time_night` / `mira_returning` |
 | NPC availability | `available_hour_min`/`max` on `NpcDefinition` (Mira 8–18 exclusive end) |
 | NPC schedules | `mira_daily`, `rafa_roadside` — entries with start/end hour, location, state, activity |
+| POI destinations | Marker3D under `Destinations/` — `viewpoint_workshop`, `viewpoint_diner`, `viewpoint_home`, … |
 | Conditions (time) | `NARRATIVE_HOUR_MIN/MAX`, `NARRATIVE_DAY_MIN/MAX`, `NARRATIVE_TIME_RANGE` |
 | Reputation groups | `sunset_viewpoint` |
 | DialogueChoice | `accept_help`, `refuse_help`, `moon_yes`, `buy_part`, … |
@@ -151,6 +155,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 - `GameFlags.flag_changed`
 - `NpcStateSystem.npc_state_changed` / `npc_met_player` / `npc_states_cleared`
 - `NpcScheduleSystem.npc_schedule_changed(npc_id, location_id, state, activity_id, schedule_id)`
+- `NpcMovementController.destination_started` / `destination_reached` / `destination_failed`
 - `RelationshipSystem.relationship_changed` / `reputation_changed` / `relationships_cleared`
 - `PlayerVehicle.parking_state_changed`
 - `DrivingModeController.mode_changed`
@@ -166,7 +171,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 - Placeholder NPC meshes, procedural road, no final art
 - Offline travel is a **minimal hook** (cruise speed × time, fuel cap) — not the full design offline policy
 - Narrative clock is logical only (no lighting/sky)
-- NPC schedules update logical location/state only — no physical move / pathfinding yet
+- NPC POI walks use flat `NavigationRegion3D` + markers (no crowds, vehicles, inter-city nav, final anim)
 - No gas stations, garage, multi-vehicle, quest log UI
 
 ---
@@ -176,7 +181,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira (`met_player`) → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → talk to Rafa (`rafa_far` → `BUSY`) → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time/dialogue memory/NPC state without duplication → limited offline progress respects fuel (+ narrative when applied).
 
 Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `npc_sched=OK`, `time_npc=OK`, `game_time=OK`, `relationship=OK`, `quest=OK`, and the full `drive_smoke: OK …` line.
+Look for `npc_move=OK`, `npc_sched=OK`, `time_npc=OK`, `game_time=OK`, `relationship=OK`, `quest=OK`, and the full `drive_smoke: OK …` line.
 
 ---
 
@@ -195,7 +200,7 @@ Look for `npc_sched=OK`, `time_npc=OK`, `game_time=OK`, `relationship=OK`, `ques
 
 1. **Gas / service stop POI** — refuel interaction (fuel is already functional).
 2. **Offline policy UI** — expose capped offline window from GAME_DESIGN §8.
-3. **NPC physical routines** — logical schedules exist; move Nodes / pathfinding next.
+3. **NPC animation + richer nav** — basic walk/snap/pause exists; final anim / avoidance / inter-POI next.
 4. **Quest log + more ConditionSystem gates** on NPCs/lines.
 5. **Vehicle condition / wear** — fields exist; no drain yet.
 6. **Region-driven atmosphere** — WorldRegionSystem already tracks bands.

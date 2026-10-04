@@ -147,6 +147,7 @@ func interact(actor: Node = null) -> bool:
 	if not id.is_empty():
 		var dlg := get_node_or_null("/root/DialogueSystem")
 		if dlg != null and dlg.has_method("start_dialogue"):
+			_arm_dialogue_movement_lock()
 			started = bool(dlg.call("start_dialogue", id, actor))
 			if started:
 				dialogue_requested.emit(id, actor)
@@ -155,6 +156,8 @@ func interact(actor: Node = null) -> bool:
 				set_meta("last_interact_message", "NPC %s dialogue=%s" % [get_display_name(), id])
 				line_spoken.emit(text)
 				_record_talk_state(id)
+			else:
+				_clear_dialogue_movement_lock()
 
 	if not started:
 		# Fallback: one-shot line via DialogueSystem if possible, else meta only.
@@ -164,6 +167,7 @@ func interact(actor: Node = null) -> bool:
 		var dlg2 := get_node_or_null("/root/DialogueSystem")
 		if dlg2 != null and dlg2.has_method("start_from_definition"):
 			var fallback := _make_fallback_definition(line)
+			_arm_dialogue_movement_lock()
 			started = bool(dlg2.call("start_from_definition", fallback, actor))
 			if started:
 				dialogue_requested.emit(str(fallback.get("id")), actor)
@@ -171,6 +175,8 @@ func interact(actor: Node = null) -> bool:
 				set_meta("last_interact_message", "NPC %s fallback='%s'" % [get_display_name(), line])
 				line_spoken.emit(line)
 				_record_talk_state(str(fallback.get("id")))
+			else:
+				_clear_dialogue_movement_lock()
 		if not started:
 			set_meta("last_spoken_line", line)
 			set_meta("last_interact_message", "NPC %s: \"%s\"" % [get_display_name(), line])
@@ -317,3 +323,30 @@ func _refresh_time_availability() -> void:
 	collision_layer = 8 if available else 0
 	if _name_label != null:
 		_name_label.visible = available
+	var movement := get_node_or_null("NpcMovementController")
+	if movement != null:
+		if available:
+			if bool(get_meta("movement_availability_paused", false)):
+				set_meta("movement_availability_paused", false)
+				if movement.has_method("snap_to_current_schedule"):
+					movement.call("snap_to_current_schedule")
+				if movement.has_method("resume_movement"):
+					movement.call("resume_movement", "availability")
+		elif movement.has_method("pause_movement"):
+			set_meta("movement_availability_paused", true)
+			movement.call("pause_movement", "availability")
+
+
+func _arm_dialogue_movement_lock() -> void:
+	## Arm before start_dialogue so dialogue_started can pause this NPC only.
+	set_meta("movement_dialogue_lock", true)
+	var movement := get_node_or_null("NpcMovementController")
+	if movement != null and movement.has_method("pause_movement"):
+		movement.call("pause_movement", "dialogue")
+
+
+func _clear_dialogue_movement_lock() -> void:
+	set_meta("movement_dialogue_lock", false)
+	var movement := get_node_or_null("NpcMovementController")
+	if movement != null and movement.has_method("resume_movement"):
+		movement.call("resume_movement", "dialogue")

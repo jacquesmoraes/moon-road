@@ -1,6 +1,7 @@
-[gd_scene load_steps=8 format=3 uid="uid://bterra_npc"]
+[gd_scene load_steps=9 format=3 uid="uid://bterra_npc"]
 
 [ext_resource type="Script" path="res://scripts/npc/npc_character.gd" id="1_script"]
+[ext_resource type="Script" path="res://scripts/npc/npc_movement_controller.gd" id="2_move"]
 
 [sub_resource type="SphereShape3D" id="Shape_interact"]
 radius = 1.15
@@ -80,3 +81,17 @@ billboard = 1
 [node name="SpeechTimer" type="Timer" parent="."]
 one_shot = true
 wait_time = 2.5
+
+[node name="NpcMovementController" type="Node" parent="."]
+script = ExtResource("2_move")
+max_speed = 2.8
+acceleration = 10.0
+rotation_speed = 12.0
+arrival_distance = 0.4
+
+[node name="NavigationAgent3D" type="NavigationAgent3D" parent="."]
+avoidance_enabled = false
+radius = 0.35
+height = 1.6
+path_desired_distance = 0.25
+target_desired_distance = 0.4
