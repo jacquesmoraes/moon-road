@@ -5139,7 +5139,7 @@ func _verify_relationship_system(_occupancy: Node, character: CharacterBody3D, _
 	var rs_script: Script = load("res://autoload/relationship_system.gd") as Script
 	if rs_script != null:
 		var src := rs_script.source_code
-		for banned in ["DialogueSystem", "Mira", "mira_viewpoint", "romance", "Romance"]:
+		for banned in ["DialogueSystem", "Mira", "mira_viewpoint", "rafa_road", "accept_help"]:
 			if src.find(banned) >= 0:
 				push_error("drive_smoke: RelationshipSystem must not contain '%s'" % banned)
 				quit(1)
