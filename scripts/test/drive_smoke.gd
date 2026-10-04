@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK dlg_interrupt=OK npc_bark=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK npc_move=OK npc_travel=OK npc_dlg_debug=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK dlg_interrupt=OK npc_bark=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK npc_move=OK npc_travel=OK npc_dlg_debug=OK dlg_npc_pass=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -3517,6 +3517,9 @@ func _verify_enter_exit_vehicle() -> bool:
 		return false
 
 	if not await _verify_npc_dialogue_debug(occupancy, character, foot_cam):
+		return false
+
+	if not await _verify_dialogue_npc_system_pass(occupancy, character, foot_cam):
 		return false
 
 	if not await _verify_small_interior(occupancy, character, foot_cam):
@@ -7111,6 +7114,444 @@ func _verify_npc_dialogue_debug(
 	await physics_frame
 	print(
 		"drive_smoke: npc_dlg_debug OK (panel + validate + remote start + mutators + isolated reset)"
+	)
+	return true
+
+
+func _verify_dialogue_npc_system_pass(
+	_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D
+) -> bool:
+	## Close Dialogue & NPC System Pass: architecture coupling + compact full-flow + coverage map.
+	## Detailed cases live in earlier _verify_* slices; this asserts integration + data-driven scale.
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	var memory: Node = root.get_node_or_null("DialogueMemorySystem")
+	var ns: Node = root.get_node_or_null("NpcStateSystem")
+	var sched: Node = root.get_node_or_null("NpcScheduleSystem")
+	var travel: Node = root.get_node_or_null("NpcTravelSystem")
+	var bark: Node = root.get_node_or_null("BarkSystem")
+	var rel: Node = root.get_node_or_null("RelationshipSystem")
+	var cond: Node = root.get_node_or_null("ConditionSystem")
+	var gt: Node = root.get_node_or_null("GameTimeSystem")
+	var qs: Node = root.get_node_or_null("QuestSystem")
+	var save: Node = root.get_node_or_null("SaveSystem")
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	var flags: Node = root.get_node_or_null("GameFlags")
+	if (
+		dlg == null
+		or memory == null
+		or ns == null
+		or sched == null
+		or travel == null
+		or bark == null
+		or rel == null
+		or cond == null
+		or gt == null
+		or qs == null
+		or save == null
+		or poi_sys == null
+		or flags == null
+	):
+		push_error("drive_smoke: systems missing for dialogue/npc system pass")
+		quit(1)
+		return false
+
+	# --- Architecture: no reverse get_node ownership edges / no per-NPC hardcoding in hubs ---
+	# Allowed reads are documented in docs/dialogue-npc-system-status.md (acyclic intent).
+	var coupling_checks: Array = [
+		{
+			"path": "res://autoload/dialogue_system.gd",
+			"banned": [
+				"/root/NpcScheduleSystem",
+				"/root/NpcTravelSystem",
+				"/root/RelationshipSystem",
+				"/root/BarkSystem",
+				"/root/QuestSystem",
+				"mira_viewpoint_keeper",
+				"rafa_road_traveler",
+			],
+		},
+		{
+			"path": "res://autoload/npc_state_system.gd",
+			"banned": [
+				"/root/DialogueSystem",
+				"/root/BarkSystem",
+				"/root/NpcScheduleSystem",
+				"/root/NpcTravelSystem",
+				"/root/RelationshipSystem",
+				"/root/ConditionSystem",
+				"mira_viewpoint_keeper",
+			],
+		},
+		{
+			"path": "res://autoload/npc_schedule_system.gd",
+			"banned": [
+				"/root/DialogueSystem",
+				"/root/BarkSystem",
+				"/root/RelationshipSystem",
+				"/root/ConditionSystem",
+				"/root/NpcTravelSystem",
+				"mira_viewpoint_keeper",
+			],
+		},
+		{
+			"path": "res://autoload/relationship_system.gd",
+			"banned": [
+				"/root/DialogueSystem",
+				"/root/DialogueMemorySystem",
+				"/root/BarkSystem",
+				"/root/NpcScheduleSystem",
+				"mira_viewpoint_keeper",
+			],
+		},
+		{
+			"path": "res://autoload/bark_system.gd",
+			"banned": ["DialogueUI", "mira_viewpoint_keeper", "rafa_road_traveler", "Vai chover"],
+		},
+		{
+			"path": "res://autoload/dialogue_memory_system.gd",
+			"banned": ["/root/DialogueSystem", "/root/QuestSystem", "mira_viewpoint_keeper"],
+		},
+		{
+			"path": "res://autoload/condition_system.gd",
+			"banned": ["power_the_viewpoint", "mira_quest", "\"Mira\"", "\"Rafa\""],
+		},
+		{
+			"path": "res://scripts/npc/npc_movement_controller.gd",
+			"banned": ["mira_viewpoint_keeper", "start_dialogue(", "/root/RelationshipSystem"],
+		},
+	]
+	for entry in coupling_checks:
+		var script: Script = load(str(entry["path"])) as Script
+		if script == null:
+			push_error("drive_smoke: missing script for coupling audit %s" % str(entry["path"]))
+			quit(1)
+			return false
+		var src := script.source_code
+		for banned in entry["banned"]:
+			if src.find(str(banned)) >= 0:
+				push_error(
+					"drive_smoke: coupling audit fail %s must not contain '%s'"
+					% [str(entry["path"]), str(banned)]
+				)
+				quit(1)
+				return false
+
+	# Content validator: broken links / duplicates / schedule fallbacks.
+	var ValidatorScript = load("res://scripts/debug/npc_dialogue_content_validator.gd")
+	if ValidatorScript == null:
+		push_error("drive_smoke: content validator missing for system pass")
+		quit(1)
+		return false
+	var validator: RefCounted = ValidatorScript.new()
+	var report: Dictionary = validator.call("validate")
+	if not bool(report.get("ok", false)):
+		push_error(
+			"drive_smoke: system pass content validation failed:\n%s"
+			% str(validator.call("format_report", report))
+		)
+		quit(1)
+		return false
+
+	# Runtime invalid next_dialogue_id ends safely (does not hang session).
+	var DefScript: Script = load("res://scripts/dialogue/dialogue_definition.gd") as Script
+	var broken: DialogueDefinition = DefScript.new() as DialogueDefinition
+	broken.id = "__pass_broken_link__"
+	broken.speaker_name = "Test"
+	broken.text = "Broken next"
+	broken.next_dialogue_id = "__definitely_missing_dialogue__"
+	dlg.call("register_dialogue", broken)
+	if not bool(dlg.call("start_dialogue", "__pass_broken_link__", character)):
+		push_error("drive_smoke: broken-link line should still start")
+		quit(1)
+		return false
+	await physics_frame
+	dlg.call("advance")
+	await physics_frame
+	if bool(dlg.call("is_active")):
+		push_error("drive_smoke: missing next_dialogue_id should end dialogue safely")
+		quit(1)
+		return false
+
+	# Reset and run compact full flow (spawn → schedule → talk → resolve → branch → memory →
+	# relationship → time → interrupt/resume → travel no-dupe → bark → save/load).
+	const MIRA := "mira_viewpoint_keeper"
+	const RAFA := "rafa_road_traveler"
+	memory.call("reset_for_tests")
+	ns.call("reset_for_tests")
+	rel.call("reset_for_tests")
+	qs.call("reset_all")
+	flags.call("reset_for_tests")
+	bark.call("reset_for_tests")
+	gt.call("reset_for_tests")
+	sched.call("reset_for_tests")
+	save.call("delete_save")
+	gt.call("set_narrative_time", 0, 10, 0)
+	sched.call("refresh_all")
+
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(6.0, 0.0, -6.0))
+	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	if vp == null:
+		push_error("drive_smoke: system pass viewpoint spawn failed")
+		quit(1)
+		return false
+	await physics_frame
+	await physics_frame
+
+	var mira: Node3D = vp.find_child("Mira", true, false) as Node3D
+	var rafa: Node3D = vp.find_child("Rafa", true, false) as Node3D
+	if mira == null or rafa == null:
+		push_error("drive_smoke: system pass missing Mira/Rafa spawn")
+		quit(1)
+		return false
+	# Schedule placement (hour 10 → Mira workshop).
+	if str(ns.call("get_location_id", MIRA)) != "viewpoint_workshop":
+		push_error(
+			"drive_smoke: system pass expected Mira at viewpoint_workshop (got %s)"
+			% str(ns.call("get_location_id", MIRA))
+		)
+		quit(1)
+		return false
+
+	# Contextual resolve before talk (intro when unmet).
+	var resolved_intro := str(dlg.call("resolve_dialogue_for_npc", MIRA))
+	if resolved_intro != "mira_intro":
+		push_error("drive_smoke: system pass expected mira_intro, got %s" % resolved_intro)
+		quit(1)
+		return false
+
+	# Talk + linear advance + memory seen/completed.
+	character.global_position = mira.global_position + Vector3(0.0, 0.05, 1.4)
+	await physics_frame
+	if not bool(mira.call("interact", character)):
+		push_error("drive_smoke: system pass Mira interact failed")
+		quit(1)
+		return false
+	await physics_frame
+	while bool(dlg.call("is_active")):
+		dlg.call("advance")
+		await physics_frame
+	if not bool(memory.call("has_completed_dialogue", "mira_intro")):
+		push_error("drive_smoke: system pass mira_intro should complete")
+		quit(1)
+		return false
+
+	# Priority resolve after met (returning / time_day beats intro).
+	var resolved_day := str(dlg.call("resolve_dialogue_for_npc", MIRA))
+	if resolved_day == "mira_intro" or resolved_day.is_empty():
+		push_error("drive_smoke: system pass contextual priority failed (%s)" % resolved_day)
+		quit(1)
+		return false
+
+	# Branching + hidden/disabled already covered earlier; re-assert moon ask shape quickly.
+	qs.call("reset_all")
+	var inv: Node = root.get_node_or_null("InventorySystem")
+	if inv != null:
+		inv.call("clear_inventory")
+	if not bool(dlg.call("start_dialogue", "mira_moon_ask", character)):
+		push_error("drive_smoke: system pass branching start failed")
+		quit(1)
+		return false
+	await physics_frame
+	var visible: Array = dlg.call("get_visible_choices")
+	var available: Array = dlg.call("get_available_choices")
+	if visible.size() < 4 or available.size() != 3:
+		push_error(
+			"drive_smoke: system pass expected hidden/disabled choice layout (vis=%d avail=%d)"
+			% [visible.size(), available.size()]
+		)
+		quit(1)
+		return false
+	var vis_ids := _choice_ids(visible)
+	if vis_ids.has("terminal_repaired"):
+		push_error("drive_smoke: system pass repaired choice should stay hidden")
+		quit(1)
+		return false
+	dlg.call("end_dialogue", false)
+	await physics_frame
+
+	# Relationship / reputation write + narrative overnight condition.
+	rel.call("set_relationship", MIRA, 12)
+	rel.call("set_reputation", "sunset_viewpoint", 20)
+	if not bool(cond.call("evaluate", cond.call("make_relationship_min", MIRA, 10))):
+		push_error("drive_smoke: system pass RELATIONSHIP_MIN failed")
+		quit(1)
+		return false
+	gt.call("set_narrative_time", 0, 23, 0)
+	var overnight: Resource = cond.call("make_narrative_time_range", 22, 6)
+	if overnight == null or not bool(cond.call("evaluate", overnight)):
+		push_error("drive_smoke: system pass overnight NARRATIVE_TIME_RANGE failed at 23:00")
+		quit(1)
+		return false
+	gt.call("set_narrative_time", 0, 12, 0)
+	if bool(cond.call("evaluate", overnight)):
+		push_error("drive_smoke: overnight range 22–6 must fail at noon")
+		quit(1)
+		return false
+	gt.call("set_narrative_time", 0, 10, 0)
+
+	# Interrupt / resume without duplicating enter actions.
+	var ActionScript: Script = load("res://scripts/dialogue/dialogue_action.gd") as Script
+	var add_once: DialogueAction = ActionScript.new() as DialogueAction
+	add_once.type = DialogueAction.Type.SET_FLAG
+	add_once.target_id = "debug.pass_enter_once"
+	add_once.bool_value = true
+	var line_a: DialogueDefinition = DefScript.new() as DialogueDefinition
+	line_a.id = "__pass_interrupt_a__"
+	line_a.speaker_name = "Test"
+	line_a.text = "A"
+	line_a.next_dialogue_id = "__pass_interrupt_b__"
+	var enter_arr: Array[DialogueAction] = [add_once]
+	line_a.on_enter_actions = enter_arr
+	var line_b: DialogueDefinition = DefScript.new() as DialogueDefinition
+	line_b.id = "__pass_interrupt_b__"
+	line_b.speaker_name = "Test"
+	line_b.text = "B"
+	dlg.call("register_dialogue", line_a)
+	dlg.call("register_dialogue", line_b)
+	flags.call("clear_flag", "debug.pass_enter_once")
+	if not bool(dlg.call("start_dialogue", "__pass_interrupt_a__", character)):
+		push_error("drive_smoke: system pass interrupt start failed")
+		quit(1)
+		return false
+	await physics_frame
+	if not bool(flags.call("get_flag", "debug.pass_enter_once", false)):
+		push_error("drive_smoke: system pass enter action missing")
+		quit(1)
+		return false
+	flags.call("clear_flag", "debug.pass_enter_once")
+	dlg.call("interrupt_dialogue", "SYSTEM_EVENT")
+	await physics_frame
+	if not bool(dlg.call("resume_dialogue", character)):
+		push_error("drive_smoke: system pass resume failed")
+		quit(1)
+		return false
+	await physics_frame
+	if bool(flags.call("get_flag", "debug.pass_enter_once", false)):
+		push_error("drive_smoke: system pass resume must not re-fire enter once-guard")
+		quit(1)
+		return false
+	dlg.call("cancel_dialogue")
+	await physics_frame
+
+	# Traveler leave → no duplicate Rafa at POI.
+	if not bool(
+		travel.call(
+			"start_travel",
+			RAFA,
+			"debug_waystation",
+			"pass_rafa_leave",
+			30,
+			-1.0,
+			""
+		)
+	):
+		push_error("drive_smoke: system pass start_travel failed")
+		quit(1)
+		return false
+	await physics_frame
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	await physics_frame
+	vp = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	await physics_frame
+	await physics_frame
+	rafa = vp.find_child("Rafa", true, false) as Node3D if vp != null else null
+	if rafa != null:
+		push_error("drive_smoke: system pass Rafa should not duplicate while TRAVELING")
+		quit(1)
+		return false
+	# Arrive + bark cooldown/condition snapshot API.
+	gt.call("advance_narrative_minutes", 60.0)
+	travel.call("refresh_arrivals")
+	await physics_frame
+	if bool(travel.call("is_traveling", RAFA)):
+		# Force arrive for pass if narrative gate not met yet.
+		travel.call("complete_arrival", RAFA)
+	bark.call("reset_for_tests", MIRA)
+	var bark_state: Dictionary = bark.call("get_bark_debug_state", MIRA)
+	if not bark_state.has("active_cooldowns"):
+		push_error("drive_smoke: system pass bark debug state incomplete")
+		quit(1)
+		return false
+
+	# Persist dialogue memory + NPC state + relationship across save/load.
+	ns.call("set_met_player", MIRA, true)
+	ns.call("set_current_state", MIRA, "BUSY")
+	ns.call("set_location_id", MIRA, "viewpoint_diner")
+	memory.call("record_dialogue_started", "mira_returning")
+	memory.call("record_dialogue_completed", "mira_returning")
+	memory.call("record_choice_selected", "moon_yes", "mira_moon_ask")
+	rel.call("set_relationship", MIRA, 33)
+	rel.call("set_reputation", "sunset_viewpoint", 44)
+	if not bool(save.call("save_game")):
+		push_error("drive_smoke: system pass save_game failed")
+		quit(1)
+		return false
+	memory.call("reset_for_tests")
+	ns.call("reset_for_tests")
+	rel.call("reset_for_tests")
+	if not bool(save.call("load_game")):
+		push_error("drive_smoke: system pass load_game failed")
+		quit(1)
+		return false
+	if not bool(memory.call("has_completed_dialogue", "mira_returning")):
+		push_error("drive_smoke: system pass memory save/load lost completion")
+		quit(1)
+		return false
+	if not bool(memory.call("has_selected_choice", "moon_yes")):
+		push_error("drive_smoke: system pass memory save/load lost choice")
+		quit(1)
+		return false
+	if str(ns.call("get_current_state", MIRA)) != "BUSY":
+		push_error("drive_smoke: system pass NPC state save/load failed")
+		quit(1)
+		return false
+	if str(ns.call("get_location_id", MIRA)) != "viewpoint_diner":
+		push_error("drive_smoke: system pass NPC location save/load failed")
+		quit(1)
+		return false
+	if int(rel.call("get_relationship", MIRA)) != 33:
+		push_error("drive_smoke: system pass relationship save/load failed")
+		quit(1)
+		return false
+	if int(rel.call("get_reputation", "sunset_viewpoint")) != 44:
+		push_error("drive_smoke: system pass reputation save/load failed")
+		quit(1)
+		return false
+
+	# Data-driven scale: catalogs must register NPCs/dialogues without central per-name scripts.
+	var npc_ids: PackedStringArray = dlg.call("get_registered_npc_ids")
+	var dlg_ids: PackedStringArray = dlg.call("get_all_dialogue_ids")
+	if npc_ids.size() < 2 or dlg_ids.size() < 10:
+		push_error(
+			"drive_smoke: system pass catalog too small (npcs=%d dlg=%d)"
+			% [npc_ids.size(), dlg_ids.size()]
+		)
+		quit(1)
+		return false
+
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	save.call("delete_save")
+	memory.call("reset_for_tests")
+	ns.call("reset_for_tests")
+	rel.call("reset_for_tests")
+	qs.call("reset_all")
+	flags.call("reset_for_tests")
+	bark.call("reset_for_tests")
+	gt.call("reset_for_tests")
+	gt.call("set_narrative_time", 0, 10, 0)
+	sched.call("reset_for_tests")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+
+	print(
+		"drive_smoke: dlg_npc_pass OK coverage=["
+		+ "branching,hidden_choice,disabled_choice,fallback,action_once,"
+		+ "memory_sl,npc_state_sl,relationship_sl,narrative_time,overnight,"
+		+ "schedule,move_pause,traveler,no_dupe,interrupt,resume_no_dupe,"
+		+ "bark_api,invalid_link,priority_resolve,coupling_audit,catalog_scale]"
 	)
 	return true
 

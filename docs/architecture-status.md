@@ -1,10 +1,11 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** NPC/dialogue debug + validation (`dev: add npc dialogue debug and validation tools`)  
+**As of:** Dialogue & NPC System Pass closed (`test: finalize dialogue and npc system pass`)  
 **Engine:** Godot 4.7 Forward Plus
 
-This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.
+This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.  
+Pass status detail: [`docs/dialogue-npc-system-status.md`](dialogue-npc-system-status.md).
 
 ---
 
@@ -190,7 +191,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira (`met_player`) → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → talk to Rafa (`rafa_far` → `BUSY`) → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time/dialogue memory/NPC state without duplication → limited offline progress respects fuel (+ narrative when applied).
 
 Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `npc_dlg_debug=OK`, `npc_bark=OK`, `dlg_interrupt=OK`, `npc_travel=OK`, `npc_move=OK`, and the full `drive_smoke: OK …` line.
+Look for `dlg_npc_pass=OK`, `npc_dlg_debug=OK`, `npc_bark=OK`, `dlg_interrupt=OK`, `npc_travel=OK`, `npc_move=OK`, and the full `drive_smoke: OK …` line.
 
 ### NPC / dialogue debug tools
 
@@ -229,6 +230,82 @@ If resume is impossible → `cancel_dialogue()`; next interact uses contextual N
 
 ---
 
+## 8b. Dialogue & NPC System — implemented capabilities
+
+Scale rule: **dozens/hundreds of NPCs and dialogues via Resources** — add `.tres` + catalog entries; do not edit central autoload scripts per character.
+
+### Resources
+
+| Resource | Role |
+|----------|------|
+| `DialogueDefinition` | Line text, next/fallback, show conditions, enter/exit actions, choices |
+| `DialogueChoice` | Choice text, next id, show/enable conditions, on_choose actions |
+| `DialogueAction` | Declarative effect type + target fields (no scripts in resources) |
+| `DialogueCatalog` | Flat dialogue registry |
+| `NpcDefinition` | Static authoring: id, presence_mode, dialogue_rules, bark_rules, availability hours |
+| `NpcDefinitionCatalog` | Flat NPC registry |
+| `NpcDialogueRule` | Priority + conditions → dialogue_id |
+| `NpcScheduleData` / `NpcScheduleEntry` | Daily narrative-hour windows → location/state/activity |
+| `BarkData` | Short line: triggers, priority, cooldown, conditions, weight |
+| `ConditionData` | Typed gate for ConditionSystem |
+
+### Autoloads / scene controllers
+
+| System | Responsibility |
+|--------|----------------|
+| `DialogueSystem` | Runner + session + NPC rule resolve |
+| `DialogueMemorySystem` | Seen/completed/choice memory |
+| `DialogueActionExecutor` | Action type dispatch |
+| `ConditionSystem` | Pure evaluation façade |
+| `NpcStateSystem` | Mutable campaign fields by npc_id |
+| `NpcScheduleSystem` | Narrative hour → logical location/state |
+| `NpcTravelSystem` | Logical TRAVELING ↔ AT_LOCATION |
+| `NpcMovementController` | NavigationAgent walk to markers; pause on dialogue |
+| `RelationshipSystem` | Per-NPC relationship + group reputation |
+| `BarkSystem` | Non-interactive short lines |
+| `GameTimeSystem` | Narrative clock (drives availability/schedules) |
+| `QuestSystem` | Quest state; optional start on dialogue_finished |
+
+### Dialogue resolve flow
+
+1. `NpcCharacter.interact` → `DialogueSystem.resolve_dialogue_for_npc(npc_id)`  
+2. Drop disabled / failing `NpcDialogueRule` conditions → highest `priority` (ties → lower index)  
+3. Else `fallback_dialogue_id`  
+4. `start_dialogue` → showable line (line `show_conditions` + fallback hops)  
+5. Choices: show vs enable via ConditionSystem; confirm runs choice actions + next id  
+
+### Conditions / actions / memory
+
+- **Conditions:** flags, quest, items, POI, world state, vehicle, region, journey, dialogue memory, NPC fields, relationship/reputation, narrative time, travel presence.  
+- **Actions:** SET_FLAG, quest start/complete, items, world/POI, SET_NPC_*, relationship/reputation, START_NPC_TRAVEL.  
+- **Memory:** start→seen; finish→completed; cancel/interrupt≠completed; choices on confirm.  
+
+### NPC state, schedules, movement, travel, barks
+
+- **State:** enabled / met / current_state / location / travel fields / schedule_id / custom flags (persisted).  
+- **Schedules:** data windows; skip when TRAVELING or `follow_local_schedule=false`.  
+- **Movement:** Marker3D destinations; pause during ACTIVE dialogue; snap on load.  
+- **Travel:** logical leave/arrive; gates POI spawn (no duplicate traveler).  
+- **Barks:** Label3D; blocked while dialogue ACTIVE; cooldown + conditions.  
+
+### Authoring / debug tools
+
+- F10 `NpcDialogueDebugUI` (sandbox): inspect, start dialogue remotely, mutate test state, validate.  
+- `NpcDialogueContentValidator`: missing/duplicate ids, bad links, schedule fallback, unknown condition/action.  
+- No visual dialogue tree editor.
+
+### Persisted (save) vs session-only
+
+| Persisted | Session-only |
+|-----------|----------------|
+| dialogue_memory, npc_state, relationship, game_flags, game_time narrative, quests | ACTIVE/INTERRUPTED dialogue session, bark runtime cooldowns, NavigationAgent pose |
+
+### Known limits (this pass)
+
+No portraits/VO/localization/cinematics/facial/romance/crowds/quest log UI/tree editor. Traveler second city is logical-only (`debug_waystation`). See status report for READY/PARTIAL/NOT_IMPLEMENTED.
+
+---
+
 ## 9. Known risks
 
 1. **Occupancy / vehicle pose not in save** — reload respawns sandbox defaults; logical progression persists, physical placement does not.
@@ -242,15 +319,17 @@ If resume is impossible → `cancel_dialogue()`; next interact uses contextual N
 
 ## 10. Recommended next systems (design order)
 
+Dialogue & NPC System Pass is **closed** (data-driven foundation + smoke). Next priorities:
+
 1. **Gas / service stop POI** — refuel interaction (fuel is already functional).
 2. **Offline policy UI** — expose capped offline window from GAME_DESIGN §8.
-3. **NPC animation + richer nav** — basic walk/snap/pause + logical traveler relocation exist; final anim / avoidance next.
-4. **Second physical city/POI** — travelers can already land on logical ids (`debug_waystation`); add a real stop scene.
-5. **Quest log + more ConditionSystem gates** on NPCs/lines.
+3. **Second physical city/POI** — travelers already land on logical ids (`debug_waystation`).
+4. **NPC animation + avoidance** — walk/snap/pause exist; final anim next.
+5. **Quest log UI** — more content gates can stay data-driven.
 6. **Vehicle condition / wear** — fields exist; no drain yet.
 7. **Region-driven atmosphere** — WorldRegionSystem already tracks bands.
 8. **Persist occupancy or last parking snapshot** if seamless reopen becomes required.
-9. Art / audio pass — only after more gameplay loops stabilize.
+9. Art / audio / localization — after more gameplay loops stabilize.
 
 ---
 
@@ -261,4 +340,5 @@ If resume is impossible → `cancel_dialogue()`; next interact uses contextual N
 | `README.md` | How to run, controls, feature summaries |
 | `docs/GAME_DESIGN.md` | Product vision (Portuguese) |
 | `docs/architecture-status.md` | This file — implemented architecture |
-| Store copy | `/cursor/stores/…/docs/architecture-status.md` |
+| `docs/dialogue-npc-system-status.md` | Dialogue/NPC pass READY/PARTIAL/NOT_IMPLEMENTED |
+| Store copy | `/cursor/stores/…/docs/` |

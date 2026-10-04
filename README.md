@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **NPC/dialogue debug panel** — F10 inspector + content validation (start talks remotely, mutate time/flags/quests, catch broken ids). See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **Dialogue & NPC System Pass closed** — data-driven talk, state, schedules, movement, travel, barks, debug/validation. Status: [`docs/dialogue-npc-system-status.md`](docs/dialogue-npc-system-status.md) · architecture: [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -69,9 +69,30 @@ Reusable world-object interaction — terminals, logs, and NPCs share the same d
 
 **ViewpointTerminal choice:** one-shot **ON** (not a toggle). First successful interact powers it; `can_interact` becomes false; `powered` persists in `WorldStateSystem` across unload/save.
 
-### NPCs + Dialogue (`DialogueSystem`)
+### Dialogue & NPC System — implemented capabilities
 
-Data-driven talk with optional player choices. No VO, relationship effects, or timed choices yet.
+Data-driven NPCs and dialogues scale via Resources/catalogs (no per-character edits to central scripts). No portraits, VO, localization, cinematics, facial anim, romance, crowds, or tree editor yet — see status report.
+
+#### Resources / autoloads (summary)
+
+`DialogueDefinition` · `DialogueChoice` · `DialogueAction` · catalogs · `NpcDefinition` / rules / schedules / `BarkData` · `ConditionData`  
+Autoloads: `DialogueSystem`, `DialogueMemorySystem`, `ConditionSystem`, `NpcStateSystem`, `NpcScheduleSystem`, `NpcTravelSystem`, `RelationshipSystem`, `BarkSystem`, `GameTimeSystem`, `QuestSystem` (+ scene `NpcMovementController`, `DialogueActionExecutor`).
+
+#### Resolve / conditions / actions / memory
+
+Interact → `resolve_dialogue_for_npc` (priority rules → fallback) → linear or choices. Gates and effects go through ConditionSystem / DialogueActionExecutor only. Memory: seen / completed / choices (save provider). Session interrupt/resume keeps once-guards; mid-talk is not saved.
+
+#### NPC world behavior
+
+State by `npc_id` · relationship/reputation · narrative availability · schedules → location · NavigationAgent local walks (paused in dialogue) · logical traveler relocate without duplicates · short barks (cooldown/conditions).
+
+#### Authoring tools
+
+**F10** debug panel + `NpcDialogueContentValidator` (broken/missing ids). Smoke: `dlg_npc_pass=OK`.
+
+### NPCs + Dialogue (`DialogueSystem`) — detail
+
+Data-driven talk with optional player choices. Relationship/reputation via actions/conditions; no VO or timed choices.
 
 | Piece | Role |
 |-------|------|
