@@ -1,8 +1,10 @@
-[gd_resource type="Resource" script_class="NpcDefinition" load_steps=4 format=3]
+[gd_resource type="Resource" script_class="NpcDefinition" load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/npc/npc_definition.gd" id="1_script"]
 [ext_resource type="Resource" path="res://resources/dialogue/rules/rafa_busy.tres" id="2_busy"]
 [ext_resource type="Resource" path="res://resources/dialogue/rules/rafa_return.tres" id="3_ret"]
+[ext_resource type="Resource" path="res://resources/npc/barks/rafa_good_road.tres" id="4_bark_road"]
+[ext_resource type="Resource" path="res://resources/npc/barks/rafa_busy_aside.tres" id="5_bark_busy"]
 
 [resource]
 script = ExtResource("1_script")
@@ -13,5 +15,8 @@ enabled = true
 presence_mode = 2
 fallback_dialogue_id = "rafa_01"
 dialogue_rules = [ExtResource("2_busy"), ExtResource("3_ret")]
+bark_rules = [ExtResource("4_bark_road"), ExtResource("5_bark_busy")]
+bark_interval_seconds = 70.0
+bark_nearby_radius = 4.0
 greeting_line = ""
 dialogue_id = "rafa_01"

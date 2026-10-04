@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK dlg_interrupt=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK npc_move=OK npc_travel=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK dlg_interrupt=OK npc_bark=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK npc_move=OK npc_travel=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -3492,6 +3492,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_dialogue_interrupt(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_npc_barks(occupancy, character, foot_cam):
+		return false
+
 	if not await _verify_npc_dialogue_rules(occupancy, character, foot_cam):
 		return false
 
@@ -5191,6 +5194,166 @@ func _verify_dialogue_interrupt(
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print("drive_smoke: dlg_interrupt OK (interrupt/resume + no dup effects + unload)")
+	return true
+
+
+func _verify_npc_barks(
+	_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D
+) -> bool:
+	## Contextual short lines: approach bark, cooldown, conditions, dialogue blocks, independence.
+	var bark: Node = root.get_node_or_null("BarkSystem")
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	var gt: Node = root.get_node_or_null("GameTimeSystem")
+	var ns: Node = root.get_node_or_null("NpcStateSystem")
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	if bark == null or dlg == null or gt == null or ns == null or poi_sys == null:
+		push_error("drive_smoke: systems missing for npc barks")
+		quit(1)
+		return false
+
+	const MIRA := "mira_viewpoint_keeper"
+	const RAFA := "rafa_road_traveler"
+
+	var bark_script: Script = load("res://autoload/bark_system.gd") as Script
+	if bark_script != null:
+		var src := bark_script.source_code
+		for banned in ["mira_viewpoint_keeper", "rafa_road_traveler", "DialogueUI", "Vai chover"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: BarkSystem must not hardcode '%s'" % banned)
+				quit(1)
+				return false
+
+	ns.call("reset_for_tests")
+	gt.call("reset_for_tests")
+	bark.call("reset_for_tests")
+	if dlg.has_method("cancel_dialogue"):
+		dlg.call("cancel_dialogue")
+	gt.call("set_narrative_time", 0, 10, 0)
+
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(7.0, 0.0, -7.0))
+	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	if vp == null:
+		push_error("drive_smoke: viewpoint spawn failed for npc barks")
+		quit(1)
+		return false
+	await physics_frame
+	await physics_frame
+
+	var mira: Node3D = vp.find_child("Mira", true, false) as Node3D
+	var rafa: Node3D = vp.find_child("Rafa", true, false) as Node3D
+	if mira == null or rafa == null:
+		push_error("drive_smoke: Mira/Rafa missing for bark test")
+		quit(1)
+		return false
+	if mira.get_node_or_null("SpeechLabel") == null:
+		push_error("drive_smoke: SpeechLabel missing for bark UI")
+		quit(1)
+		return false
+	var mira_rules: Array = mira.call("get_bark_rules") if mira.has_method("get_bark_rules") else []
+	if mira_rules.size() < 2:
+		push_error("drive_smoke: Mira should author multiple bark_rules")
+		quit(1)
+		return false
+
+	# Approach Mira → PLAYER_ENTER_AREA / NEARBY bark (rain at hour 10, unmet).
+	character.global_position = mira.global_position + Vector3(0.0, 0.05, 2.5)
+	await physics_frame
+	await physics_frame
+	await physics_frame
+	if not bool(bark.call("try_bark", MIRA, "PLAYER_ENTER_AREA")):
+		# Area signal may already have fired; force a nearby attempt after reset gap.
+		bark.call("reset_for_tests", MIRA)
+		if not bool(bark.call("try_bark", MIRA, "PLAYER_NEARBY")):
+			push_error("drive_smoke: Mira should bark on approach")
+			quit(1)
+			return false
+	var mira_bark_id := str(bark.call("get_last_bark_id", MIRA))
+	if mira_bark_id.is_empty():
+		push_error("drive_smoke: Mira last_bark_id empty after approach")
+		quit(1)
+		return false
+	var speech: Label3D = mira.get_node_or_null("SpeechLabel") as Label3D
+	if speech == null or not speech.visible or str(speech.text).is_empty():
+		push_error("drive_smoke: bark should show temporary SpeechLabel (not DialogueUI)")
+		quit(1)
+		return false
+	if character.has_method("is_control_enabled") and not bool(character.call("is_control_enabled")):
+		push_error("drive_smoke: bark must not lock player movement")
+		quit(1)
+		return false
+
+	# Cooldown / min-gap: immediate re-fire suppressed.
+	if bool(bark.call("try_bark", MIRA, "PLAYER_NEARBY")):
+		push_error("drive_smoke: Mira bark should respect cooldown/min-gap")
+		quit(1)
+		return false
+
+	# Conditions change available bark: met + hour 17 → closing soon / you returned.
+	ns.call("set_met_player", MIRA, true)
+	gt.call("set_narrative_time", 0, 17, 0)
+	bark.call("reset_for_tests", MIRA)
+	if not bool(bark.call("try_bark", MIRA, "PLAYER_ENTER_AREA")):
+		push_error("drive_smoke: Mira should bark after condition change")
+		quit(1)
+		return false
+	var after_id := str(bark.call("get_last_bark_id", MIRA))
+	if after_id != "mira_you_returned" and after_id != "mira_closing_soon":
+		push_error("drive_smoke: expected conditioned Mira bark, got '%s'" % after_id)
+		quit(1)
+		return false
+	if after_id == mira_bark_id and mira_bark_id == "mira_rain_soon":
+		push_error("drive_smoke: conditions should change available bark away from rain-only")
+		quit(1)
+		return false
+
+	# Active dialogue blocks bark.
+	bark.call("reset_for_tests", MIRA)
+	if not bool(dlg.call("start_dialogue", "mira_intro", character, MIRA)):
+		push_error("drive_smoke: failed to start dialogue to block bark")
+		quit(1)
+		return false
+	await physics_frame
+	if bool(bark.call("try_bark", MIRA, "PLAYER_NEARBY")):
+		push_error("drive_smoke: active dialogue must block bark")
+		quit(1)
+		return false
+	dlg.call("cancel_dialogue")
+	await physics_frame
+
+	# Rafa independent from Mira.
+	bark.call("reset_for_tests", RAFA)
+	character.global_position = rafa.global_position + Vector3(0.0, 0.05, 2.2)
+	await physics_frame
+	await physics_frame
+	if not bool(bark.call("try_bark", RAFA, "PLAYER_ENTER_AREA")):
+		bark.call("reset_for_tests", RAFA)
+		if not bool(bark.call("try_bark", RAFA, "PLAYER_NEARBY")):
+			push_error("drive_smoke: Rafa should bark independently")
+			quit(1)
+			return false
+	var rafa_id := str(bark.call("get_last_bark_id", RAFA))
+	if rafa_id.is_empty():
+		push_error("drive_smoke: Rafa last_bark_id empty")
+		quit(1)
+		return false
+	if rafa_id == str(bark.call("get_last_bark_id", MIRA)):
+		# Different NPCs may coincidentally share text ids only if authored same — ours differ.
+		pass
+	if rafa_id.begins_with("mira_"):
+		push_error("drive_smoke: Rafa must not use Mira bark ids")
+		quit(1)
+		return false
+
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	bark.call("reset_for_tests")
+	ns.call("reset_for_tests")
+	gt.call("reset_for_tests")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: npc_bark OK (approach + cooldown + conditions + dialogue block + independent)")
 	return true
 
 

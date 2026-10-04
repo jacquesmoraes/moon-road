@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="BarkData" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/npc/bark_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://resources/conditions/mira_npc_met.tres" id="2_met"]
+
+[resource]
+script = ExtResource("1_script")
+id = "mira_you_returned"
+text = "Você voltou."
+priority = 80
+cooldown_seconds = 120.0
+conditions = [ExtResource("2_met")]
+require_all = true
+weight = 1.0
+enabled = true
+triggers = PackedStringArray(["PLAYER_ENTER_AREA"])

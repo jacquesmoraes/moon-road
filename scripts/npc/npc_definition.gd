@@ -18,6 +18,12 @@ enum PresenceMode {
 @export var fallback_dialogue_id: String = ""
 ## Priority-ranked contextual rules (NpcDialogueRule). Highest valid priority wins.
 @export var dialogue_rules: Array = []
+## Short non-interactive lines (BarkData). Selected by BarkSystem — not DialogueUI.
+@export var bark_rules: Array = []
+## TIME_INTERVAL spacing while player is nearby (real seconds).
+@export var bark_interval_seconds: float = 60.0
+## Proximity radius for PLAYER_NEARBY / PLAYER_ENTER_AREA (meters).
+@export var bark_nearby_radius: float = 4.0
 ## Optional quest link for turn-in / helpers — not used for dialogue picking.
 @export var linked_quest_id: String = ""
 ## Legacy one-liner fallback when no dialogue resolves (prefer fallback_dialogue_id).

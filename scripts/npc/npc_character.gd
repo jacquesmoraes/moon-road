@@ -20,6 +20,10 @@ signal dialogue_requested(dialogue_id: String, actor: Node)
 @export var interaction_priority: int = 0
 
 var _name_label: Label3D
+var _speech_label: Label3D
+var _speech_timer: Timer
+var _bark_area: Area3D
+var _bark_player_nearby: bool = false
 
 
 func _ready() -> void:
@@ -34,6 +38,9 @@ func _ready() -> void:
 	call_deferred("_apply_travel_presence_gate")
 	_cache_nodes()
 	_refresh_name_label()
+	_ensure_bark_area()
+	_connect_speech_timer()
+	_register_bark_presenter()
 	_connect_narrative_time()
 	_connect_travel_presence()
 	_refresh_time_availability()
@@ -46,6 +53,9 @@ func _on_tree_exiting_dialogue() -> void:
 	var dlg := get_node_or_null("/root/DialogueSystem")
 	if dlg != null and dlg.has_method("notify_npc_unavailable"):
 		dlg.call("notify_npc_unavailable", get_npc_id())
+	var bark := get_node_or_null("/root/BarkSystem")
+	if bark != null and bark.has_method("unregister_presenter"):
+		bark.call("unregister_presenter", get_npc_id(), self)
 
 
 func get_npc_id() -> String:
@@ -100,6 +110,50 @@ func get_linked_quest_id() -> String:
 func get_greeting_line() -> String:
 	_apply_definition_to_exports()
 	return greeting_line
+
+
+func get_bark_rules() -> Array:
+	_apply_definition_to_exports()
+	if definition != null and "bark_rules" in definition:
+		var raw: Variant = definition.get("bark_rules")
+		if typeof(raw) == TYPE_ARRAY:
+			return raw
+	return []
+
+
+func get_bark_interval_seconds() -> float:
+	if definition != null and "bark_interval_seconds" in definition:
+		return maxf(float(definition.get("bark_interval_seconds")), 8.0)
+	return 60.0
+
+
+func get_bark_nearby_radius() -> float:
+	if definition != null and "bark_nearby_radius" in definition:
+		return maxf(float(definition.get("bark_nearby_radius")), 1.0)
+	return 4.0
+
+
+func is_bark_player_nearby() -> bool:
+	return _bark_player_nearby
+
+
+func display_bark(text: String, _bark_id: String = "") -> void:
+	## Temporary Label3D near the NPC — never opens DialogueUI; does not lock movement.
+	if text.is_empty() or not visible:
+		return
+	if _speech_label == null:
+		_speech_label = get_node_or_null("SpeechLabel") as Label3D
+	if _speech_timer == null:
+		_speech_timer = get_node_or_null("SpeechTimer") as Timer
+	if _speech_label == null:
+		return
+	_speech_label.text = text
+	_speech_label.visible = true
+	if _speech_timer != null:
+		_speech_timer.stop()
+		_speech_timer.start()
+	line_spoken.emit(text)
+	set_meta("last_bark_line", text)
 
 
 func get_presence_mode_name() -> String:
@@ -368,12 +422,97 @@ func _record_talk_state(started_dialogue_id: String) -> void:
 
 func _cache_nodes() -> void:
 	_name_label = get_node_or_null("NameLabel") as Label3D
+	_speech_label = get_node_or_null("SpeechLabel") as Label3D
+	_speech_timer = get_node_or_null("SpeechTimer") as Timer
 
 
 func _refresh_name_label() -> void:
 	if _name_label == null:
 		return
 	_name_label.text = get_display_name()
+
+
+func _connect_speech_timer() -> void:
+	if _speech_timer == null:
+		return
+	if not _speech_timer.timeout.is_connected(_on_speech_timer_timeout):
+		_speech_timer.timeout.connect(_on_speech_timer_timeout)
+
+
+func _on_speech_timer_timeout() -> void:
+	if _speech_label != null:
+		_speech_label.visible = false
+		_speech_label.text = ""
+
+
+func _register_bark_presenter() -> void:
+	var bark := get_node_or_null("/root/BarkSystem")
+	if bark != null and bark.has_method("register_presenter"):
+		bark.call("register_presenter", get_npc_id(), self)
+
+
+func _ensure_bark_area() -> void:
+	## Separate Area3D so NPC interact Area stays monitorable-only.
+	_bark_area = get_node_or_null("BarkArea") as Area3D
+	if _bark_area == null:
+		_bark_area = Area3D.new()
+		_bark_area.name = "BarkArea"
+		add_child(_bark_area)
+	_bark_area.monitoring = true
+	_bark_area.monitorable = false
+	_bark_area.collision_layer = 0
+	# On-foot character (bit 2 → 4) and vehicle (bit 1 → 2).
+	_bark_area.collision_mask = 2 | 4
+	var col := _bark_area.get_node_or_null("CollisionShape3D") as CollisionShape3D
+	if col == null:
+		col = CollisionShape3D.new()
+		col.name = "CollisionShape3D"
+		_bark_area.add_child(col)
+	var shape := SphereShape3D.new()
+	shape.radius = get_bark_nearby_radius()
+	col.shape = shape
+	col.position = Vector3(0.0, 1.0, 0.0)
+	if not _bark_area.body_entered.is_connected(_on_bark_body_entered):
+		_bark_area.body_entered.connect(_on_bark_body_entered)
+	if not _bark_area.body_exited.is_connected(_on_bark_body_exited):
+		_bark_area.body_exited.connect(_on_bark_body_exited)
+
+
+func _on_bark_body_entered(body: Node3D) -> void:
+	if not _is_bark_player_body(body):
+		return
+	var was_nearby := _bark_player_nearby
+	_bark_player_nearby = true
+	var bark := get_node_or_null("/root/BarkSystem")
+	if bark == null or not bark.has_method("try_bark"):
+		return
+	if not was_nearby:
+		bark.call("try_bark", get_npc_id(), "PLAYER_ENTER_AREA")
+	bark.call("try_bark", get_npc_id(), "PLAYER_NEARBY")
+
+
+func _on_bark_body_exited(body: Node3D) -> void:
+	if not _is_bark_player_body(body):
+		return
+	# Only clear when no other player bodies remain overlapping.
+	if _bark_area != null:
+		for other in _bark_area.get_overlapping_bodies():
+			if other != body and _is_bark_player_body(other):
+				_bark_player_nearby = true
+				return
+	_bark_player_nearby = false
+
+
+func _is_bark_player_body(body: Node) -> bool:
+	if body == null:
+		return false
+	if body is CharacterBody3D:
+		return true
+	if str(body.name).contains("PlayerVehicle"):
+		return true
+	if body.has_method("get_speed_kmh"):
+		return true
+	return false
 
 
 func _connect_narrative_time() -> void:
@@ -397,6 +536,12 @@ func _refresh_time_availability() -> void:
 	collision_layer = 8 if available else 0
 	if _name_label != null:
 		_name_label.visible = available
+	if _bark_area != null:
+		_bark_area.monitoring = available
+	if not available:
+		_bark_player_nearby = false
+		if _speech_label != null:
+			_speech_label.visible = false
 	var movement := get_node_or_null("NpcMovementController")
 	if movement != null:
 		if available:

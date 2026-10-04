@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="BarkData" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/npc/bark_data.gd" id="1_script"]
+[ext_resource type="Resource" path="res://resources/conditions/rafa_busy.tres" id="2_busy"]
+
+[resource]
+script = ExtResource("1_script")
+id = "rafa_busy_aside"
+text = "Depois a gente fala."
+priority = 50
+cooldown_seconds = 45.0
+conditions = [ExtResource("2_busy")]
+require_all = true
+weight = 1.0
+enabled = true
+triggers = PackedStringArray(["PLAYER_ENTER_AREA", "NPC_STATE_CHANGED"])

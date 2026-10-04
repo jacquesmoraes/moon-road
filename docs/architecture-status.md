@@ -1,7 +1,7 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** safe dialogue interrupt/resume (`feat: add safe dialogue interruption and resume`)  
+**As of:** contextual NPC barks (`feat: add contextual npc bark system`)  
 **Engine:** Godot 4.7 Forward Plus
 
 This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.
@@ -17,6 +17,7 @@ This document describes the **current implemented foundation**, not the full des
 | `POISystem` | Discovery flags + spawn/despawn of viewpoint scenes | Quest/terminal logic |
 | `DialogueSystem` | Linear + choice runner; session IDLE/ACTIVE/INTERRUPTED; interrupt/resume/cancel; NPC rule resolve | Action type dispatch, NPC placement |
 | `DialogueMemorySystem` | Seen/completed/choice memory + timestamps (completed ≠ interrupted) | Dialogue text, NPC names |
+| `BarkSystem` | Short non-interactive NPC lines; priority/cooldown/weight; trigger gates | DialogueUI, audio/voice, movement lock |
 | `NpcStateSystem` | Mutable NPC campaign fields by `npc_id` (incl. travel_state / destination / arrival gates) | Pathfinding, Node refs, schedule resolution |
 | `NpcScheduleSystem` | Resolve daily routine from narrative hour → write location/state/schedule_id | Physical NPC movement, pathfinding, cross-city travel |
 | `NpcTravelSystem` | Logical TRAVELING ↔ AT_LOCATION; arrival via narrative / journey km / flag; POI spawn gate | Continuous road travel, vehicles, encounters |
@@ -70,8 +71,9 @@ DialogueSystem → ConditionSystem (gates + NPC rules) + DialogueActionExecutor 
 DialogueActionExecutor → GameFlags / QuestSystem / InventorySystem / WorldStateSystem / POISystem / NpcStateSystem / NpcTravelSystem / RelationshipSystem
 ConditionSystem → DialogueMemorySystem (DIALOGUE_*) + NpcStateSystem (NPC_*) + RelationshipSystem (RELATIONSHIP_*/REPUTATION_*)
                 → GameTimeSystem narrative API only (NARRATIVE_*) + NpcTravelSystem (NPC_AT_LOCATION)
-NpcCharacter → DialogueSystem.resolve_dialogue_for_npc + NpcStateSystem + narrative hour window (hide outside)
-NpcDefinition → static: dialogue_rules + fallback + presence_mode (STATIC / LOCAL_SCHEDULE / TRAVELER) + available_hour_*
+NpcCharacter → DialogueSystem.resolve_dialogue_for_npc + BarkSystem presenter + NpcStateSystem + narrative hour window
+NpcDefinition → static: dialogue_rules + bark_rules + fallback + presence_mode + available_hour_*
+BarkSystem → ConditionSystem + DialogueSystem.is_active block; Label3D via NpcCharacter.display_bark
 NpcScheduleSystem → GameTimeSystem (narrative hour) → NpcStateSystem (location/state/schedule_id); skips TRAVELING / follow_local_schedule=false
 NpcScheduleData / NpcScheduleEntry → authored windows; catalog by npc_id (future: flags/quests selection)
 NpcTravelSystem → NpcStateSystem travel fields; listens narrative / journey / flags; gates ViewpointPOI NPC spawn
@@ -186,7 +188,14 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira (`met_player`) → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → talk to Rafa (`rafa_far` → `BUSY`) → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time/dialogue memory/NPC state without duplication → limited offline progress respects fuel (+ narrative when applied).
 
 Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `dlg_interrupt=OK`, `npc_travel=OK`, `npc_move=OK`, `npc_sched=OK`, and the full `drive_smoke: OK …` line.
+Look for `npc_bark=OK`, `dlg_interrupt=OK`, `npc_travel=OK`, `npc_move=OK`, and the full `drive_smoke: OK …` line.
+
+### NPC barks (`BarkSystem`)
+
+Short lines on `SpeechLabel` (Label3D) — never DialogueUI, never locks movement.  
+`BarkData`: id/text/priority/cooldown/conditions/weight/enabled/triggers.  
+Triggers: `PLAYER_NEARBY`, `PLAYER_ENTER_AREA`, `TIME_INTERVAL` (gated), `NPC_STATE_CHANGED`.  
+Anti-spam: per-bark cooldown, min gap, `last_bark_id` + recent ring. Active dialogue blocks all barks.
 
 ### Dialogue session (interrupt / resume)
 

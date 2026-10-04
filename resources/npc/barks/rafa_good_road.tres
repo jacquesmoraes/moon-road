@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="BarkData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/npc/bark_data.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+id = "rafa_good_road"
+text = "Boa estrada."
+priority = 20
+cooldown_seconds = 60.0
+conditions = []
+require_all = true
+weight = 1.0
+enabled = true
+triggers = PackedStringArray(["PLAYER_NEARBY", "PLAYER_ENTER_AREA"])

@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **safe dialogue interrupt/resume** — `IDLE`/`ACTIVE`/`INTERRUPTED`, Esc cancel, no duplicate effects on resume. See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **contextual NPC barks** — short Label3D lines on approach (Mira/Rafa), cooldown + conditions, dialogue blocks bark. See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -414,7 +414,7 @@ Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later w
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
-# Expect: … dlg_interrupt=OK … npc_travel=OK … npc_move=OK … drive_smoke: OK
+# Expect: … npc_bark=OK … dlg_interrupt=OK … npc_travel=OK … drive_smoke: OK
 ```
 
 
@@ -451,6 +451,7 @@ Empty directories keep a `.gdkeep` placeholder so Git tracks them.
 - NPC schedules: `NpcScheduleSystem` + `NpcScheduleData` / `NpcScheduleEntry` (logical routine)
 - NPC movement: `NpcMovementController` + `NpcDestinationResolver` + POI `Destinations` markers / `NavigationRegion3D`
 - NPC travel: `NpcTravelSystem` (logical relocation; arrival by narrative minutes / journey km / flag)
+- NPC barks: `BarkSystem` + `BarkData` on `NpcDefinition.bark_rules` (SpeechLabel; no DialogueUI)
 - Vehicle state: `VehicleStateSystem` (`starter_car` attrs / upgrades / fuel; drives max speed)
 - Upgrades: `UpgradeData` + Cruise Module Mk I (+10 km/h via Workbench Install)
 - World state: `WorldStateSystem` (terminal powered / pickup collected)

@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="NpcDefinition" load_steps=7 format=3]
+[gd_resource type="Resource" script_class="NpcDefinition" load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/npc/npc_definition.gd" id="1_script"]
 [ext_resource type="Resource" path="res://resources/dialogue/rules/mira_quest_done.tres" id="2_done"]
@@ -6,6 +6,9 @@
 [ext_resource type="Resource" path="res://resources/dialogue/rules/mira_time_day.tres" id="4_day"]
 [ext_resource type="Resource" path="res://resources/dialogue/rules/mira_time_night.tres" id="5_night"]
 [ext_resource type="Resource" path="res://resources/dialogue/rules/mira_returning.tres" id="6_ret"]
+[ext_resource type="Resource" path="res://resources/npc/barks/mira_you_returned.tres" id="7_bark_ret"]
+[ext_resource type="Resource" path="res://resources/npc/barks/mira_closing_soon.tres" id="8_bark_close"]
+[ext_resource type="Resource" path="res://resources/npc/barks/mira_rain_soon.tres" id="9_bark_rain"]
 
 [resource]
 script = ExtResource("1_script")
@@ -16,6 +19,9 @@ enabled = true
 presence_mode = 1
 fallback_dialogue_id = "mira_intro"
 dialogue_rules = [ExtResource("2_done"), ExtResource("3_active"), ExtResource("4_day"), ExtResource("5_night"), ExtResource("6_ret")]
+bark_rules = [ExtResource("7_bark_ret"), ExtResource("8_bark_close"), ExtResource("9_bark_rain")]
+bark_interval_seconds = 60.0
+bark_nearby_radius = 4.0
 linked_quest_id = "power_the_viewpoint"
 greeting_line = ""
 available_hour_min = 8
