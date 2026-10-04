@@ -19,7 +19,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = $PSScriptRoot
-Set-Location $ProjectRoot
+Set-Location -LiteralPath $ProjectRoot
 
 $Suites = [ordered]@{
     "autoload_init_smoke"      = "res://scripts/test/autoload_init_smoke.gd"
@@ -57,7 +57,7 @@ function Resolve-Godot {
     }
     if ($env:GODOT_BIN -and $env:GODOT_BIN.Trim().Length -gt 0) {
         if (-not (Test-Path -LiteralPath $env:GODOT_BIN)) {
-            Write-Error "GODOT_BIN is set but file not found: $($env:GODOT_BIN)"
+            Write-Error ("GODOT_BIN is set but file not found: {0}" -f $env:GODOT_BIN)
             exit 1
         }
         return (Resolve-Path -LiteralPath $env:GODOT_BIN).Path
@@ -66,16 +66,20 @@ function Resolve-Godot {
     if ($null -ne $cmd) {
         return $cmd.Source
     }
-    Write-Host @"
+
+    # PS 5.1: closing "@ of a double-quote here-string must be alone on its line
+    # (cannot put -ForegroundColor on the same line as "@).
+    $msg = @'
 ERROR: Godot executable not found.
 
 Install Godot 4.7+ and either:
-  1) Add `godot` to PATH, or
-  2) Set `$env:GODOT_BIN` to the Godot .exe, or
-  3) Pass -GodotBin `"C:\Path\To\Godot_v4.7-stable_win64.exe`"
+  1) Add godot to PATH, or
+  2) Set $env:GODOT_BIN to the Godot .exe, or
+  3) Pass -GodotBin "C:\Path\To\Godot_v4.7-stable_win64.exe"
 
 See docs/testing.md
-"@ -ForegroundColor Red
+'@
+    Write-Host $msg -ForegroundColor Red
     exit 1
 }
 
@@ -97,27 +101,28 @@ if ($Suite -and $Suite.Trim().Length -gt 0) {
         $label = $key
     }
     else {
-        Write-Host "ERROR: Unknown suite '$Suite'." -ForegroundColor Red
+        Write-Host ("ERROR: Unknown suite '{0}'." -f $Suite) -ForegroundColor Red
         Show-SuiteList
         exit 1
     }
 }
 
-if (-not (Test-Path -LiteralPath (Join-Path $ProjectRoot "project.godot"))) {
-    Write-Error "project.godot not found in $ProjectRoot — run from the repo root."
+$projectFile = Join-Path $ProjectRoot "project.godot"
+if (-not (Test-Path -LiteralPath $projectFile)) {
+    Write-Error "project.godot not found in $ProjectRoot - run from the repo root."
     exit 1
 }
 
-Write-Host "run_tests: godot=$godot"
-Write-Host "run_tests: project=$ProjectRoot"
-Write-Host "run_tests: running $label"
-Write-Host "run_tests: $godot --path . --headless -s $scriptPath"
+Write-Host ("run_tests: godot={0}" -f $godot)
+Write-Host ("run_tests: project={0}" -f $ProjectRoot)
+Write-Host ("run_tests: running {0}" -f $label)
+Write-Host ("run_tests: {0} --path . --headless -s {1}" -f $godot, $scriptPath)
 
 & $godot --path $ProjectRoot --headless -s $scriptPath
 $code = $LASTEXITCODE
 if ($null -eq $code) { $code = 0 }
 if ($code -ne 0) {
-    Write-Host "run_tests: FAILED (exit=$code)" -ForegroundColor Red
+    Write-Host ("run_tests: FAILED (exit={0})" -f $code) -ForegroundColor Red
     exit $code
 }
 Write-Host "run_tests: OK"
