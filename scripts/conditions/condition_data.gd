@@ -21,10 +21,14 @@ enum Type {
 	NPC_MET,
 	NPC_ENABLED,
 	NPC_LOCATION,
+	RELATIONSHIP_MIN,
+	RELATIONSHIP_MAX,
+	REPUTATION_MIN,
+	REPUTATION_MAX,
 }
 
 @export var type: Type = Type.FLAG_EQUALS
-## Primary id: flag / quest / item / poi / entity / upgrade / region / dialogue / choice / npc.
+## Primary id: flag / quest / item / poi / entity / upgrade / region / dialogue / choice / npc / group.
 @export var key: String = ""
 ## Secondary id when needed (e.g. WorldState key).
 @export var secondary_key: String = ""
@@ -72,5 +76,13 @@ func get_type_name() -> String:
 			return "NPC_ENABLED"
 		Type.NPC_LOCATION:
 			return "NPC_LOCATION"
+		Type.RELATIONSHIP_MIN:
+			return "RELATIONSHIP_MIN"
+		Type.RELATIONSHIP_MAX:
+			return "RELATIONSHIP_MAX"
+		Type.REPUTATION_MIN:
+			return "REPUTATION_MIN"
+		Type.REPUTATION_MAX:
+			return "REPUTATION_MAX"
 		_:
 			return "UNKNOWN"

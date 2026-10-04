@@ -33,6 +33,7 @@ GameTimeSystem="*res://autoload/game_time_system.gd"
 VehicleStateSystem="*res://autoload/vehicle_state_system.gd"
 GameFlags="*res://autoload/game_flags.gd"
 ConditionSystem="*res://autoload/condition_system.gd"
+RelationshipSystem="*res://autoload/relationship_system.gd"
 
 [input]
 

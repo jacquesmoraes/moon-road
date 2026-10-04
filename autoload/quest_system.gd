@@ -9,15 +9,18 @@ signal turn_in_failed(quest_id: String, reason: String)
 
 const DEFAULT_CATALOG_PATH := "res://resources/quest/default_quest_catalog.tres"
 const QuestDataScript = preload("res://scripts/quest/quest_data.gd")
+const ActionExecutorScript = preload("res://scripts/dialogue/dialogue_action_executor.gd")
 
 @export_file("*.tres") var catalog_path: String = DEFAULT_CATALOG_PATH
 
 var _by_id: Dictionary = {}
 ## quest_id → QuestData.State int
 var _states: Dictionary = {}
+var _action_executor: RefCounted
 
 
 func _ready() -> void:
+	_action_executor = ActionExecutorScript.new()
 	_load_catalog()
 	var dlg := get_node_or_null("/root/DialogueSystem")
 	if dlg != null and dlg.has_signal("dialogue_finished"):
@@ -76,6 +79,7 @@ func complete_quest(quest_id: String) -> bool:
 	if not is_active(quest_id):
 		return false
 	_set_state(quest_id, QuestDataScript.State.COMPLETED)
+	_run_on_complete_actions(quest_id)
 	quest_completed.emit(quest_id)
 	print("QuestSystem: completed '%s'" % quest_id)
 	return true
@@ -253,6 +257,20 @@ func _on_dialogue_finished(dialogue_id: String) -> void:
 func _set_state(quest_id: String, state: int) -> void:
 	_states[quest_id] = state
 	quest_state_changed.emit(quest_id, get_state_name(quest_id))
+
+
+func _run_on_complete_actions(quest_id: String) -> void:
+	## Explicit authored DialogueActions only — no automatic reputation/relationship grants.
+	var data: Resource = get_quest(quest_id)
+	if data == null or not ("on_complete_actions" in data):
+		return
+	var actions: Variant = data.get("on_complete_actions")
+	if typeof(actions) != TYPE_ARRAY or (actions as Array).is_empty():
+		return
+	if _action_executor == null:
+		_action_executor = ActionExecutorScript.new()
+	if _action_executor.has_method("execute_all"):
+		_action_executor.call("execute_all", actions as Array)
 
 
 func _ensure_index() -> void:

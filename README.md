@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **contextual NPC dialogue** — priority `NpcDialogueRule`s pick the best line via ConditionSystem. See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **relationship & reputation** — per-NPC relationship and place/group reputation via RelationshipSystem. See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -59,6 +59,7 @@ Reusable world-object interaction — terminals, logs, and NPCs share the same d
 | `Npc` / `NpcDefinition` | Placeholder person — static data + `dialogue_rules` / `fallback_dialogue_id` |
 | `NpcDialogueRule` | `id`, `dialogue_id`, `priority`, `conditions`, `enabled` |
 | `NpcStateSystem` | Mutable campaign NPC state by `npc_id` — SaveSystem provider `npc_state` |
+| `RelationshipSystem` | Per-NPC relationship + group reputation (−100..+100) — provider `relationship` |
 
 **E key UX:** On foot, a focused interactable wins (`player_interact`). If none, E enters the parked vehicle. In vehicle (parked), E still exits. Prompt only shows while a valid object is in range/front cone. During dialogue, movement is locked; `dialogue_continue` advances linear lines or confirms the selected choice (↑/↓ to change selection).
 
@@ -73,7 +74,7 @@ Data-driven talk with optional player choices. No VO, relationship effects, or t
 | `DialogueDefinition` | line fields + `show_conditions` / `fallback_dialogue_id` + `on_enter_actions` / `on_exit_actions` |
 | `DialogueChoice` | choice fields + show/enable conditions + `on_choose_actions` |
 | `DialogueAction` | Declarative effect (`SET_FLAG`, `START_QUEST`, `ADD_ITEM`, …) — no scripts in resources |
-| `DialogueActionExecutor` | Type dispatch → GameFlags / Quest / Inventory / WorldState / POI / NpcState |
+| `DialogueActionExecutor` | Type dispatch → GameFlags / Quest / Inventory / WorldState / POI / NpcState / Relationship |
 | `DialogueCatalog` | Flat registry (`resources/dialogue/default_catalog.tres`) |
 | `DialogueSystem` | Flow only — ConditionSystem for gates, Executor for effects; auto-records memory |
 | `DialogueMemorySystem` | Seen / completed / choice counts — SaveSystem provider `dialogue_memory` |
@@ -97,6 +98,19 @@ Data-driven talk with optional player choices. No VO, relationship effects, or t
 
 **Mira rules:** COMPLETED → `mira_quest_done_01` (100); ACTIVE → `mira_quest_active_01` (80); `NPC_MET` → `mira_returning` (50); fallback → `mira_intro`. **Rafa:** `BUSY` → `rafa_busy_01` (100); `rafa_01` completed → return line (50); fallback → `rafa_01`.
 
+### Relationship & reputation (`RelationshipSystem`)
+
+Two separate maps (no romance). Clamped −100..+100. Optional tiers: `HOSTILE` / `UNFRIENDLY` / `NEUTRAL` / `FRIENDLY` / `TRUSTED`.
+
+| Piece | Role |
+|-------|------|
+| `get/add/set_relationship(npc_id)` | Per-NPC score |
+| `get/add/set_reputation(group_id)` | City / community / POI / faction score |
+| Conditions | `RELATIONSHIP_MIN/MAX`, `REPUTATION_MIN/MAX` |
+| Actions | `ADD/SET_RELATIONSHIP`, `ADD/SET_REPUTATION` |
+
+**Examples:** Mira `accept_help` → +5 relationship; completing `power_the_viewpoint` → +10 reputation `sunset_viewpoint` (quest `on_complete_actions`). No automatic grants beyond authored actions.
+
 ### Conditions + flags (`ConditionSystem` / `GameFlags`)
 
 Generic gate layer — no quest/NPC-specific ifs inside ConditionSystem.
@@ -116,7 +130,7 @@ Versioned JSON at `user://savegame.json`. SaveSystem only coordinates — each s
 | Piece | Role |
 |-------|------|
 | `save_version` / `created_at` / `updated_at` | Header on every file |
-| Providers | `JourneySystem`, `InventorySystem`, `QuestSystem`, `POISystem`, `WorldStateSystem`, `GameTimeSystem`, `VehicleStateSystem`, `GameFlags`, `DialogueMemorySystem`, `NpcStateSystem` |
+| Providers | `JourneySystem`, `InventorySystem`, `QuestSystem`, `POISystem`, `WorldStateSystem`, `GameTimeSystem`, `VehicleStateSystem`, `GameFlags`, `DialogueMemorySystem`, `NpcStateSystem`, `RelationshipSystem` |
 | API | `save_game`, `load_game`, `has_save`, `delete_save`, `get_save_version` |
 | Backup | `user://savegame.json.bak` before overwrite |
 | Debug | **F5** save · **F9** load · **F6** delete |
@@ -390,7 +404,7 @@ Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later w
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
-# Expect: … npc_rules=OK … npc_state=OK … dlg_memory=OK … drive_smoke: OK
+# Expect: … relationship=OK … npc_rules=OK … npc_state=OK … drive_smoke: OK
 ```
 
 Architecture snapshot: [`docs/architecture-status.md`](docs/architecture-status.md).

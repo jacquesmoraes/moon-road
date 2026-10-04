@@ -145,6 +145,30 @@ func make_npc_location(npc_id: String, location_id: String) -> Resource:
 	return c
 
 
+func make_relationship_min(npc_id: String, min_value: int) -> Resource:
+	var c := make(ConditionDataScript.Type.RELATIONSHIP_MIN, npc_id)
+	c.set("int_value", min_value)
+	return c
+
+
+func make_relationship_max(npc_id: String, max_value: int) -> Resource:
+	var c := make(ConditionDataScript.Type.RELATIONSHIP_MAX, npc_id)
+	c.set("int_value", max_value)
+	return c
+
+
+func make_reputation_min(group_id: String, min_value: int) -> Resource:
+	var c := make(ConditionDataScript.Type.REPUTATION_MIN, group_id)
+	c.set("int_value", min_value)
+	return c
+
+
+func make_reputation_max(group_id: String, max_value: int) -> Resource:
+	var c := make(ConditionDataScript.Type.REPUTATION_MAX, group_id)
+	c.set("int_value", max_value)
+	return c
+
+
 func _evaluate_typed(condition: Resource) -> bool:
 	var type_value := int(condition.get("type"))
 	var key := str(condition.get("key"))
@@ -187,6 +211,14 @@ func _evaluate_typed(condition: Resource) -> bool:
 			return _eval_npc_enabled(key, bool(condition.get("bool_value")))
 		ConditionDataScript.Type.NPC_LOCATION:
 			return _eval_npc_location(key, str(condition.get("string_value")))
+		ConditionDataScript.Type.RELATIONSHIP_MIN:
+			return _eval_relationship_min(key, int(condition.get("int_value")))
+		ConditionDataScript.Type.RELATIONSHIP_MAX:
+			return _eval_relationship_max(key, int(condition.get("int_value")))
+		ConditionDataScript.Type.REPUTATION_MIN:
+			return _eval_reputation_min(key, int(condition.get("int_value")))
+		ConditionDataScript.Type.REPUTATION_MAX:
+			return _eval_reputation_max(key, int(condition.get("int_value")))
 		_:
 			push_warning("ConditionSystem: unknown condition type %d" % type_value)
 			return false
@@ -343,3 +375,31 @@ func _eval_npc_location(npc_id: String, location_id: String) -> bool:
 	if not ns.has_method("get_location_id"):
 		return false
 	return str(ns.call("get_location_id", npc_id)) == location_id
+
+
+func _eval_relationship_min(npc_id: String, min_value: int) -> bool:
+	var rs := get_node_or_null("/root/RelationshipSystem")
+	if rs == null or npc_id.is_empty() or not rs.has_method("get_relationship"):
+		return false
+	return int(rs.call("get_relationship", npc_id)) >= min_value
+
+
+func _eval_relationship_max(npc_id: String, max_value: int) -> bool:
+	var rs := get_node_or_null("/root/RelationshipSystem")
+	if rs == null or npc_id.is_empty() or not rs.has_method("get_relationship"):
+		return false
+	return int(rs.call("get_relationship", npc_id)) <= max_value
+
+
+func _eval_reputation_min(group_id: String, min_value: int) -> bool:
+	var rs := get_node_or_null("/root/RelationshipSystem")
+	if rs == null or group_id.is_empty() or not rs.has_method("get_reputation"):
+		return false
+	return int(rs.call("get_reputation", group_id)) >= min_value
+
+
+func _eval_reputation_max(group_id: String, max_value: int) -> bool:
+	var rs := get_node_or_null("/root/RelationshipSystem")
+	if rs == null or group_id.is_empty() or not rs.has_method("get_reputation"):
+		return false
+	return int(rs.call("get_reputation", group_id)) <= max_value

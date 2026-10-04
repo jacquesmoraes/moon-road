@@ -1,7 +1,7 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** contextual NPC dialogue (`feat: add contextual npc dialogue resolution`)  
+**As of:** relationship & reputation (`feat: add relationship and reputation systems`)  
 **Engine:** Godot 4.7 Forward Plus
 
 This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.
@@ -27,6 +27,7 @@ This document describes the **current implemented foundation**, not the full des
 | `VehicleStateSystem` | Persistent car attrs, fuel, upgrades, offline travel apply | CharacterBody3D motion |
 | `GameFlags` | Boolean flags by id | Condition evaluation |
 | `ConditionSystem` | Evaluate `ConditionData` against other systems | Quest/NPC-specific branches |
+| `RelationshipSystem` | Per-NPC relationship + group reputation (−100..+100) | Romance, DialogueSystem coupling, auto grants |
 
 Scene/runtime (not autoloads): `PlayerVehicle`, `DrivingModeController`, `RoadFollowAutopilot`, `RoadManager`, `PlayerOccupancyController`, `Workbench`, interactables, debug HUDs.
 
@@ -45,13 +46,15 @@ POISystem / WorldStateSystem / VehicleStateSystem / GameFlags / JourneySystem / 
     ↑ queried by ConditionSystem (no reverse writes)
 
 DialogueSystem → ConditionSystem (gates + NPC rules) + DialogueActionExecutor (effects) + DialogueMemorySystem (record)
-DialogueActionExecutor → GameFlags / QuestSystem / InventorySystem / WorldStateSystem / POISystem / NpcStateSystem
-ConditionSystem → DialogueMemorySystem (DIALOGUE_*) + NpcStateSystem (NPC_*)
+DialogueActionExecutor → GameFlags / QuestSystem / InventorySystem / WorldStateSystem / POISystem / NpcStateSystem / RelationshipSystem
+ConditionSystem → DialogueMemorySystem (DIALOGUE_*) + NpcStateSystem (NPC_*) + RelationshipSystem (RELATIONSHIP_*/REPUTATION_*)
 NpcCharacter → DialogueSystem.resolve_dialogue_for_npc (no rule internals) + NpcStateSystem (spawn/talk)
 NpcDefinition → static authoring: dialogue_rules + fallback_dialogue_id; never mutable campaign fields
 
 QuestSystem → InventorySystem (requirements)
+            → DialogueActionExecutor (optional QuestData.on_complete_actions)
             → (legacy) DialogueSystem.dialogue_finished may still start quests if start_dialogue_id set
+RelationshipSystem ← executor / conditions only (never DialogueSystem)
 
 GameTimeSystem ← VehicleStateSystem.get_save_data (was_traveling snapshot)
 SaveSystem → all providers; after load may call VehicleStateSystem.apply_offline_travel
@@ -78,6 +81,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 | `game_flags` | `flags` {id→bool} |
 | `dialogue_memory` | `dialogues` {id→seen/counts/timestamps}, `choices` {id→count} |
 | `npc_state` | `npcs` {npc_id→enabled/met_player/current_state/location/schedule/last_dialogue/custom_flags} |
+| `relationship` | `relationships` {npc_id→int}, `reputations` {group_id→int}, clamp bounds |
 
 **Not persisted:** vehicle transform/velocity, road pool, camera mode, dialogue UI, occupancy pose (sandbox respawns), NPC Node instances.
 
@@ -96,6 +100,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 | Items / upgrades / recipes | `cruise_module_mk1`, `scrap_metal`, … |
 | Dialogue | `mira_intro`, `mira_returning`, `mira_quest_done_01`, … |
 | NpcDialogueRule | `mira_quest_done` / `mira_quest_active` / `mira_returning` (priority + conditions) |
+| Reputation groups | `sunset_viewpoint` (example community/POI id) |
 | DialogueChoice | `accept_help`, `refuse_help`, `moon_yes`, `buy_part`, … |
 | DialogueAction | `SET_FLAG` / `START_QUEST` / `ADD_ITEM` / … via `target_id` + value fields |
 | Dialogue memory | conversation start id (`rafa_01`); choice ids (`rafa_far`, `rafa_pass`) |
@@ -120,6 +125,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 - `GameTimeSystem.play_time_changed` / `travel_time_changed` / `traveling_changed`
 - `GameFlags.flag_changed`
 - `NpcStateSystem.npc_state_changed` / `npc_met_player` / `npc_states_cleared`
+- `RelationshipSystem.relationship_changed` / `reputation_changed` / `relationships_cleared`
 - `PlayerVehicle.parking_state_changed`
 - `DrivingModeController.mode_changed`
 
@@ -141,7 +147,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira (`met_player`) → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → talk to Rafa (`rafa_far` → `BUSY`) → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time/dialogue memory/NPC state without duplication → limited offline progress respects fuel.
 
 Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `npc_rules=OK`, `npc_state=OK`, `dlg_memory=OK`, `mid_save=OK`, and the full `drive_smoke: OK …` line.
+Look for `relationship=OK`, `npc_rules=OK`, `npc_state=OK`, `quest=OK`, and the full `drive_smoke: OK …` line.
 
 ---
 

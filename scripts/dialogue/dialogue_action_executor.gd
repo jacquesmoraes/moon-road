@@ -83,6 +83,22 @@ func execute(action: Resource) -> bool:
 			)
 			if not ok:
 				reason = "set_npc_flag_failed"
+		DialogueAction.Type.ADD_RELATIONSHIP:
+			ok = _add_relationship(target_id, int(action.get("int_value")))
+			if not ok:
+				reason = "add_relationship_failed"
+		DialogueAction.Type.SET_RELATIONSHIP:
+			ok = _set_relationship(target_id, int(action.get("int_value")))
+			if not ok:
+				reason = "set_relationship_failed"
+		DialogueAction.Type.ADD_REPUTATION:
+			ok = _add_reputation(target_id, int(action.get("int_value")))
+			if not ok:
+				reason = "add_reputation_failed"
+		DialogueAction.Type.SET_REPUTATION:
+			ok = _set_reputation(target_id, int(action.get("int_value")))
+			if not ok:
+				reason = "set_reputation_failed"
 		_:
 			reason = "unknown_type:%d" % type_value
 			push_warning("DialogueActionExecutor: %s" % reason)
@@ -254,6 +270,54 @@ func _set_npc_flag(npc_id: String, flag_id: String, value: bool) -> bool:
 		push_warning("DialogueActionExecutor: NpcStateSystem unavailable")
 		return false
 	ns.call("set_custom_flag", npc_id, flag_id, value)
+	return true
+
+
+func _add_relationship(npc_id: String, delta: int) -> bool:
+	if npc_id.is_empty():
+		push_warning("DialogueActionExecutor: ADD_RELATIONSHIP missing target_id")
+		return false
+	var rs := _node("/root/RelationshipSystem")
+	if rs == null or not rs.has_method("add_relationship"):
+		push_warning("DialogueActionExecutor: RelationshipSystem unavailable")
+		return false
+	rs.call("add_relationship", npc_id, delta)
+	return true
+
+
+func _set_relationship(npc_id: String, value: int) -> bool:
+	if npc_id.is_empty():
+		push_warning("DialogueActionExecutor: SET_RELATIONSHIP missing target_id")
+		return false
+	var rs := _node("/root/RelationshipSystem")
+	if rs == null or not rs.has_method("set_relationship"):
+		push_warning("DialogueActionExecutor: RelationshipSystem unavailable")
+		return false
+	rs.call("set_relationship", npc_id, value)
+	return true
+
+
+func _add_reputation(group_id: String, delta: int) -> bool:
+	if group_id.is_empty():
+		push_warning("DialogueActionExecutor: ADD_REPUTATION missing target_id")
+		return false
+	var rs := _node("/root/RelationshipSystem")
+	if rs == null or not rs.has_method("add_reputation"):
+		push_warning("DialogueActionExecutor: RelationshipSystem unavailable")
+		return false
+	rs.call("add_reputation", group_id, delta)
+	return true
+
+
+func _set_reputation(group_id: String, value: int) -> bool:
+	if group_id.is_empty():
+		push_warning("DialogueActionExecutor: SET_REPUTATION missing target_id")
+		return false
+	var rs := _node("/root/RelationshipSystem")
+	if rs == null or not rs.has_method("set_reputation"):
+		push_warning("DialogueActionExecutor: RelationshipSystem unavailable")
+		return false
+	rs.call("set_reputation", group_id, value)
 	return true
 
 

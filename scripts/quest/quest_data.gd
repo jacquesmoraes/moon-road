@@ -22,6 +22,8 @@ enum State {
 @export var required_amounts: PackedInt32Array = []
 ## Interactable that consumes requirements and completes (e.g. viewpoint terminal).
 @export var turn_in_target: String = "viewpoint_terminal"
+## DialogueAction resources run via DialogueActionExecutor on successful complete.
+@export var on_complete_actions: Array = []
 
 
 func get_requirements() -> Array[Dictionary]:

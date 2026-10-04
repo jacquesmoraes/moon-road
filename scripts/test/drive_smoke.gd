@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK npc_rules=OK npc_state=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK npc_rules=OK npc_state=OK relationship=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -3220,6 +3220,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_npc_state(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_relationship_system(occupancy, character, foot_cam):
+		return false
+
 	if not await _verify_small_interior(occupancy, character, foot_cam):
 		return false
 
@@ -5117,6 +5120,186 @@ func _choice_ids(choices: Array) -> PackedStringArray:
 	return out
 
 
+func _verify_relationship_system(_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D) -> bool:
+	## Relationship vs reputation maps, clamps, conditions, Mira +5 / quest +10, save/load.
+	var rs: Node = root.get_node_or_null("RelationshipSystem")
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	var cond: Node = root.get_node_or_null("ConditionSystem")
+	var qs: Node = root.get_node_or_null("QuestSystem")
+	var save: Node = root.get_node_or_null("SaveSystem")
+	if rs == null or dlg == null or cond == null or qs == null or save == null:
+		push_error("drive_smoke: systems missing for relationship")
+		quit(1)
+		return false
+
+	const MIRA := "mira_viewpoint_keeper"
+	const RAFA := "rafa_road_traveler"
+	const GROUP := "sunset_viewpoint"
+
+	var rs_script: Script = load("res://autoload/relationship_system.gd") as Script
+	if rs_script != null:
+		var src := rs_script.source_code
+		for banned in ["DialogueSystem", "Mira", "mira_viewpoint", "romance", "Romance"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: RelationshipSystem must not contain '%s'" % banned)
+				quit(1)
+				return false
+
+	rs.call("reset_for_tests")
+	qs.call("reset_all")
+	save.call("delete_save")
+
+	# Defaults + independent maps.
+	if int(rs.call("get_relationship", MIRA)) != 0 or int(rs.call("get_reputation", GROUP)) != 0:
+		push_error("drive_smoke: relationship/reputation should default to 0")
+		quit(1)
+		return false
+	rs.call("set_relationship", MIRA, 12)
+	rs.call("set_reputation", GROUP, -5)
+	if int(rs.call("get_relationship", MIRA)) != 12:
+		push_error("drive_smoke: set_relationship failed")
+		quit(1)
+		return false
+	if int(rs.call("get_reputation", GROUP)) != -5:
+		push_error("drive_smoke: set_reputation failed")
+		quit(1)
+		return false
+	if int(rs.call("get_relationship", RAFA)) != 0:
+		push_error("drive_smoke: Rafa relationship should stay independent at 0")
+		quit(1)
+		return false
+
+	# Clamps -100..+100.
+	if int(rs.call("get", "min_value")) != -100 or int(rs.call("get", "max_value")) != 100:
+		push_error("drive_smoke: default clamps should be -100..100")
+		quit(1)
+		return false
+	if int(rs.call("set_relationship", MIRA, 500)) != 100:
+		push_error("drive_smoke: relationship should clamp to +100")
+		quit(1)
+		return false
+	if int(rs.call("set_reputation", GROUP, -500)) != -100:
+		push_error("drive_smoke: reputation should clamp to -100")
+		quit(1)
+		return false
+	if int(rs.call("add_relationship", MIRA, -30)) != 70:
+		push_error("drive_smoke: add_relationship after clamp failed")
+		quit(1)
+		return false
+
+	# Tier helper (display only).
+	if str(rs.call("tier_name", 0)) != "NEUTRAL":
+		push_error("drive_smoke: tier NEUTRAL expected at 0")
+		quit(1)
+		return false
+	if str(rs.call("get_relationship_tier", MIRA)) != "TRUSTED":
+		push_error("drive_smoke: tier TRUSTED expected at 70")
+		quit(1)
+		return false
+
+	# Conditions.
+	rs.call("set_relationship", MIRA, 5)
+	rs.call("set_reputation", GROUP, 10)
+	if not bool(cond.call("evaluate", cond.call("make_relationship_min", MIRA, 5))):
+		push_error("drive_smoke: RELATIONSHIP_MIN failed")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate", cond.call("make_relationship_max", MIRA, 4))):
+		push_error("drive_smoke: RELATIONSHIP_MAX should fail when above max")
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate", cond.call("make_reputation_min", GROUP, 10))):
+		push_error("drive_smoke: REPUTATION_MIN failed")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate", cond.call("make_reputation_max", GROUP, 9))):
+		push_error("drive_smoke: REPUTATION_MAX should fail when above max")
+		quit(1)
+		return false
+
+	# Mira kind choice → +5 relationship (explicit action on accept_help).
+	rs.call("reset_for_tests")
+	qs.call("reset_all")
+	dlg.call("reload_catalog")
+	if not bool(dlg.call("start_dialogue", "mira_intro", character)):
+		push_error("drive_smoke: relationship Mira intro failed")
+		quit(1)
+		return false
+	await physics_frame
+	dlg.call("advance")
+	await physics_frame
+	dlg.call("set_choice_index", 0)  # accept_help
+	await physics_frame
+	dlg.call("confirm_choice")
+	await physics_frame
+	if int(rs.call("get_relationship", MIRA)) != 5:
+		push_error(
+			"drive_smoke: accept_help should add +5 Mira relationship, got %d"
+			% int(rs.call("get_relationship", MIRA))
+		)
+		quit(1)
+		return false
+	if int(rs.call("get_relationship", RAFA)) != 0:
+		push_error("drive_smoke: Rafa must stay 0 after Mira kind choice")
+		quit(1)
+		return false
+	if int(rs.call("get_reputation", GROUP)) != 0:
+		push_error("drive_smoke: reputation must not change on Mira choice alone")
+		quit(1)
+		return false
+
+	# Quest complete → +10 reputation sunset_viewpoint (on_complete_actions).
+	if not bool(qs.call("is_active", "power_the_viewpoint")):
+		qs.call("start_quest", "power_the_viewpoint")
+	if not bool(qs.call("complete_quest", "power_the_viewpoint")):
+		push_error("drive_smoke: could not complete quest for reputation")
+		quit(1)
+		return false
+	if int(rs.call("get_reputation", GROUP)) != 10:
+		push_error(
+			"drive_smoke: quest complete should add +10 sunset_viewpoint reputation, got %d"
+			% int(rs.call("get_reputation", GROUP))
+		)
+		quit(1)
+		return false
+	# No automatic extra grants.
+	if int(rs.call("get_relationship", MIRA)) != 5:
+		push_error("drive_smoke: quest complete must not alter Mira relationship")
+		quit(1)
+		return false
+
+	# Save / load.
+	if not bool(save.call("save_game")):
+		push_error("drive_smoke: relationship save failed")
+		quit(1)
+		return false
+	rs.call("reset_for_tests")
+	if int(rs.call("get_relationship", MIRA)) != 0:
+		push_error("drive_smoke: relationship should clear before load")
+		quit(1)
+		return false
+	if not bool(save.call("load_game")):
+		push_error("drive_smoke: relationship load failed")
+		quit(1)
+		return false
+	if int(rs.call("get_relationship", MIRA)) != 5:
+		push_error("drive_smoke: Mira relationship lost after load")
+		quit(1)
+		return false
+	if int(rs.call("get_reputation", GROUP)) != 10:
+		push_error("drive_smoke: sunset_viewpoint reputation lost after load")
+		quit(1)
+		return false
+
+	save.call("delete_save")
+	rs.call("reset_for_tests")
+	qs.call("reset_all")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: relationship OK (Mira +5 / viewpoint +10 + clamp + conditions + save)")
+	return true
+
+
 func _verify_small_interior(occupancy: Node, character: CharacterBody3D, foot_cam: Node3D) -> bool:
 	## Walk-in Observation Booth: enter, interact inside, exit; parked car stays put.
 	var poi_sys: Node = root.get_node_or_null("POISystem")
@@ -5431,10 +5614,13 @@ func _verify_side_quest(occupancy: Node, character: CharacterBody3D, foot_cam: N
 	_clear_world_state()
 	var ns_quest: Node = root.get_node_or_null("NpcStateSystem")
 	var memory_quest: Node = root.get_node_or_null("DialogueMemorySystem")
+	var rel_quest: Node = root.get_node_or_null("RelationshipSystem")
 	if ns_quest != null and ns_quest.has_method("reset_for_tests"):
 		ns_quest.call("reset_for_tests")
 	if memory_quest != null and memory_quest.has_method("reset_for_tests"):
 		memory_quest.call("reset_for_tests")
+	if rel_quest != null and rel_quest.has_method("reset_for_tests"):
+		rel_quest.call("reset_for_tests")
 	dlg.call("reload_npc_catalog")
 
 	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
@@ -5499,6 +5685,13 @@ func _verify_side_quest(occupancy: Node, character: CharacterBody3D, foot_cam: N
 		await physics_frame
 	if not bool(qs.call("is_active", "power_the_viewpoint")):
 		push_error("drive_smoke: quest not ACTIVE after Mira offer")
+		quit(1)
+		return false
+	if rel_quest != null and int(rel_quest.call("get_relationship", "mira_viewpoint_keeper")) != 5:
+		push_error(
+			"drive_smoke: accept_help should grant +5 Mira relationship (got %d)"
+			% int(rel_quest.call("get_relationship", "mira_viewpoint_keeper"))
+		)
 		quit(1)
 		return false
 
@@ -5573,6 +5766,13 @@ func _verify_side_quest(occupancy: Node, character: CharacterBody3D, foot_cam: N
 		return false
 	if int(completed_n["n"]) < 1:
 		push_error("drive_smoke: quest_completed signal missing")
+		quit(1)
+		return false
+	if rel_quest != null and int(rel_quest.call("get_reputation", "sunset_viewpoint")) != 10:
+		push_error(
+			"drive_smoke: quest complete should grant +10 sunset_viewpoint reputation (got %d)"
+			% int(rel_quest.call("get_reputation", "sunset_viewpoint"))
+		)
 		quit(1)
 		return false
 	# Quest need is 3 scrap + 1 wire; outdoor scrap leaves overflow.
