@@ -6,6 +6,9 @@ extends Node
 signal npc_state_changed(npc_id: String, field: String, value: Variant)
 signal npc_met_player(npc_id: String)
 signal npc_states_cleared
+signal init_state_changed(state: String)
+
+const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
 
 ## Suggested extensible state tags (stored as strings, not a rigid enum).
 const STATE_DEFAULT := "DEFAULT"
@@ -20,6 +23,21 @@ const TRAVEL_STATE_TRAVELING := "TRAVELING"
 
 ## npc_id → Dictionary payload
 var _states: Dictionary = {}
+var _init_state: String = Bootstrap.STATE_UNINITIALIZED
+
+
+func _ready() -> void:
+	## Pure state bag — no peer binds at init.
+	_init_state = Bootstrap.STATE_READY
+	init_state_changed.emit(_init_state)
+
+
+func get_init_state() -> String:
+	return _init_state
+
+
+func is_system_ready() -> bool:
+	return _init_state == Bootstrap.STATE_READY
 
 
 func has_npc(npc_id: String) -> bool:

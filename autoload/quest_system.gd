@@ -6,26 +6,51 @@ signal quest_started(quest_id: String)
 signal quest_completed(quest_id: String)
 signal quest_state_changed(quest_id: String, state_name: String)
 signal turn_in_failed(quest_id: String, reason: String)
+signal init_state_changed(state: String)
 
 const DEFAULT_CATALOG_PATH := "res://resources/quest/default_quest_catalog.tres"
 const QuestDataScript = preload("res://scripts/quest/quest_data.gd")
 const ActionExecutorScript = preload("res://scripts/dialogue/dialogue_action_executor.gd")
+const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
 
+## Optional: DialogueSystem (auto-start on dialogue_finished). Quests work without it.
 @export_file("*.tres") var catalog_path: String = DEFAULT_CATALOG_PATH
 
 var _by_id: Dictionary = {}
 ## quest_id → QuestData.State int
 var _states: Dictionary = {}
 var _action_executor: RefCounted
+var _init_state: String = Bootstrap.STATE_UNINITIALIZED
+var _init_attempts: int = 0
+var _dialogue_bound: bool = false
 
 
 func _ready() -> void:
 	_action_executor = ActionExecutorScript.new()
 	_load_catalog()
+	_init_state = Bootstrap.STATE_INITIALIZING
+	init_state_changed.emit(_init_state)
+	call_deferred("_initialize_dependencies")
+
+
+func get_init_state() -> String:
+	return _init_state
+
+
+func is_system_ready() -> bool:
+	return _init_state == Bootstrap.STATE_READY
+
+
+func _initialize_dependencies() -> void:
+	_init_attempts += 1
 	var dlg := get_node_or_null("/root/DialogueSystem")
-	if dlg != null and dlg.has_signal("dialogue_finished"):
-		if not dlg.dialogue_finished.is_connected(_on_dialogue_finished):
-			dlg.dialogue_finished.connect(_on_dialogue_finished)
+	if Bootstrap.try_connect(dlg, "dialogue_finished", _on_dialogue_finished):
+		_dialogue_bound = true
+	if _init_state != Bootstrap.STATE_READY:
+		_init_state = Bootstrap.STATE_READY
+		init_state_changed.emit(_init_state)
+	if not _dialogue_bound and _init_attempts < Bootstrap.DEFAULT_MAX_ATTEMPTS:
+		call_deferred("_initialize_dependencies")
 
 
 func has_quest(quest_id: String) -> bool:

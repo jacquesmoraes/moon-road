@@ -2,16 +2,34 @@ extends Node
 ## Persistent memory of dialogue conversations and choices.
 ## DialogueSystem events record automatically; ConditionSystem queries this API.
 ## Seen = started at least once. Completed = finished successfully (not cancelled).
+## No required peer binds at init (GameTime read is lazy for timestamps).
 
 signal dialogue_seen(dialogue_id: String)
 signal dialogue_completed(dialogue_id: String, times_completed: int)
 signal choice_selected(choice_id: String, count: int)
 signal memory_cleared
+signal init_state_changed(state: String)
+
+const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
 
 ## dialogue_id → Dictionary payload
 var _dialogues: Dictionary = {}
 ## choice_id → Dictionary payload
 var _choices: Dictionary = {}
+var _init_state: String = Bootstrap.STATE_UNINITIALIZED
+
+
+func _ready() -> void:
+	_init_state = Bootstrap.STATE_READY
+	init_state_changed.emit(_init_state)
+
+
+func get_init_state() -> String:
+	return _init_state
+
+
+func is_system_ready() -> bool:
+	return _init_state == Bootstrap.STATE_READY
 
 
 func has_seen_dialogue(dialogue_id: String) -> bool:

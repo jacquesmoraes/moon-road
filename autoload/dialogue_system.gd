@@ -13,11 +13,13 @@ signal dialogue_finished(dialogue_id: String)
 signal dialogue_cancelled
 signal dialogue_interrupted(reason: String)
 signal dialogue_resumed(dialogue_id: String)
+signal init_state_changed(state: String)
 
 const DEFAULT_CATALOG_PATH := "res://resources/dialogue/default_catalog.tres"
 const DEFAULT_NPC_CATALOG_PATH := "res://resources/npc/default_npc_catalog.tres"
 const MAX_RESOLVE_HOPS: int = 12
 const ActionExecutorScript = preload("res://scripts/dialogue/dialogue_action_executor.gd")
+const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
 
 ## Explicit conversation session states.
 const SESSION_IDLE := "IDLE"
@@ -55,17 +57,41 @@ var _fired_enter: Dictionary = {}
 var _fired_exit: Dictionary = {}
 var _fired_choice: Dictionary = {}
 var _actor_tree_exiting_connected: bool = false
+var _init_state: String = Bootstrap.STATE_UNINITIALIZED
+var _init_attempts: int = 0
+var _save_bound: bool = false
 
 
 func _ready() -> void:
+	## Catalogs need no peer autoloads. SaveSystem bind is deferred (order-safe).
 	_executor = ActionExecutorScript.new()
 	_load_catalog()
 	_load_npc_catalog()
 	set_process_unhandled_input(true)
+	_init_state = Bootstrap.STATE_INITIALIZING
+	init_state_changed.emit(_init_state)
+	call_deferred("_initialize_dependencies")
+
+
+func get_init_state() -> String:
+	return _init_state
+
+
+func is_system_ready() -> bool:
+	return _init_state == Bootstrap.STATE_READY
+
+
+func _initialize_dependencies() -> void:
+	_init_attempts += 1
+	# Optional: clear session on load. Dialogue runs without SaveSystem.
 	var save := get_node_or_null("/root/SaveSystem")
-	if save != null and save.has_signal("load_completed"):
-		if not save.load_completed.is_connected(_on_save_loaded):
-			save.load_completed.connect(_on_save_loaded)
+	if Bootstrap.try_connect(save, "load_completed", _on_save_loaded):
+		_save_bound = true
+	if _init_state != Bootstrap.STATE_READY:
+		_init_state = Bootstrap.STATE_READY
+		init_state_changed.emit(_init_state)
+	if not _save_bound and _init_attempts < Bootstrap.DEFAULT_MAX_ATTEMPTS:
+		call_deferred("_initialize_dependencies")
 
 
 func _unhandled_input(event: InputEvent) -> void:

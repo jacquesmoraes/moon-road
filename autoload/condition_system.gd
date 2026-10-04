@@ -1,10 +1,28 @@
 extends Node
 ## Generic gameplay condition evaluator. Queries other systems — never embeds
 ## quest/NPC-specific branches. DialogueSystem / QuestSystem / NPCs call this API.
+## Peer systems are resolved lazily at evaluate-time (no _ready order dependence).
 
 const ConditionDataScript = preload("res://scripts/conditions/condition_data.gd")
+const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
 
 signal condition_evaluated(condition: Resource, result: bool)
+signal init_state_changed(state: String)
+
+var _init_state: String = Bootstrap.STATE_UNINITIALIZED
+
+
+func _ready() -> void:
+	_init_state = Bootstrap.STATE_READY
+	init_state_changed.emit(_init_state)
+
+
+func get_init_state() -> String:
+	return _init_state
+
+
+func is_system_ready() -> bool:
+	return _init_state == Bootstrap.STATE_READY
 
 
 func evaluate(condition: Resource) -> bool:

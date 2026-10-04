@@ -2,9 +2,13 @@ extends Node
 ## Contextual short NPC lines (barks). Never opens the full conversation UI.
 ## Selection: conditions → priority → cooldown / anti-repeat → optional weight.
 ## Dialogue ACTIVE always blocks barking. No per-NPC name branches.
+## NpcStateSystem bind is deferred (optional peer).
 
 signal bark_requested(npc_id: String, bark_id: String, text: String)
 signal bark_suppressed(npc_id: String, reason: String)
+signal init_state_changed(state: String)
+
+const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
 
 const RECENT_BARK_LIMIT: int = 3
 ## Minimum real seconds between any two barks for the same NPC.
@@ -20,14 +24,37 @@ const TRIGGER_NPC_STATE_CHANGED := "NPC_STATE_CHANGED"
 var _presenters: Dictionary = {}
 ## npc_id → runtime anti-spam state
 var _runtime: Dictionary = {}
+var _init_state: String = Bootstrap.STATE_UNINITIALIZED
+var _init_attempts: int = 0
+var _npc_state_bound: bool = false
 
 
 func _ready() -> void:
-	var ns := get_node_or_null("/root/NpcStateSystem")
-	if ns != null and ns.has_signal("npc_state_changed"):
-		if not ns.npc_state_changed.is_connected(_on_npc_state_changed):
-			ns.npc_state_changed.connect(_on_npc_state_changed)
 	set_process(true)
+	_init_state = Bootstrap.STATE_INITIALIZING
+	init_state_changed.emit(_init_state)
+	call_deferred("_initialize_dependencies")
+
+
+func get_init_state() -> String:
+	return _init_state
+
+
+func is_system_ready() -> bool:
+	return _init_state == Bootstrap.STATE_READY
+
+
+func _initialize_dependencies() -> void:
+	_init_attempts += 1
+	# Optional: state-change trigger barks.
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if Bootstrap.try_connect(ns, "npc_state_changed", _on_npc_state_changed):
+		_npc_state_bound = true
+	if _init_state != Bootstrap.STATE_READY:
+		_init_state = Bootstrap.STATE_READY
+		init_state_changed.emit(_init_state)
+	if not _npc_state_bound and _init_attempts < Bootstrap.DEFAULT_MAX_ATTEMPTS:
+		call_deferred("_initialize_dependencies")
 
 
 func register_presenter(npc_id: String, presenter: Node) -> void:

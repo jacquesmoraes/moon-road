@@ -2,25 +2,94 @@ extends Node
 ## Central disk save/load coordinator. Does not own system internals —
 ## registered providers expose get_save_data() / load_save_data(data).
 ## No autosave, multi-slots, cloud, or encryption.
+## Provider discovery is deferred + re-run on each save/load (order-safe).
 
 signal save_completed(path: String)
 signal load_completed(path: String)
 signal save_failed(reason: String)
 signal load_failed(reason: String)
+signal init_state_changed(state: String)
 
 const SAVE_VERSION: int = 1
 const SAVE_PATH := "user://savegame.json"
 const BACKUP_PATH := "user://savegame.json.bak"
+const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
+
+## Expected providers for a healthy save graph (all optional individually, but listed).
+const EXPECTED_PROVIDER_PATHS := {
+	"journey": "/root/JourneySystem",
+	"inventory": "/root/InventorySystem",
+	"quest": "/root/QuestSystem",
+	"poi": "/root/POISystem",
+	"world_state": "/root/WorldStateSystem",
+	"game_time": "/root/GameTimeSystem",
+	"vehicle_state": "/root/VehicleStateSystem",
+	"game_flags": "/root/GameFlags",
+	"dialogue_memory": "/root/DialogueMemorySystem",
+	"npc_state": "/root/NpcStateSystem",
+	"relationship": "/root/RelationshipSystem",
+}
 
 ## system_id → Node (autoload / provider).
 var _providers: Dictionary = {}
 var _created_at: String = ""
 var _rewrite_save_after_offline: bool = false
+var _init_state: String = Bootstrap.STATE_UNINITIALIZED
+var _init_attempts: int = 0
 
 
 func _ready() -> void:
-	_register_default_providers()
 	set_process_unhandled_input(true)
+	_init_state = Bootstrap.STATE_INITIALIZING
+	init_state_changed.emit(_init_state)
+	call_deferred("_initialize_dependencies")
+
+
+func get_init_state() -> String:
+	return _init_state
+
+
+func is_system_ready() -> bool:
+	return _init_state == Bootstrap.STATE_READY
+
+
+func get_registered_provider_ids() -> PackedStringArray:
+	_register_default_providers()
+	var ids: Array = _providers.keys()
+	ids.sort()
+	var out := PackedStringArray()
+	for key in ids:
+		out.append(str(key))
+	return out
+
+
+func has_provider(system_id: String) -> bool:
+	_register_default_providers()
+	return _providers.has(system_id) and _providers[system_id] != null
+
+
+func _initialize_dependencies() -> void:
+	_init_attempts += 1
+	_register_default_providers()
+	var missing := PackedStringArray()
+	for system_id in EXPECTED_PROVIDER_PATHS.keys():
+		if not has_provider(str(system_id)):
+			missing.append(str(system_id))
+	if missing.is_empty():
+		if _init_state != Bootstrap.STATE_READY:
+			_init_state = Bootstrap.STATE_READY
+			init_state_changed.emit(_init_state)
+		return
+	if _init_attempts >= Bootstrap.DEFAULT_MAX_ATTEMPTS:
+		# SaveSystem itself is usable; missing providers warn but do not crash.
+		_init_state = Bootstrap.STATE_READY
+		init_state_changed.emit(_init_state)
+		push_warning(
+			"SaveSystem: some providers still missing after %d attempts: %s"
+			% [_init_attempts, ", ".join(missing)]
+		)
+		return
+	call_deferred("_initialize_dependencies")
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -245,17 +314,8 @@ func delete_save() -> bool:
 
 
 func _register_default_providers() -> void:
-	_try_register("journey", "/root/JourneySystem")
-	_try_register("inventory", "/root/InventorySystem")
-	_try_register("quest", "/root/QuestSystem")
-	_try_register("poi", "/root/POISystem")
-	_try_register("world_state", "/root/WorldStateSystem")
-	_try_register("game_time", "/root/GameTimeSystem")
-	_try_register("vehicle_state", "/root/VehicleStateSystem")
-	_try_register("game_flags", "/root/GameFlags")
-	_try_register("dialogue_memory", "/root/DialogueMemorySystem")
-	_try_register("npc_state", "/root/NpcStateSystem")
-	_try_register("relationship", "/root/RelationshipSystem")
+	for system_id in EXPECTED_PROVIDER_PATHS.keys():
+		_try_register(str(system_id), str(EXPECTED_PROVIDER_PATHS[system_id]))
 
 
 func _provider_order() -> PackedStringArray:

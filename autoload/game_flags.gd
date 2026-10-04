@@ -1,12 +1,30 @@
 extends Node
 ## Lightweight persistent boolean flags. ConditionSystem reads these for FLAG_EQUALS.
 ## No quest/NPC-specific keys — callers choose flag ids.
+## No peer autoload dependencies.
 
 signal flag_changed(flag_id: String, value: bool)
 signal flags_cleared
+signal init_state_changed(state: String)
+
+const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
 
 ## flag_id → bool
 var _flags: Dictionary = {}
+var _init_state: String = Bootstrap.STATE_UNINITIALIZED
+
+
+func _ready() -> void:
+	_init_state = Bootstrap.STATE_READY
+	init_state_changed.emit(_init_state)
+
+
+func get_init_state() -> String:
+	return _init_state
+
+
+func is_system_ready() -> bool:
+	return _init_state == Bootstrap.STATE_READY
 
 
 func set_flag(flag_id: String, value: bool = true) -> void:

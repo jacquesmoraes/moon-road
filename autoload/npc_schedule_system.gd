@@ -2,6 +2,7 @@ extends Node
 ## Resolves data-driven daily NPC routines from narrative world time.
 ## Updates NpcStateSystem location / state / schedule_id — does not move Nodes.
 ## No per-NPC branches. Never reads system clock or travel time.
+## Peer binds use deferred `_initialize_dependencies` (not autoload order alone).
 
 signal npc_schedule_changed(
 	npc_id: String,
@@ -10,8 +11,13 @@ signal npc_schedule_changed(
 	activity_id: String,
 	schedule_id: String
 )
+signal init_state_changed(state: String)
 
 const DEFAULT_CATALOG_PATH := "res://resources/npc/schedules/default_schedule_catalog.tres"
+const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
+
+## Required: GameTimeSystem (narrative_time_changed). Optional: SaveSystem, NpcStateSystem.
+var _required_paths: PackedStringArray = PackedStringArray(["/root/GameTimeSystem"])
 
 @export var catalog_path: String = DEFAULT_CATALOG_PATH
 
@@ -21,20 +27,55 @@ var _schedules: Dictionary = {}
 var _last_applied: Dictionary = {}
 ## npc_id → activity_id (runtime; not required in NpcState)
 var _active_activity: Dictionary = {}
+var _init_state: String = Bootstrap.STATE_UNINITIALIZED
+var _init_attempts: int = 0
 
 
 func _ready() -> void:
 	reload_catalog()
+	call_deferred("_initialize_dependencies")
+
+
+func get_init_state() -> String:
+	return _init_state
+
+
+func is_system_ready() -> bool:
+	return _init_state == Bootstrap.STATE_READY
+
+
+func _initialize_dependencies() -> void:
+	if _init_state == Bootstrap.STATE_READY:
+		return
+	_set_init_state(Bootstrap.STATE_INITIALIZING)
+	_init_attempts += 1
+
 	var gt := get_node_or_null("/root/GameTimeSystem")
-	if gt != null and gt.has_signal("narrative_time_changed"):
-		if not gt.narrative_time_changed.is_connected(_on_narrative_time_changed):
-			gt.narrative_time_changed.connect(_on_narrative_time_changed)
+	var gt_ok := Bootstrap.try_connect(gt, "narrative_time_changed", _on_narrative_time_changed)
+	# Optional: cancel/refresh after load.
 	var save := get_node_or_null("/root/SaveSystem")
-	if save != null and save.has_signal("load_completed"):
-		if not save.load_completed.is_connected(_on_save_loaded):
-			save.load_completed.connect(_on_save_loaded)
-	# Initial resolve after peers are ready.
-	call_deferred("refresh_all")
+	Bootstrap.try_connect(save, "load_completed", _on_save_loaded)
+
+	if gt_ok:
+		_set_init_state(Bootstrap.STATE_READY)
+		refresh_all()
+		return
+
+	if _init_attempts >= Bootstrap.DEFAULT_MAX_ATTEMPTS:
+		_set_init_state(Bootstrap.STATE_FAILED)
+		push_error(
+			"NpcScheduleSystem: required GameTimeSystem missing after %d attempts"
+			% _init_attempts
+		)
+		return
+	call_deferred("_initialize_dependencies")
+
+
+func _set_init_state(next: String) -> void:
+	if _init_state == next:
+		return
+	_init_state = next
+	init_state_changed.emit(next)
 
 
 func reload_catalog(path: String = "") -> void:

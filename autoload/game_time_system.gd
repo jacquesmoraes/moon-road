@@ -11,6 +11,9 @@ signal play_time_changed(total_play_time_seconds: float)
 signal travel_time_changed(total_travel_time_seconds: float)
 signal traveling_changed(traveling: bool)
 signal narrative_time_changed(day_index: int, hour: int, minute: int)
+signal init_state_changed(state: String)
+
+const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
 
 ## Speed (m/s) above which MANUAL/CRUISE counts as traveling. Travel Mode always counts.
 const MOVING_SPEED_THRESHOLD: float = 0.35
@@ -44,15 +47,29 @@ var _offline_seconds_at_session_start: float = 0.0
 var _last_emitted_day: int = -1
 var _last_emitted_hour: int = -1
 var _last_emitted_minute: int = -1
+var _init_state: String = Bootstrap.STATE_UNINITIALIZED
 
 
 func _ready() -> void:
+	## No peer autoload deps. Scene vehicle/occupancy are resolved lazily later — never in global init.
+	_init_state = Bootstrap.STATE_INITIALIZING
+	init_state_changed.emit(_init_state)
 	_begin_session()
 	_normalize_narrative()
 	_emit_narrative_if_changed(true)
 	set_process(true)
 	if not tree_exiting.is_connected(_on_tree_exiting):
 		tree_exiting.connect(_on_tree_exiting)
+	_init_state = Bootstrap.STATE_READY
+	init_state_changed.emit(_init_state)
+
+
+func get_init_state() -> String:
+	return _init_state
+
+
+func is_system_ready() -> bool:
+	return _init_state == Bootstrap.STATE_READY
 
 
 func _process(_delta: float) -> void:

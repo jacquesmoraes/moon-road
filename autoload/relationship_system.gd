@@ -6,6 +6,9 @@ extends Node
 signal relationship_changed(npc_id: String, value: int, delta: int)
 signal reputation_changed(group_id: String, value: int, delta: int)
 signal relationships_cleared
+signal init_state_changed(state: String)
+
+const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
 
 @export var min_value: int = -100
 @export var max_value: int = 100
@@ -14,6 +17,20 @@ signal relationships_cleared
 var _relationships: Dictionary = {}
 ## group_id (city/community/POI/faction) → int
 var _reputations: Dictionary = {}
+var _init_state: String = Bootstrap.STATE_UNINITIALIZED
+
+
+func _ready() -> void:
+	_init_state = Bootstrap.STATE_READY
+	init_state_changed.emit(_init_state)
+
+
+func get_init_state() -> String:
+	return _init_state
+
+
+func is_system_ready() -> bool:
+	return _init_state == Bootstrap.STATE_READY
 
 
 func get_relationship(npc_id: String) -> int:

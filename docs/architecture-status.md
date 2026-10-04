@@ -1,7 +1,7 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** Dialogue & NPC System Pass closed (`test: finalize dialogue and npc system pass`)  
+**As of:** hardened autoload init (`fix: harden autoload initialization and dependency binding`)  
 **Engine:** Godot 4.7 Forward Plus
 
 This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.  
@@ -10,6 +10,33 @@ Pass status detail: [`docs/dialogue-npc-system-status.md`](dialogue-npc-system-s
 ---
 
 ## 1. Autoloads and responsibilities
+
+### Autoload init (order-robust)
+
+Autoloads must **not** assume peers exist in `_ready()`. Pattern:
+
+1. `_ready()` → local setup only (catalogs, no peer binds) → `call_deferred("_initialize_dependencies")`
+2. `_initialize_dependencies()` binds peers with idempotent `is_connected` / `AutoloadBootstrap.try_connect`
+3. Finite deferred retries (max 8) — never infinite per-frame loops
+4. Explicit state: `UNINITIALIZED` → `INITIALIZING` → `READY` / `FAILED` via `get_init_state()` / `is_system_ready()`
+5. No scene Node lookups during global init
+
+Helper: `scripts/core/autoload_bootstrap.gd`
+
+**Required vs optional (signal binds):**
+
+| System | Required peers | Optional peers |
+|--------|----------------|----------------|
+| `NpcScheduleSystem` | `GameTimeSystem` | `SaveSystem` (load refresh) |
+| `NpcTravelSystem` | `GameTimeSystem`, `NpcStateSystem` | `JourneySystem`, `GameFlags`, `SaveSystem` |
+| `WorldRegionSystem` | `JourneySystem` (live updates) | — |
+| `DialogueSystem` | — (catalogs only) | `SaveSystem` (cancel session on load) |
+| `QuestSystem` | — | `DialogueSystem` (`dialogue_finished`) |
+| `BarkSystem` | — | `NpcStateSystem` (state-change barks) |
+| `SaveSystem` | providers discovered deferred | warns if some missing after retries |
+| `ConditionSystem` / `GameFlags` / `NpcState` / `Relationship` / `GameTime` / `DialogueMemory` | none at init | peers resolved lazily at use |
+
+`project.godot` order prefers foundations first (`GameTime` / `GameFlags` / state bags before consumers, `SaveSystem` last) to reduce retries — **code must still work if order changes**.
 
 | Autoload | Owns | Does **not** own |
 |----------|------|------------------|
@@ -191,7 +218,8 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira (`met_player`) → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → talk to Rafa (`rafa_far` → `BUSY`) → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time/dialogue memory/NPC state without duplication → limited offline progress respects fuel (+ narrative when applied).
 
 Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `dlg_npc_pass=OK`, `npc_dlg_debug=OK`, `npc_bark=OK`, `dlg_interrupt=OK`, `npc_travel=OK`, `npc_move=OK`, and the full `drive_smoke: OK …` line.
+Look for `autoload_init=OK`, `dlg_npc_pass=OK`, `npc_dlg_debug=OK`, and the full `drive_smoke: OK …` line.  
+Dedicated init smoke: `godot --path . --headless -s res://scripts/test/autoload_init_smoke.gd`
 
 ### NPC / dialogue debug tools
 

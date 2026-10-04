@@ -1,10 +1,13 @@
 extends Node
 ## Logical region along the Earth→Moon journey.
 ## Reads JourneySystem distance only — does not modify journey math, road, scenery, or UI.
+## JourneySystem bind is deferred + idempotent.
 
 signal region_changed(new_region: WorldRegion, previous_region: WorldRegion)
+signal init_state_changed(state: String)
 
 const DEFAULT_CATALOG_PATH := "res://resources/world/world_region_catalog.tres"
+const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
 
 @export_file("*.tres") var catalog_path: String = DEFAULT_CATALOG_PATH
 
@@ -12,14 +15,43 @@ var _catalog: WorldRegionCatalog
 var _regions: Array[WorldRegion] = []
 var _current: WorldRegion
 var _journey: Node
+var _init_state: String = Bootstrap.STATE_UNINITIALIZED
+var _init_attempts: int = 0
 
 
 func _ready() -> void:
 	_load_catalog()
-	_journey = get_node_or_null("/root/JourneySystem")
-	if _journey != null and _journey.has_signal("distance_changed"):
-		_journey.distance_changed.connect(_on_journey_distance_changed)
 	_reevaluate(_current_journey_km(), true)
+	_init_state = Bootstrap.STATE_INITIALIZING
+	init_state_changed.emit(_init_state)
+	call_deferred("_initialize_dependencies")
+
+
+func get_init_state() -> String:
+	return _init_state
+
+
+func is_system_ready() -> bool:
+	return _init_state == Bootstrap.STATE_READY
+
+
+func _initialize_dependencies() -> void:
+	_init_attempts += 1
+	_journey = get_node_or_null("/root/JourneySystem")
+	var bound := Bootstrap.try_connect(_journey, "distance_changed", _on_journey_distance_changed)
+	if bound:
+		_reevaluate(_current_journey_km(), false)
+		if _init_state != Bootstrap.STATE_READY:
+			_init_state = Bootstrap.STATE_READY
+			init_state_changed.emit(_init_state)
+		return
+	# Journey is required for live region updates; retry finitely.
+	if _init_attempts >= Bootstrap.DEFAULT_MAX_ATTEMPTS:
+		_init_state = Bootstrap.STATE_FAILED
+		init_state_changed.emit(_init_state)
+		push_error("WorldRegionSystem: JourneySystem missing after %d attempts" % _init_attempts)
+		return
+	call_deferred("_initialize_dependencies")
 
 
 func reload_catalog() -> void:

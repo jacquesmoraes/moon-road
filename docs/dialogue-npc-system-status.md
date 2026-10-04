@@ -2,6 +2,7 @@
 
 **Branch:** `cursor/godot-project-init-4804`  
 **Pass close-out:** `test: finalize dialogue and npc system pass`  
+**Init hardening:** `fix: harden autoload initialization and dependency binding`  
 **Engine:** Godot 4.7  
 
 This report classifies the **Dialogue & NPC System Pass** (branching → debug tools). It is the implemented foundation, not the full GAME_DESIGN vision.
@@ -118,6 +119,8 @@ RelationshipSystem ── written by Executor / read by ConditionSystem (no Dial
 **Not owned by DialogueSystem:** pathfinding, POI placement, schedule authorship, action type dispatch, bark presentation, relationship math.
 
 **Debug isolation:** `NpcDialogueDebugUI` / `NpcDialogueContentValidator` are sandbox/dev tools; gameplay autoloads do not reference them.
+
+**Init note:** Schedule/Travel/Dialogue/Bark/Quest/Save bind peers in deferred `_initialize_dependencies` (READY state). Do not rely on `project.godot` order alone — see architecture-status §1.
 
 ---
 

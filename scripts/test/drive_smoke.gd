@@ -145,6 +145,9 @@ func _begin() -> void:
 	if not _verify_world_regions():
 		return
 
+	if not await _verify_autoload_init():
+		return
+
 	# Restore clean journey start after region API probes.
 	_journey.call("reset_journey")
 
@@ -171,6 +174,71 @@ func _begin() -> void:
 
 	_set_phase(PHASE_ACCEL)
 	physics_frame.connect(_on_physics_frame)
+
+
+func _verify_autoload_init() -> bool:
+	## Deferred peer binds must be READY; Schedule/Travel ↔ GameTime connected; Save providers present.
+	for _i in range(8):
+		await physics_frame
+	var critical := [
+		"GameTimeSystem",
+		"GameFlags",
+		"NpcStateSystem",
+		"NpcScheduleSystem",
+		"NpcTravelSystem",
+		"DialogueSystem",
+		"SaveSystem",
+		"ConditionSystem",
+		"BarkSystem",
+		"RelationshipSystem",
+	]
+	for name in critical:
+		var node: Node = root.get_node_or_null(str(name))
+		if node == null:
+			push_error("drive_smoke: autoload missing %s" % name)
+			quit(1)
+			return false
+		if node.has_method("is_system_ready") and not bool(node.call("is_system_ready")):
+			push_error(
+				"drive_smoke: %s not READY (%s)"
+				% [name, str(node.call("get_init_state")) if node.has_method("get_init_state") else "?"]
+			)
+			quit(1)
+			return false
+
+	var gt: Node = root.get_node_or_null("GameTimeSystem")
+	var sched: Node = root.get_node_or_null("NpcScheduleSystem")
+	var travel: Node = root.get_node_or_null("NpcTravelSystem")
+	var save: Node = root.get_node_or_null("SaveSystem")
+	var flags: Node = root.get_node_or_null("GameFlags")
+	if not gt.narrative_time_changed.is_connected(sched._on_narrative_time_changed):
+		push_error("drive_smoke: NpcScheduleSystem missing GameTime bind")
+		quit(1)
+		return false
+	if not gt.narrative_time_changed.is_connected(travel._on_narrative_time_changed):
+		push_error("drive_smoke: NpcTravelSystem missing GameTime bind")
+		quit(1)
+		return false
+	if flags != null and not flags.flag_changed.is_connected(travel._on_flag_changed):
+		push_error("drive_smoke: NpcTravelSystem missing GameFlags bind")
+		quit(1)
+		return false
+	for id in ["game_time", "game_flags", "npc_state", "dialogue_memory", "relationship"]:
+		if not bool(save.call("has_provider", id)):
+			push_error("drive_smoke: SaveSystem missing provider '%s'" % id)
+			quit(1)
+			return false
+	# Idempotent re-init must not grow GameTime listeners.
+	var before: int = gt.narrative_time_changed.get_connections().size()
+	sched.call("_initialize_dependencies")
+	travel.call("_initialize_dependencies")
+	await physics_frame
+	if int(gt.narrative_time_changed.get_connections().size()) != before:
+		push_error("drive_smoke: autoload re-init duplicated signal connections")
+		quit(1)
+		return false
+	print("drive_smoke: autoload_init OK (READY + Schedule/Travel↔GameTime + Save providers)")
+	return true
 
 
 func _verify_world_regions() -> bool:
@@ -912,7 +980,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK dlg_interrupt=OK npc_bark=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK npc_move=OK npc_travel=OK npc_dlg_debug=OK dlg_npc_pass=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK dlg_interrupt=OK npc_bark=OK npc_rules=OK npc_state=OK relationship=OK time_npc=OK npc_sched=OK npc_move=OK npc_travel=OK npc_dlg_debug=OK dlg_npc_pass=OK autoload_init=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,

@@ -2,6 +2,7 @@ extends Node
 ## Logical NPC relocation between POIs/cities — no continuous physical travel.
 ## Presence: AT_LOCATION vs TRAVELING. Arrival via narrative time / journey km / flag.
 ## No per-NPC name branches.
+## Peer binds use deferred `_initialize_dependencies` (not autoload order alone).
 
 signal npc_travel_started(
 	npc_id: String,
@@ -15,26 +16,73 @@ signal npc_arrived(
 	transition_id: String
 )
 signal npc_presence_changed(npc_id: String)
+signal init_state_changed(state: String)
+
+const Bootstrap := preload("res://scripts/core/autoload_bootstrap.gd")
+
+## Required: GameTimeSystem + NpcStateSystem. Optional: Journey, GameFlags, SaveSystem.
+var _required_paths: PackedStringArray = PackedStringArray([
+	"/root/GameTimeSystem",
+	"/root/NpcStateSystem",
+])
+
+var _init_state: String = Bootstrap.STATE_UNINITIALIZED
+var _init_attempts: int = 0
 
 
 func _ready() -> void:
+	call_deferred("_initialize_dependencies")
+
+
+func get_init_state() -> String:
+	return _init_state
+
+
+func is_system_ready() -> bool:
+	return _init_state == Bootstrap.STATE_READY
+
+
+func _initialize_dependencies() -> void:
+	if _init_state == Bootstrap.STATE_READY:
+		return
+	_set_init_state(Bootstrap.STATE_INITIALIZING)
+	_init_attempts += 1
+
 	var gt := get_node_or_null("/root/GameTimeSystem")
-	if gt != null and gt.has_signal("narrative_time_changed"):
-		if not gt.narrative_time_changed.is_connected(_on_narrative_time_changed):
-			gt.narrative_time_changed.connect(_on_narrative_time_changed)
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	var gt_ok := Bootstrap.try_connect(gt, "narrative_time_changed", _on_narrative_time_changed)
+	var ns_ok := ns != null
+
 	var journey := get_node_or_null("/root/JourneySystem")
-	if journey != null and journey.has_signal("distance_changed"):
-		if not journey.distance_changed.is_connected(_on_journey_distance_changed):
-			journey.distance_changed.connect(_on_journey_distance_changed)
+	Bootstrap.try_connect(journey, "distance_changed", _on_journey_distance_changed)
 	var flags := get_node_or_null("/root/GameFlags")
-	if flags != null and flags.has_signal("flag_changed"):
-		if not flags.flag_changed.is_connected(_on_flag_changed):
-			flags.flag_changed.connect(_on_flag_changed)
+	Bootstrap.try_connect(flags, "flag_changed", _on_flag_changed)
 	var save := get_node_or_null("/root/SaveSystem")
-	if save != null and save.has_signal("load_completed"):
-		if not save.load_completed.is_connected(_on_save_loaded):
-			save.load_completed.connect(_on_save_loaded)
-	call_deferred("refresh_arrivals")
+	Bootstrap.try_connect(save, "load_completed", _on_save_loaded)
+
+	if gt_ok and ns_ok:
+		_set_init_state(Bootstrap.STATE_READY)
+		refresh_arrivals()
+		return
+
+	if _init_attempts >= Bootstrap.DEFAULT_MAX_ATTEMPTS:
+		_set_init_state(Bootstrap.STATE_FAILED)
+		var missing := Bootstrap.missing_paths(
+			get_tree().root if get_tree() != null else self, _required_paths
+		)
+		push_error(
+			"NpcTravelSystem: required peers missing after %d attempts: %s"
+			% [_init_attempts, ", ".join(missing)]
+		)
+		return
+	call_deferred("_initialize_dependencies")
+
+
+func _set_init_state(next: String) -> void:
+	if _init_state == next:
+		return
+	_init_state = next
+	init_state_changed.emit(next)
 
 
 func start_travel(
