@@ -7093,6 +7093,20 @@ func _verify_npc_dialogue_debug(
 		quit(1)
 		return false
 
+	# Leave clocks/state clean for later smoke slices (Mira availability window, etc.).
+	gt.call("reset_for_tests")
+	gt.call("set_narrative_time", 0, 10, 0)
+	if quests.has_method("reset_quest"):
+		quests.call("reset_quest", "power_the_viewpoint")
+	if rel.has_method("reset_for_tests"):
+		rel.call("reset_for_tests")
+	ns.call("reset_for_tests")
+	bark.call("reset_for_tests")
+	memory.call("reset_for_tests")
+	if dlg.has_method("cancel_dialogue"):
+		dlg.call("cancel_dialogue")
+	flags.call("clear_flag", "debug.npc_dialogue_panel")
+
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print(
