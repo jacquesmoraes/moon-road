@@ -1,7 +1,8 @@
-[gd_resource type="Resource" script_class="DialogueDefinition" load_steps=5 format=3]
+[gd_resource type="Resource" script_class="DialogueDefinition" load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/dialogue/dialogue_definition.gd" id="1_script"]
 [ext_resource type="Script" path="res://scripts/dialogue/dialogue_choice.gd" id="2_choice"]
+[ext_resource type="Resource" path="res://resources/dialogue/actions/set_npc_state_rafa_busy.tres" id="3_busy"]
 
 [sub_resource type="Resource" id="choice_pass"]
 script = ExtResource("2_choice")
@@ -16,6 +17,7 @@ id = "rafa_far"
 text = "Vou até a Lua."
 next_dialogue_id = ""
 enabled = true
+on_choose_actions = [ExtResource("3_busy")]
 
 [resource]
 script = ExtResource("1_script")

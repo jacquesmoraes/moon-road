@@ -912,7 +912,7 @@ func _finish() -> void:
 	var counts: Dictionary = _road_manager.call("get_active_kind_counts")
 	var elev_counts: Dictionary = _road_manager.call("get_active_elevation_counts")
 	print(
-		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
+		"drive_smoke: OK elapsed=%.1fs TRAVEL_MODE cruise_mean=%.2f span=%.2f max_|lat|=%.2f recenters=%d recycles=%d journey=%.3f kinds=%s elev=%s y_span=%.2f scenery_props=%d active=%d nodes=%d cams=%s cine_swaps=%d cine_modes=%s exit_nodes=%d exit_active=%s poi=SunsetViewpoint cancel=MANUAL parking=OK occupancy=OK onfoot=OK interact=OK viewpoint_terminal=OK npc=OK dialogue=OK choices=OK cond_dlg=OK dlg_actions=OK dlg_memory=OK npc_state=OK inventory=OK crafting=OK save=OK world_state=OK game_time=OK vehicle_state=OK fuel=OK upgrade=OK conditions=OK mid_save=OK interior=OK pickups=OK quest=OK"
 		% [
 			_elapsed,
 			mean_speed,
@@ -3215,6 +3215,9 @@ func _verify_enter_exit_vehicle() -> bool:
 	if not await _verify_dialogue_memory(occupancy, character, foot_cam):
 		return false
 
+	if not await _verify_npc_state(occupancy, character, foot_cam):
+		return false
+
 	if not await _verify_small_interior(occupancy, character, foot_cam):
 		return false
 
@@ -4461,6 +4464,7 @@ func _verify_dialogue_memory(_occupancy: Node, character: CharacterBody3D, _foot
 	var memory: Node = root.get_node_or_null("DialogueMemorySystem")
 	var cond: Node = root.get_node_or_null("ConditionSystem")
 	var save: Node = root.get_node_or_null("SaveSystem")
+	var npc_state: Node = root.get_node_or_null("NpcStateSystem")
 	if dlg == null or memory == null or cond == null or save == null:
 		push_error("drive_smoke: systems missing for dialogue memory")
 		quit(1)
@@ -4477,6 +4481,8 @@ func _verify_dialogue_memory(_occupancy: Node, character: CharacterBody3D, _foot
 				return false
 
 	memory.call("reset_for_tests")
+	if npc_state != null and npc_state.has_method("reset_for_tests"):
+		npc_state.call("reset_for_tests")
 	dlg.call("reload_catalog")
 	save.call("delete_save")
 
@@ -4511,6 +4517,8 @@ func _verify_dialogue_memory(_occupancy: Node, character: CharacterBody3D, _foot
 
 	# Complete with far choice.
 	memory.call("reset_for_tests")
+	if npc_state != null and npc_state.has_method("reset_for_tests"):
+		npc_state.call("reset_for_tests")
 	dlg.call("start_dialogue", "rafa_01", character)
 	await physics_frame
 	dlg.call("advance")
@@ -4557,6 +4565,9 @@ func _verify_dialogue_memory(_occupancy: Node, character: CharacterBody3D, _foot
 		return false
 
 	# Return talk differs — choice influences which return line shows.
+	# Clear BUSY from rafa_far SET_NPC_STATE so memory return-gate stays isolatable.
+	if npc_state != null and npc_state.has_method("set_current_state"):
+		npc_state.call("set_current_state", "rafa_road_traveler", "DEFAULT")
 	if not bool(dlg.call("start_dialogue", "rafa_return_far", character)):
 		push_error("drive_smoke: return_far failed to start")
 		quit(1)
@@ -4575,6 +4586,8 @@ func _verify_dialogue_memory(_occupancy: Node, character: CharacterBody3D, _foot
 
 	# Without far choice, return falls back to "Você voltou."
 	memory.call("reset_for_tests")
+	if npc_state != null and npc_state.has_method("reset_for_tests"):
+		npc_state.call("reset_for_tests")
 	dlg.call("start_dialogue", "rafa_01", character)
 	await physics_frame
 	dlg.call("advance")
@@ -4636,9 +4649,269 @@ func _verify_dialogue_memory(_occupancy: Node, character: CharacterBody3D, _foot
 	save.call("delete_save")
 
 	memory.call("reset_for_tests")
+	if npc_state != null and npc_state.has_method("reset_for_tests"):
+		npc_state.call("reset_for_tests")
 	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
 	await physics_frame
 	print("drive_smoke: dlg_memory OK (seen/completed + choice + Rafa return + save)")
+	return true
+
+
+func _verify_npc_state(_occupancy: Node, character: CharacterBody3D, _foot_cam: Node3D) -> bool:
+	## NpcStateSystem: static NpcDefinition vs mutable campaign state; Mira met; Rafa BUSY; unload + save.
+	var ns: Node = root.get_node_or_null("NpcStateSystem")
+	var dlg: Node = root.get_node_or_null("DialogueSystem")
+	var cond: Node = root.get_node_or_null("ConditionSystem")
+	var save: Node = root.get_node_or_null("SaveSystem")
+	var poi_sys: Node = root.get_node_or_null("POISystem")
+	var memory: Node = root.get_node_or_null("DialogueMemorySystem")
+	if ns == null or dlg == null or cond == null or save == null or poi_sys == null:
+		push_error("drive_smoke: systems missing for npc_state")
+		quit(1)
+		return false
+
+	const MIRA_ID := "mira_viewpoint_keeper"
+	const RAFA_ID := "rafa_road_traveler"
+
+	var ns_script: Script = load("res://autoload/npc_state_system.gd") as Script
+	if ns_script != null:
+		var src := ns_script.source_code
+		for banned in ["Mira", "Rafa", "mira_viewpoint", "rafa_road", "ViewpointPOI"]:
+			if src.find(banned) >= 0:
+				push_error("drive_smoke: NpcStateSystem must not hardcode '%s'" % banned)
+				quit(1)
+				return false
+
+	var def_script: Script = load("res://scripts/npc/npc_definition.gd") as Script
+	if def_script != null:
+		var def_src := def_script.source_code
+		for mutable_field in ["met_player", "current_state", "current_location_id", "last_dialogue_id"]:
+			if def_src.find(mutable_field) >= 0:
+				push_error("drive_smoke: NpcDefinition must stay static (found '%s')" % mutable_field)
+				quit(1)
+				return false
+
+	ns.call("reset_for_tests")
+	if memory != null and memory.has_method("reset_for_tests"):
+		memory.call("reset_for_tests")
+	dlg.call("reload_catalog")
+	save.call("delete_save")
+	_clear_world_state()
+
+	# Defaults + API surface.
+	if bool(ns.call("has_met_player", MIRA_ID)):
+		push_error("drive_smoke: Mira should not be met before talk")
+		quit(1)
+		return false
+	if str(ns.call("get_current_state", RAFA_ID)) != "DEFAULT":
+		push_error("drive_smoke: Rafa default state should be DEFAULT")
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate", cond.call("make_npc_enabled", MIRA_ID, true))):
+		push_error("drive_smoke: NPC_ENABLED should default true")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate", cond.call("make_npc_met", MIRA_ID, true))):
+		push_error("drive_smoke: NPC_MET should be false before talk")
+		quit(1)
+		return false
+	if bool(cond.call("evaluate", cond.call("make_npc_state", RAFA_ID, "BUSY"))):
+		push_error("drive_smoke: NPC_STATE BUSY should be false initially")
+		quit(1)
+		return false
+
+	var poi_res: Resource = load("res://resources/world/pois/sunset_viewpoint.tres")
+	var vp_scene: PackedScene = load("res://scenes/world/ViewpointPOI.tscn")
+	if poi_res == null or vp_scene == null:
+		push_error("drive_smoke: missing viewpoint resources for npc_state")
+		quit(1)
+		return false
+	var scene_root: Node = root.get_child(0) if root.get_child_count() > 0 else root
+	var spawn_xf := Transform3D(Basis.IDENTITY, character.global_position + Vector3(12.0, 0.0, -6.0))
+	var vp: Node3D = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	if vp == null:
+		push_error("drive_smoke: viewpoint spawn failed for npc_state")
+		quit(1)
+		return false
+
+	var mira: Node = vp.find_child("Mira", true, false)
+	var rafa: Node = vp.find_child("Rafa", true, false)
+	if mira == null or rafa == null:
+		push_error("drive_smoke: Mira/Rafa missing for npc_state")
+		quit(1)
+		return false
+
+	# Spawn syncs location from parent POI (no schedule/pathfinding).
+	await physics_frame
+	if str(ns.call("get_location_id", MIRA_ID)) != "sunset_viewpoint":
+		push_error(
+			"drive_smoke: Mira location should sync to sunset_viewpoint, got '%s'"
+			% str(ns.call("get_location_id", MIRA_ID))
+		)
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate", cond.call("make_npc_location", MIRA_ID, "sunset_viewpoint"))):
+		push_error("drive_smoke: NPC_LOCATION condition failed after spawn")
+		quit(1)
+		return false
+
+	# --- Mira: first talk → met_player ---
+	character.global_position = (mira as Node3D).global_position + Vector3(0.0, 0.05, 1.6)
+	await physics_frame
+	if not bool(mira.call("interact", character)):
+		push_error("drive_smoke: Mira interact failed in npc_state")
+		quit(1)
+		return false
+	await physics_frame
+	if not bool(ns.call("has_met_player", MIRA_ID)):
+		push_error("drive_smoke: Mira met_player should be true after first talk")
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate", cond.call("make_npc_met", MIRA_ID, true))):
+		push_error("drive_smoke: NPC_MET condition failed after Mira talk")
+		quit(1)
+		return false
+	if str(ns.call("get_last_dialogue_id", MIRA_ID)).is_empty():
+		push_error("drive_smoke: Mira last_dialogue_id should be set after talk")
+		quit(1)
+		return false
+	dlg.call("end_dialogue", true)
+	await physics_frame
+	var qs: Node = root.get_node_or_null("QuestSystem")
+	if qs != null:
+		qs.call("reset_all")
+
+	# --- Rafa: far choice → BUSY; NPC_STATE gates busy line ---
+	if memory != null and memory.has_method("reset_for_tests"):
+		memory.call("reset_for_tests")
+	character.global_position = (rafa as Node3D).global_position + Vector3(0.0, 0.05, 1.6)
+	await physics_frame
+	if str(rafa.call("get_dialogue_id")) != "rafa_01":
+		push_error("drive_smoke: Rafa should open rafa_01 before BUSY")
+		quit(1)
+		return false
+	if not bool(rafa.call("interact", character)):
+		push_error("drive_smoke: Rafa interact failed in npc_state")
+		quit(1)
+		return false
+	await physics_frame
+	dlg.call("advance")
+	await physics_frame
+	if str(dlg.call("get_current_id")) != "rafa_02":
+		push_error("drive_smoke: expected rafa_02 before far choice")
+		quit(1)
+		return false
+	dlg.call("set_choice_index", 1)  # rafa_far → SET_NPC_STATE BUSY
+	await physics_frame
+	dlg.call("confirm_choice")
+	await physics_frame
+	if str(ns.call("get_current_state", RAFA_ID)) != "BUSY":
+		push_error(
+			"drive_smoke: Rafa current_state should be BUSY after far choice, got '%s'"
+			% str(ns.call("get_current_state", RAFA_ID))
+		)
+		quit(1)
+		return false
+	if not bool(cond.call("evaluate", cond.call("make_npc_state", RAFA_ID, "BUSY"))):
+		push_error("drive_smoke: NPC_STATE BUSY condition failed")
+		quit(1)
+		return false
+	if not bool(ns.call("has_met_player", RAFA_ID)):
+		push_error("drive_smoke: Rafa met_player should be true after talk")
+		quit(1)
+		return false
+
+	# Conditional dialogue resolve uses NPC_STATE (no hardcoded branch in DialogueSystem).
+	var rafa_def: Resource = load("res://resources/npc/rafa_road_traveler.tres")
+	var resolved := str(dlg.call("resolve_dialogue_id", rafa_def.conditional_dialogues))
+	if resolved != "rafa_busy_01":
+		push_error("drive_smoke: expected rafa_busy_01 from NPC_STATE gate, got %s" % resolved)
+		quit(1)
+		return false
+	if str(rafa.call("get_dialogue_id")) != "rafa_busy_01":
+		push_error("drive_smoke: Rafa scene should resolve to rafa_busy_01 while BUSY")
+		quit(1)
+		return false
+	if not bool(dlg.call("start_dialogue", "rafa_busy_01", character)):
+		push_error("drive_smoke: rafa_busy_01 failed to start")
+		quit(1)
+		return false
+	await physics_frame
+	if str(dlg.call("get_current_text")).find("ocupado") < 0:
+		push_error("drive_smoke: unexpected Rafa BUSY line")
+		quit(1)
+		return false
+	dlg.call("end_dialogue", true)
+	await physics_frame
+
+	# Unload NPC scenes — logical state must survive (no Node refs).
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	await physics_frame
+	await physics_frame
+	if not bool(ns.call("has_met_player", MIRA_ID)):
+		push_error("drive_smoke: Mira met_player lost after unload")
+		quit(1)
+		return false
+	if str(ns.call("get_current_state", RAFA_ID)) != "BUSY":
+		push_error("drive_smoke: Rafa BUSY lost after unload")
+		quit(1)
+		return false
+
+	# Save / load round-trip.
+	if not bool(save.call("save_game")):
+		push_error("drive_smoke: npc_state save failed")
+		quit(1)
+		return false
+	ns.call("reset_for_tests")
+	if bool(ns.call("has_met_player", MIRA_ID)):
+		push_error("drive_smoke: npc_state should clear before load")
+		quit(1)
+		return false
+	if not bool(save.call("load_game")):
+		push_error("drive_smoke: npc_state load failed")
+		quit(1)
+		return false
+	if not bool(ns.call("has_met_player", MIRA_ID)):
+		push_error("drive_smoke: Mira met_player lost after load")
+		quit(1)
+		return false
+	if str(ns.call("get_current_state", RAFA_ID)) != "BUSY":
+		push_error("drive_smoke: Rafa BUSY lost after load")
+		quit(1)
+		return false
+	if str(ns.call("get_location_id", MIRA_ID)) != "sunset_viewpoint":
+		push_error("drive_smoke: Mira location lost after load")
+		quit(1)
+		return false
+
+	# Respawn reads NpcStateSystem (definition stays static).
+	vp = poi_sys.call("spawn_viewpoint", poi_res, spawn_xf, scene_root, vp_scene) as Node3D
+	rafa = vp.find_child("Rafa", true, false)
+	mira = vp.find_child("Mira", true, false)
+	await physics_frame
+	if rafa == null or mira == null:
+		push_error("drive_smoke: Mira/Rafa missing after respawn")
+		quit(1)
+		return false
+	if str(rafa.call("get_dialogue_id")) != "rafa_busy_01":
+		push_error("drive_smoke: Rafa should stay BUSY dialogue after respawn")
+		quit(1)
+		return false
+	if not bool(mira.call("is_npc_enabled")):
+		push_error("drive_smoke: Mira enabled should read from NpcStateSystem after respawn")
+		quit(1)
+		return false
+
+	save.call("delete_save")
+	ns.call("reset_for_tests")
+	if memory != null and memory.has_method("reset_for_tests"):
+		memory.call("reset_for_tests")
+	if qs != null:
+		qs.call("reset_all")
+	poi_sys.call("despawn_viewpoint", "sunset_viewpoint")
+	character.global_transform = _vehicle.call("get_driver_exit_global_transform")
+	await physics_frame
+	print("drive_smoke: npc_state OK (Mira met + Rafa BUSY + unload + save + NPC_STATE)")
 	return true
 
 

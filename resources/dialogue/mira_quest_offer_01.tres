@@ -1,7 +1,8 @@
-[gd_resource type="Resource" script_class="DialogueDefinition" load_steps=3 format=3]
+[gd_resource type="Resource" script_class="DialogueDefinition" load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/dialogue/dialogue_definition.gd" id="1_script"]
 [ext_resource type="Resource" path="res://resources/dialogue/actions/set_flag_mira_met.tres" id="2_flag"]
+[ext_resource type="Resource" path="res://resources/dialogue/actions/set_npc_met_mira.tres" id="3_met"]
 
 [resource]
 script = ExtResource("1_script")
@@ -9,4 +10,4 @@ id = "mira_quest_offer_01"
 speaker_name = "Mira"
 text = "O terminal do mirante ficou sem energia."
 next_dialogue_id = "mira_quest_offer_02"
-on_enter_actions = [ExtResource("2_flag")]
+on_enter_actions = [ExtResource("2_flag"), ExtResource("3_met")]

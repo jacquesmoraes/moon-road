@@ -1,7 +1,8 @@
-[gd_resource type="Resource" script_class="NpcDefinition" load_steps=3 format=3]
+[gd_resource type="Resource" script_class="NpcDefinition" load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/npc/npc_definition.gd" id="1_script"]
-[ext_resource type="Resource" path="res://resources/dialogue/rafa_return_gate.tres" id="2_gate"]
+[ext_resource type="Resource" path="res://resources/dialogue/rafa_busy_gate.tres" id="2_busy"]
+[ext_resource type="Resource" path="res://resources/dialogue/rafa_return_gate.tres" id="3_gate"]
 
 [resource]
 script = ExtResource("1_script")
@@ -11,5 +12,5 @@ role = "traveler"
 enabled = true
 presence_mode = 0
 dialogue_id = "rafa_01"
-conditional_dialogues = [ExtResource("2_gate")]
+conditional_dialogues = [ExtResource("2_busy"), ExtResource("3_gate")]
 greeting_line = ""

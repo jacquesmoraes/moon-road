@@ -121,6 +121,30 @@ func make_dialogue_completion_count_min(dialogue_id: String, min_count: int) -> 
 	return c
 
 
+func make_npc_state(npc_id: String, state_tag: String) -> Resource:
+	var c := make(ConditionDataScript.Type.NPC_STATE, npc_id)
+	c.set("string_value", state_tag.to_upper())
+	return c
+
+
+func make_npc_met(npc_id: String, expected: bool = true) -> Resource:
+	var c := make(ConditionDataScript.Type.NPC_MET, npc_id)
+	c.set("bool_value", expected)
+	return c
+
+
+func make_npc_enabled(npc_id: String, expected: bool = true) -> Resource:
+	var c := make(ConditionDataScript.Type.NPC_ENABLED, npc_id)
+	c.set("bool_value", expected)
+	return c
+
+
+func make_npc_location(npc_id: String, location_id: String) -> Resource:
+	var c := make(ConditionDataScript.Type.NPC_LOCATION, npc_id)
+	c.set("string_value", location_id)
+	return c
+
+
 func _evaluate_typed(condition: Resource) -> bool:
 	var type_value := int(condition.get("type"))
 	var key := str(condition.get("key"))
@@ -155,6 +179,14 @@ func _evaluate_typed(condition: Resource) -> bool:
 			return _eval_dialogue_choice_selected(key)
 		ConditionDataScript.Type.DIALOGUE_COMPLETION_COUNT_MIN:
 			return _eval_dialogue_completion_count_min(key, maxi(int(condition.get("int_value")), 0))
+		ConditionDataScript.Type.NPC_STATE:
+			return _eval_npc_state(key, str(condition.get("string_value")))
+		ConditionDataScript.Type.NPC_MET:
+			return _eval_npc_met(key, bool(condition.get("bool_value")))
+		ConditionDataScript.Type.NPC_ENABLED:
+			return _eval_npc_enabled(key, bool(condition.get("bool_value")))
+		ConditionDataScript.Type.NPC_LOCATION:
+			return _eval_npc_location(key, str(condition.get("string_value")))
 		_:
 			push_warning("ConditionSystem: unknown condition type %d" % type_value)
 			return false
@@ -278,3 +310,36 @@ func _eval_dialogue_completion_count_min(dialogue_id: String, min_count: int) ->
 	if memory == null or dialogue_id.is_empty() or not memory.has_method("get_times_completed"):
 		return false
 	return int(memory.call("get_times_completed", dialogue_id)) >= min_count
+
+
+func _eval_npc_state(npc_id: String, state_tag: String) -> bool:
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns == null or npc_id.is_empty() or not ns.has_method("get_current_state"):
+		return false
+	var want := state_tag.strip_edges().to_upper()
+	if want.is_empty():
+		return false
+	return str(ns.call("get_current_state", npc_id)).to_upper() == want
+
+
+func _eval_npc_met(npc_id: String, expected: bool) -> bool:
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns == null or npc_id.is_empty() or not ns.has_method("has_met_player"):
+		return expected == false
+	return bool(ns.call("has_met_player", npc_id)) == expected
+
+
+func _eval_npc_enabled(npc_id: String, expected: bool) -> bool:
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns == null or npc_id.is_empty() or not ns.has_method("is_enabled"):
+		return expected == true
+	return bool(ns.call("is_enabled", npc_id)) == expected
+
+
+func _eval_npc_location(npc_id: String, location_id: String) -> bool:
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns == null or npc_id.is_empty() or location_id.is_empty():
+		return false
+	if not ns.has_method("get_location_id"):
+		return false
+	return str(ns.call("get_location_id", npc_id)) == location_id

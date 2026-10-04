@@ -1,7 +1,7 @@
 # TerraLua — Architecture Status
 
 **Branch:** `cursor/godot-project-init-4804`  
-**As of:** persistent dialogue memory (`feat: add persistent dialogue memory`)  
+**As of:** persistent NPC state (`feat: add persistent npc state system`)  
 **Engine:** Godot 4.7 Forward Plus
 
 This document describes the **current implemented foundation**, not the full design vision in `GAME_DESIGN.md`.
@@ -17,6 +17,7 @@ This document describes the **current implemented foundation**, not the full des
 | `POISystem` | Discovery flags + spawn/despawn of viewpoint scenes | Quest/terminal logic |
 | `DialogueSystem` | Linear + choice runner; gates via ConditionSystem; effects via Executor; records memory | Action type dispatch, NPC placement |
 | `DialogueMemorySystem` | Seen/completed/choice memory + timestamps | Dialogue text, NPC names |
+| `NpcStateSystem` | Mutable NPC campaign fields by `npc_id` | Schedules, pathfinding, city travel, Node refs |
 | `InventorySystem` | Item quantities by id + catalog | World pickups, UI layout |
 | `QuestSystem` | Quest state by id; dialogue_finished → start; turn-in API | Condition evaluation, UI log |
 | `CraftingSystem` | Recipes; consume→output via Inventory | Workbench UX beyond debug UI |
@@ -44,9 +45,10 @@ POISystem / WorldStateSystem / VehicleStateSystem / GameFlags / JourneySystem / 
     ↑ queried by ConditionSystem (no reverse writes)
 
 DialogueSystem → ConditionSystem (gates) + DialogueActionExecutor (effects) + DialogueMemorySystem (record)
-DialogueActionExecutor → GameFlags / QuestSystem / InventorySystem / WorldStateSystem / POISystem
-ConditionSystem → DialogueMemorySystem (DIALOGUE_* queries)
-NpcCharacter → DialogueSystem / QuestSystem / ConditionSystem (via resolve)
+DialogueActionExecutor → GameFlags / QuestSystem / InventorySystem / WorldStateSystem / POISystem / NpcStateSystem
+ConditionSystem → DialogueMemorySystem (DIALOGUE_*) + NpcStateSystem (NPC_*)
+NpcCharacter → NpcStateSystem (spawn sync + talk) / DialogueSystem / QuestSystem / ConditionSystem (via resolve)
+NpcDefinition → static authoring only (npc_id, names, dialogue refs); never mutable campaign fields
 
 QuestSystem → InventorySystem (requirements)
             → (legacy) DialogueSystem.dialogue_finished may still start quests if start_dialogue_id set
@@ -75,8 +77,9 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 | `vehicle_state` | fuel, condition, upgrades[], speed/economy fields, `was_traveling_at_save`, `stopped_reason` |
 | `game_flags` | `flags` {id→bool} |
 | `dialogue_memory` | `dialogues` {id→seen/counts/timestamps}, `choices` {id→count} |
+| `npc_state` | `npcs` {npc_id→enabled/met_player/current_state/location/schedule/last_dialogue/custom_flags} |
 
-**Not persisted:** vehicle transform/velocity, road pool, camera mode, dialogue UI, occupancy pose (sandbox respawns).
+**Not persisted:** vehicle transform/velocity, road pool, camera mode, dialogue UI, occupancy pose (sandbox respawns), NPC Node instances.
 
 **Offline:** if `was_traveling_at_save` and offline seconds > 0, SaveSystem applies fuel-capped journey progress once, then rewrites the save so a second load cannot double-apply.
 
@@ -95,6 +98,8 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 | DialogueChoice | `accept_help`, `refuse_help`, `moon_yes`, `buy_part`, … |
 | DialogueAction | `SET_FLAG` / `START_QUEST` / `ADD_ITEM` / … via `target_id` + value fields |
 | Dialogue memory | conversation start id (`rafa_01`); choice ids (`rafa_far`, `rafa_pass`) |
+| NPC ids | `mira_viewpoint_keeper`, `rafa_road_traveler` |
+| NPC state tags | `DEFAULT`, `BUSY`, `UNAVAILABLE`, `TRAVELING`, `QUEST_RELATED` (extensible strings) |
 | Flags | `npc.mira.met`, `slice_mid_marker`, … |
 | Regions | `CLOUDLINE`, `ENDLESS_SUMMER`, … |
 
@@ -113,6 +118,7 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 - `VehicleStateSystem.upgrade_installed` / `fuel_changed` / `fuel_depleted`
 - `GameTimeSystem.play_time_changed` / `travel_time_changed` / `traveling_changed`
 - `GameFlags.flag_changed`
+- `NpcStateSystem.npc_state_changed` / `npc_met_player` / `npc_states_cleared`
 - `PlayerVehicle.parking_state_changed`
 - `DrivingModeController.mode_changed`
 
@@ -131,10 +137,10 @@ Header: `save_version` (1), `created_at`, `updated_at`.
 
 ## 7. Vertical slice (what works today)
 
-Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time without duplication → limited offline progress respects fuel.
+Start sandbox → drive / Travel Mode on pooled road → reach Sunset Viewpoint exit → park → exit vehicle → talk to Mira (`met_player`) → accept quest → collect scrap/wire → enter Observation Booth → power terminal (turn-in) → complete quest → (optional) Mira `mira_quest_done_01` → `mira_moon_ask` choices → talk to Rafa (`rafa_far` → `BUSY`) → craft Cruise Module Mk I → install at Workbench → +10 km/h effective max → drive burns fuel → F5 save → load restores journey/inventory/quest/POI/world/vehicle/fuel/upgrades/flags/time/dialogue memory/NPC state without duplication → limited offline progress respects fuel.
 
 Smoke entry: `godot --path . --headless -s res://scripts/test/drive_smoke.gd`  
-Look for `dlg_memory=OK`, `dlg_actions=OK`, `mid_save=OK`, and the full `drive_smoke: OK …` line.
+Look for `dlg_memory=OK`, `npc_state=OK`, `dlg_actions=OK`, `mid_save=OK`, and the full `drive_smoke: OK …` line.
 
 ---
 
@@ -153,11 +159,12 @@ Look for `dlg_memory=OK`, `dlg_actions=OK`, `mid_save=OK`, and the full `drive_s
 
 1. **Gas / service stop POI** — refuel interaction (fuel is already functional).
 2. **Offline policy UI** — expose capped offline window from GAME_DESIGN §8.
-3. **Quest log + more ConditionSystem gates** on NPCs/lines (choice effects / flags still later).
-4. **Vehicle condition / wear** — fields exist; no drain yet.
-5. **Region-driven atmosphere** — WorldRegionSystem already tracks bands.
-6. **Persist occupancy or last parking snapshot** if seamless reopen becomes required.
-7. Art / audio pass — only after more gameplay loops stabilize.
+3. **NPC schedules / routines** — `current_schedule_id` is persisted; no runtime yet.
+4. **Quest log + more ConditionSystem gates** on NPCs/lines.
+5. **Vehicle condition / wear** — fields exist; no drain yet.
+6. **Region-driven atmosphere** — WorldRegionSystem already tracks bands.
+7. **Persist occupancy or last parking snapshot** if seamless reopen becomes required.
+8. Art / audio pass — only after more gameplay loops stabilize.
 
 ---
 

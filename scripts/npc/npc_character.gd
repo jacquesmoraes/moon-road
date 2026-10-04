@@ -1,7 +1,7 @@
 extends Area3D
 class_name NpcCharacter
 ## Reusable placeholder NPC. Duck-types the Interactable API (same detector as terminals).
-## Data comes from NpcDefinition — not hardcoded on PlayerCharacter.
+## Static data from NpcDefinition; mutable campaign fields from NpcStateSystem.
 ## On interact: starts DialogueSystem by dialogue_id (no lines authored in this script).
 
 signal interacted(actor: Node)
@@ -28,6 +28,7 @@ func _ready() -> void:
 	monitoring = false
 	monitorable = true
 	_apply_definition_to_exports()
+	_sync_with_state_system()
 	_cache_nodes()
 	_refresh_name_label()
 
@@ -49,6 +50,9 @@ func get_role() -> String:
 
 func is_npc_enabled() -> bool:
 	_apply_definition_to_exports()
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns != null and ns.has_method("is_enabled"):
+		return bool(ns.call("is_enabled", get_npc_id()))
 	return enabled
 
 
@@ -131,6 +135,10 @@ func get_interaction_prompt() -> String:
 func can_interact(_actor: Node = null) -> bool:
 	if not is_npc_enabled() or not is_inside_tree() or not is_visible_in_tree():
 		return false
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns != null and ns.has_method("get_current_state"):
+		if str(ns.call("get_current_state", get_npc_id())) == "UNAVAILABLE":
+			return false
 	var dlg := get_node_or_null("/root/DialogueSystem")
 	if dlg != null and dlg.has_method("is_active") and bool(dlg.call("is_active")):
 		return false
@@ -153,6 +161,7 @@ func interact(actor: Node = null) -> bool:
 				set_meta("last_spoken_line", text)
 				set_meta("last_interact_message", "NPC %s dialogue=%s" % [get_display_name(), id])
 				line_spoken.emit(text)
+				_record_talk_state(id)
 
 	if not started:
 		# Fallback: one-shot line via DialogueSystem if possible, else meta only.
@@ -168,11 +177,13 @@ func interact(actor: Node = null) -> bool:
 				set_meta("last_spoken_line", line)
 				set_meta("last_interact_message", "NPC %s fallback='%s'" % [get_display_name(), line])
 				line_spoken.emit(line)
+				_record_talk_state(str(fallback.get("id")))
 		if not started:
 			set_meta("last_spoken_line", line)
 			set_meta("last_interact_message", "NPC %s: \"%s\"" % [get_display_name(), line])
 			line_spoken.emit(line)
 			started = true
+			_record_talk_state("")
 
 	set_meta("interact_count", int(get_meta("interact_count", 0)) + 1)
 	interacted.emit(actor)
@@ -206,6 +217,7 @@ func _apply_definition_to_exports() -> void:
 		display_name = definition.display_name
 	if not definition.role.is_empty():
 		role = definition.role
+	# Definition.enabled is the authoring default only — runtime uses NpcStateSystem.
 	enabled = definition.enabled
 	if not definition.dialogue_id.is_empty():
 		dialogue_id = definition.dialogue_id
@@ -213,6 +225,50 @@ func _apply_definition_to_exports() -> void:
 		linked_quest_id = str(definition.linked_quest_id)
 	if not definition.greeting_line.is_empty():
 		greeting_line = definition.greeting_line
+
+
+func _sync_with_state_system() -> void:
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns == null or not ns.has_method("ensure_npc"):
+		return
+	var id := get_npc_id()
+	if id.is_empty():
+		return
+	ns.call(
+		"ensure_npc",
+		id,
+		{"enabled": enabled, "current_state": "DEFAULT"}
+	)
+	# Scene presence updates logical location when parent POI is known.
+	var location := _resolve_spawn_location_id()
+	if not location.is_empty() and ns.has_method("set_location_id"):
+		ns.call("set_location_id", id, location)
+	if ns.has_method("is_enabled"):
+		enabled = bool(ns.call("is_enabled", id))
+
+
+func _resolve_spawn_location_id() -> String:
+	var node: Node = get_parent()
+	while node != null:
+		if node.has_method("get_poi_id"):
+			var poi_id := str(node.call("get_poi_id"))
+			if not poi_id.is_empty():
+				return poi_id
+		node = node.get_parent()
+	return ""
+
+
+func _record_talk_state(started_dialogue_id: String) -> void:
+	var ns := get_node_or_null("/root/NpcStateSystem")
+	if ns == null:
+		return
+	var id := get_npc_id()
+	if id.is_empty():
+		return
+	if ns.has_method("set_met_player"):
+		ns.call("set_met_player", id, true)
+	if not started_dialogue_id.is_empty() and ns.has_method("set_last_dialogue_id"):
+		ns.call("set_last_dialogue_id", id, started_dialogue_id)
 
 
 func _cache_nodes() -> void:

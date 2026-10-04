@@ -2,7 +2,7 @@
 
 Godot 4.x 3D project for a long road-trip game from Earth to the Moon.
 
-Current slice: **persistent dialogue memory** — seen/completed/choices via DialogueMemorySystem. See [`docs/architecture-status.md`](docs/architecture-status.md).
+Current slice: **persistent NPC state** — NpcStateSystem separates static `NpcDefinition` from mutable campaign fields. See [`docs/architecture-status.md`](docs/architecture-status.md).
 
 ## Requirements
 
@@ -56,7 +56,8 @@ Reusable world-object interaction — terminals, logs, and NPCs share the same d
 | `InteractionPromptUI` | Bottom-center debug prompt when focused |
 | `TestTerminal` | Sample object — prints a log message on interact |
 | `ViewpointTerminal` | Sunset Viewpoint console — **one-shot OFF→ON** (session state, color + light + label) |
-| `Npc` / `NpcDefinition` | Placeholder person — data Resource + temporary spoken line |
+| `Npc` / `NpcDefinition` | Placeholder person — static data Resource (ids, dialogue refs) |
+| `NpcStateSystem` | Mutable campaign NPC state by `npc_id` — SaveSystem provider `npc_state` |
 
 **E key UX:** On foot, a focused interactable wins (`player_interact`). If none, E enters the parked vehicle. In vehicle (parked), E still exits. Prompt only shows while a valid object is in range/front cone. During dialogue, movement is locked; `dialogue_continue` advances linear lines or confirms the selected choice (↑/↓ to change selection).
 
@@ -71,12 +72,14 @@ Data-driven talk with optional player choices. No VO, relationship effects, or t
 | `DialogueDefinition` | line fields + `show_conditions` / `fallback_dialogue_id` + `on_enter_actions` / `on_exit_actions` |
 | `DialogueChoice` | choice fields + show/enable conditions + `on_choose_actions` |
 | `DialogueAction` | Declarative effect (`SET_FLAG`, `START_QUEST`, `ADD_ITEM`, …) — no scripts in resources |
-| `DialogueActionExecutor` | Type dispatch → GameFlags / Quest / Inventory / WorldState / POI |
+| `DialogueActionExecutor` | Type dispatch → GameFlags / Quest / Inventory / WorldState / POI / NpcState |
 | `DialogueCatalog` | Flat registry (`resources/dialogue/default_catalog.tres`) |
 | `DialogueSystem` | Flow only — ConditionSystem for gates, Executor for effects; auto-records memory |
 | `DialogueMemorySystem` | Seen / completed / choice counts — SaveSystem provider `dialogue_memory` |
+| `NpcStateSystem` | `enabled` / `met_player` / `current_state` / location / last dialogue / custom flags |
 | `DialogueUI` | Bottom box + choices; `[indisponível]` for failed enable_conditions |
 | `ConditionalDialogue` | `condition` + `dialogue_id` — first match wins |
+| `NpcDefinition` | Static only — `npc_id`, names, role, dialogue refs, base config |
 | `NpcDefinition.dialogue_id` | Fallback / offer line id |
 | `NpcDefinition.conditional_dialogues` | ConditionSystem-gated overrides |
 
@@ -87,7 +90,9 @@ Data-driven talk with optional player choices. No VO, relationship effects, or t
 
 **Memory:** start → seen; successful finish → completed (+count); cancel/interrupt → seen only. Choices recorded on confirm. Condition types: `DIALOGUE_SEEN`, `DIALOGUE_COMPLETED`, `DIALOGUE_CHOICE_SELECTED`, `DIALOGUE_COMPLETION_COUNT_MIN`.
 
-**Authoring:** attach `DialogueAction`s / conditions as before. **Mira** offer: flag + accept/refuse quest. **Rafa:** first talk “Você é novo por aqui?”; after `rafa_01` completed, return gate → “Você voltou.” or “Ainda na estrada pra Lua?” if choice `rafa_far` was selected.
+**NPC state:** `NpcDefinition` stays data-driven/static. Runtime fields live in `NpcStateSystem` (keyed by `npc_id`, no Node refs). Scene spawn reads/writes location; talk sets `met_player` + `last_dialogue_id`. Extensible state tags: `DEFAULT`, `BUSY`, `UNAVAILABLE`, `TRAVELING`, `QUEST_RELATED`. Dialogue actions: `SET_NPC_MET` / `SET_NPC_STATE` / `SET_NPC_ENABLED` / `SET_NPC_LOCATION` / `SET_NPC_FLAG`. Conditions: `NPC_STATE`, `NPC_MET`, `NPC_ENABLED`, `NPC_LOCATION`.
+
+**Authoring:** attach `DialogueAction`s / conditions as before. **Mira** offer: flag + `SET_NPC_MET` (also set on interact). **Rafa:** first talk “Você é novo por aqui?”; after `rafa_01` completed, return gate → “Você voltou.” or “Ainda na estrada pra Lua?” if choice `rafa_far` was selected; `rafa_far` also sets `current_state=BUSY` → busy line “Estou ocupado com o motor agora.”
 
 ### Conditions + flags (`ConditionSystem` / `GameFlags`)
 
@@ -108,7 +113,7 @@ Versioned JSON at `user://savegame.json`. SaveSystem only coordinates — each s
 | Piece | Role |
 |-------|------|
 | `save_version` / `created_at` / `updated_at` | Header on every file |
-| Providers | `JourneySystem`, `InventorySystem`, `QuestSystem`, `POISystem`, `WorldStateSystem`, `GameTimeSystem`, `VehicleStateSystem`, `GameFlags` |
+| Providers | `JourneySystem`, `InventorySystem`, `QuestSystem`, `POISystem`, `WorldStateSystem`, `GameTimeSystem`, `VehicleStateSystem`, `GameFlags`, `DialogueMemorySystem`, `NpcStateSystem` |
 | API | `save_game`, `load_game`, `has_save`, `delete_save`, `get_save_version` |
 | Backup | `user://savegame.json.bak` before overwrite |
 | Debug | **F5** save · **F9** load · **F6** delete |
@@ -382,7 +387,7 @@ Edit exits under `resources/world/exits/`. Replace `ViewpointPOI` meshes later w
 ```bash
 godot --path . --headless --quit-after 3
 godot --path . --headless -s res://scripts/test/drive_smoke.gd
-# Expect: … dlg_memory=OK … dlg_actions=OK … drive_smoke: OK
+# Expect: … dlg_memory=OK … npc_state=OK … dlg_actions=OK … drive_smoke: OK
 ```
 
 Architecture snapshot: [`docs/architecture-status.md`](docs/architecture-status.md).

@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="DialogueAction" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/dialogue/dialogue_action.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+type = 8
+target_id = "rafa_road_traveler"
+string_value = "BUSY"

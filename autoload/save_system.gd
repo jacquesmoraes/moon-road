@@ -246,6 +246,7 @@ func _register_default_providers() -> void:
 	_try_register("vehicle_state", "/root/VehicleStateSystem")
 	_try_register("game_flags", "/root/GameFlags")
 	_try_register("dialogue_memory", "/root/DialogueMemorySystem")
+	_try_register("npc_state", "/root/NpcStateSystem")
 
 
 func _provider_order() -> PackedStringArray:
@@ -260,6 +261,7 @@ func _provider_order() -> PackedStringArray:
 		"vehicle_state",
 		"game_flags",
 		"dialogue_memory",
+		"npc_state",
 	])
 
 

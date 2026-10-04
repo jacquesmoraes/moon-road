@@ -17,10 +17,14 @@ enum Type {
 	DIALOGUE_COMPLETED,
 	DIALOGUE_CHOICE_SELECTED,
 	DIALOGUE_COMPLETION_COUNT_MIN,
+	NPC_STATE,
+	NPC_MET,
+	NPC_ENABLED,
+	NPC_LOCATION,
 }
 
 @export var type: Type = Type.FLAG_EQUALS
-## Primary id: flag / quest / item / poi / entity / upgrade / region / dialogue / choice.
+## Primary id: flag / quest / item / poi / entity / upgrade / region / dialogue / choice / npc.
 @export var key: String = ""
 ## Secondary id when needed (e.g. WorldState key).
 @export var secondary_key: String = ""
@@ -60,5 +64,13 @@ func get_type_name() -> String:
 			return "DIALOGUE_CHOICE_SELECTED"
 		Type.DIALOGUE_COMPLETION_COUNT_MIN:
 			return "DIALOGUE_COMPLETION_COUNT_MIN"
+		Type.NPC_STATE:
+			return "NPC_STATE"
+		Type.NPC_MET:
+			return "NPC_MET"
+		Type.NPC_ENABLED:
+			return "NPC_ENABLED"
+		Type.NPC_LOCATION:
+			return "NPC_LOCATION"
 		_:
 			return "UNKNOWN"

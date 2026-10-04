@@ -61,6 +61,28 @@ func execute(action: Resource) -> bool:
 			ok = _discover_poi(target_id, display)
 			if not ok:
 				reason = "discover_poi_failed"
+		DialogueAction.Type.SET_NPC_MET:
+			ok = _set_npc_met(target_id, bool(action.get("bool_value")))
+			if not ok:
+				reason = "set_npc_met_failed"
+		DialogueAction.Type.SET_NPC_STATE:
+			ok = _set_npc_state(target_id, str(action.get("string_value")))
+			if not ok:
+				reason = "set_npc_state_failed"
+		DialogueAction.Type.SET_NPC_ENABLED:
+			ok = _set_npc_enabled(target_id, bool(action.get("bool_value")))
+			if not ok:
+				reason = "set_npc_enabled_failed"
+		DialogueAction.Type.SET_NPC_LOCATION:
+			ok = _set_npc_location(target_id, str(action.get("string_value")))
+			if not ok:
+				reason = "set_npc_location_failed"
+		DialogueAction.Type.SET_NPC_FLAG:
+			ok = _set_npc_flag(
+				target_id, str(action.get("secondary_id")), bool(action.get("bool_value"))
+			)
+			if not ok:
+				reason = "set_npc_flag_failed"
 		_:
 			reason = "unknown_type:%d" % type_value
 			push_warning("DialogueActionExecutor: %s" % reason)
@@ -172,6 +194,66 @@ func _discover_poi(poi_id: String, display_name: String) -> bool:
 	if poi.has_method("is_discovered") and bool(poi.call("is_discovered", poi_id)):
 		return true
 	poi.call("mark_discovered", poi_id, display_name)
+	return true
+
+
+func _set_npc_met(npc_id: String, value: bool) -> bool:
+	if npc_id.is_empty():
+		push_warning("DialogueActionExecutor: SET_NPC_MET missing target_id")
+		return false
+	var ns := _node("/root/NpcStateSystem")
+	if ns == null or not ns.has_method("set_met_player"):
+		push_warning("DialogueActionExecutor: NpcStateSystem unavailable")
+		return false
+	ns.call("set_met_player", npc_id, value)
+	return true
+
+
+func _set_npc_state(npc_id: String, state_tag: String) -> bool:
+	if npc_id.is_empty() or state_tag.strip_edges().is_empty():
+		push_warning("DialogueActionExecutor: SET_NPC_STATE needs target_id + string_value")
+		return false
+	var ns := _node("/root/NpcStateSystem")
+	if ns == null or not ns.has_method("set_current_state"):
+		push_warning("DialogueActionExecutor: NpcStateSystem unavailable")
+		return false
+	ns.call("set_current_state", npc_id, state_tag)
+	return true
+
+
+func _set_npc_enabled(npc_id: String, value: bool) -> bool:
+	if npc_id.is_empty():
+		push_warning("DialogueActionExecutor: SET_NPC_ENABLED missing target_id")
+		return false
+	var ns := _node("/root/NpcStateSystem")
+	if ns == null or not ns.has_method("set_enabled"):
+		push_warning("DialogueActionExecutor: NpcStateSystem unavailable")
+		return false
+	ns.call("set_enabled", npc_id, value)
+	return true
+
+
+func _set_npc_location(npc_id: String, location_id: String) -> bool:
+	if npc_id.is_empty():
+		push_warning("DialogueActionExecutor: SET_NPC_LOCATION missing target_id")
+		return false
+	var ns := _node("/root/NpcStateSystem")
+	if ns == null or not ns.has_method("set_location_id"):
+		push_warning("DialogueActionExecutor: NpcStateSystem unavailable")
+		return false
+	ns.call("set_location_id", npc_id, location_id)
+	return true
+
+
+func _set_npc_flag(npc_id: String, flag_id: String, value: bool) -> bool:
+	if npc_id.is_empty() or flag_id.is_empty():
+		push_warning("DialogueActionExecutor: SET_NPC_FLAG needs target_id + secondary_id")
+		return false
+	var ns := _node("/root/NpcStateSystem")
+	if ns == null or not ns.has_method("set_custom_flag"):
+		push_warning("DialogueActionExecutor: NpcStateSystem unavailable")
+		return false
+	ns.call("set_custom_flag", npc_id, flag_id, value)
 	return true
 
 
